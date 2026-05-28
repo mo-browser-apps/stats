@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+import "google/protobuf/wrappers.proto";
+
+message Person {
+  string name = 1;
+}
+
+service GreetService {
+  rpc SayHello(Person) returns (google.protobuf.StringValue);
+}
