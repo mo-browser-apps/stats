@@ -18,7 +18,7 @@ If the `docs/` directory is missing, ask the user to run `npm run gen`. It will 
 `node_modules/@mobrowser/api/docs/` if the project directory contains the `AGENTS.md` file.
 <!-- END:mobrowser-agent-rules -->
 
-# Project-specific Codex instructions
+# Project-specific agent instructions
 
 This project is MoStats, a compact macOS system resources monitor built with MōBrowser, React, TypeScript, Shadcn-style
 UI, and optional native C++ support.

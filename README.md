@@ -12,7 +12,7 @@ The target product is intentionally small:
 - Live CPU, memory, disk, and network usage.
 - Optional CPU temperature when a reliable macOS sensor approach is available.
 
-Start future Codex work by reading:
+Start future work by reading:
 
 - `AGENTS.md`
 - `moproduct.yaml`
