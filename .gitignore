@@ -13,6 +13,7 @@ gen/
 .DS_Store
 
 .idea
+.claude
 docs/
 DESIGN.md
 moproduct.yaml
