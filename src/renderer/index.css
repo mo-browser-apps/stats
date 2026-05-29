@@ -66,32 +66,27 @@
 }
 
 @layer utilities {
-  @keyframes show {
-    from {
-      transform: scale(0.9) translateY(8px);
-      opacity: 0;
-    }
-    to {
-      transform: scale(1) translateY(0);
-      opacity: 1;
-    }
-  }
-
-  .show-animation {
-    transform: scale(0.9) translateY(8px);
-    opacity: 0;
-    animation: show 0.25s ease-in-out forwards;
-  }
-
-  .draggable {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    box-sizing: border-box;
-    background-color: transparent;
-    height: 28px;
+  /*
+   * Draggable compact title row. The window hides its native title bar on
+   * macOS, so this region provides the drag handle and leaves room for the
+   * traffic-light buttons on the left.
+   */
+  .title-bar {
+    height: 44px;
+    flex-shrink: 0;
     -webkit-app-region: drag;
+  }
+
+  /* Reserve space for the macOS traffic-light buttons on the left. */
+  .title-bar-mac {
+    padding-left: 76px;
+  }
+
+  /* Opt interactive controls out of the draggable region so they stay clickable. */
+  .no-drag,
+  .title-bar button,
+  .title-bar [role="button"] {
+    -webkit-app-region: no-drag;
   }
 }
 
