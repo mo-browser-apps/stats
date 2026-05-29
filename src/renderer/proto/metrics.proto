@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+// Metrics IPC contract (renderer <- main).
+//
+// Main owns the sampling cadence and pushes each MetricsSnapshot to the
+// renderer over a server-streaming RPC; the renderer subscribes once and
+// renders whatever arrives. Every metric group carries an explicit status so a
+// single unavailable source degrades only its own card instead of poisoning
+// the whole snapshot. Real sampling lands in later iterations; this slice
+// publishes explicit-unavailable snapshots.
+
+// Availability of a metric group within a snapshot. UNKNOWN is the proto3
+// default and means "not yet determined" (e.g. before the first real sample);
+// UNAVAILABLE means the source was tried and could not be read reliably.
+enum MetricStatus {
+  METRIC_STATUS_UNKNOWN = 0;
+  METRIC_STATUS_OK = 1;
+  METRIC_STATUS_UNAVAILABLE = 2;
+}
+
+// Overall CPU usage plus static identity. Values are only meaningful when
+// status is OK.
+message CpuMetric {
+  MetricStatus status = 1;
+  double usage_percent = 2; // 0-100 aggregate usage across all cores.
+  string model = 3;         // Empty when unknown.
+  uint32 core_count = 4;    // Logical core count; 0 when unknown.
+}
+
+// Physical memory usage. Bytes use uint64 to stay correct above 4 GB.
+message MemoryMetric {
+  MetricStatus status = 1;
+  uint64 used_bytes = 2;
+  uint64 total_bytes = 3;
+  double used_percent = 4; // 0-100.
+}
+
+// Usage for the main system volume.
+message DiskMetric {
+  MetricStatus status = 1;
+  uint64 used_bytes = 2;
+  uint64 total_bytes = 3;
+  uint64 free_bytes = 4;
+  double used_percent = 5; // 0-100.
+}
+
+// Instantaneous network throughput derived from interface counter deltas.
+message NetworkMetric {
+  MetricStatus status = 1;
+  uint64 rx_bytes_per_sec = 2; // Receive rate.
+  uint64 tx_bytes_per_sec = 3; // Send rate.
+}
+
+// System uptime and load average. Load entries are 1/5/15 minute averages when
+// the platform provides them.
+message UptimeMetric {
+  MetricStatus status = 1;
+  uint64 uptime_seconds = 2;
+  repeated double load_average = 3;
+}
+
+// Optional CPU temperature. Frequently UNAVAILABLE on Apple Silicon because
+// public APIs do not guarantee a stable sensor; the UI must handle that
+// explicitly rather than faking a reading.
+message TemperatureMetric {
+  MetricStatus status = 1;
+  double celsius = 2;
+}
+
+// A single point-in-time reading of all metric groups. The timestamp is epoch
+// milliseconds captured when the snapshot was produced in main.
+message MetricsSnapshot {
+  int64 timestamp_ms = 1;
+  CpuMetric cpu = 2;
+  MemoryMetric memory = 3;
+  DiskMetric disk = 4;
+  NetworkMetric network = 5;
+  UptimeMetric uptime = 6;
+  TemperatureMetric temperature = 7;
+}
+
+// Reserved for future subscription parameters (e.g. a requested cadence). Kept
+// empty for now so the contract can grow without a breaking client change.
+message StreamSnapshotsRequest {}
+
+service MetricsService {
+  // Main samples on a cadence and streams snapshots to the renderer.
+  rpc StreamSnapshots(StreamSnapshotsRequest) returns (stream MetricsSnapshot);
+}
