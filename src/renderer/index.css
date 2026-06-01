@@ -1,77 +1,130 @@
+/* Typeface — Inter Variable, matching the sibling MoBrowser apps. */
+@import "@fontsource-variable/inter/index.css";
+
 @import 'tailwindcss';
-@config '../../tailwind.config.js';
 
-@layer base {
-    :root {
-        --background: 0 0% 100%;
-        --foreground: 222.2 84% 4.9%;
+/*
+ * Tailwind v4 CSS-first config. `@theme inline` maps the semantic CSS variables
+ * below onto Tailwind's color/radius utility namespace so classes like
+ * `bg-card`, `text-muted-foreground`, `bg-success`, and `text-destructive`
+ * resolve against the tokens (not inlined values) at runtime. This replaces the
+ * former HSL `tailwind.config.js`; colors are oklch, matching ../voice/../icons.
+ *
+ * Token set is trimmed to what a compact monitor needs: surface/text,
+ * interactive, chrome, and metric-status colors. Sidebar/chart/recording tokens
+ * from the sibling apps are intentionally omitted.
+ */
+@theme inline {
+  --font-sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, ui-sans-serif, system-ui, sans-serif;
 
-        --card: 0 0% 100%;
-        --card-foreground: 222.2 84% 4.9%;
+  /* Surface & text */
+  --color-background:         var(--background);
+  --color-foreground:         var(--foreground);
+  --color-card:               var(--card);
+  --color-card-foreground:    var(--card-foreground);
+  --color-popover:            var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
 
-        --popover: 0 0% 100%;
-        --popover-foreground: 222.2 84% 4.9%;
+  /* Interactive */
+  --color-primary:              var(--primary);
+  --color-primary-foreground:   var(--primary-foreground);
+  --color-secondary:            var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent:               var(--accent);
+  --color-accent-foreground:    var(--accent-foreground);
 
-        --primary: 222.2 47.4% 11.2%;
-        --primary-foreground: 210 40% 98%;
+  /* Chrome */
+  --color-muted:            var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border:           var(--border);
+  --color-input:            var(--input);
+  --color-ring:             var(--ring);
 
-        --secondary: 210 40% 96.1%;
-        --secondary-foreground: 222.2 47.4% 11.2%;
+  /* Metric status — saturated only for state, never decoration. */
+  --color-success:             var(--success);
+  --color-warning:             var(--warning);
+  --color-destructive:         var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
 
-        --muted: 210 40% 96.1%;
-        --muted-foreground: 215.4 16.3% 46.9%;
+  /* Border radius */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+}
 
-        --accent: 210 40% 96.1%;
-        --accent-foreground: 222.2 47.4% 11.2%;
+/*
+ * Semantic tokens — Light mode.
+ *
+ * MoStats ships dark-only (the document root carries `.dark`), but the light
+ * values are kept as a sensible fallback and to keep the token system honest.
+ * Colors use oklch (perceptually uniform) to match the sibling apps.
+ */
+:root {
+  /* Surface & text */
+  --background:         oklch(100% 0 0deg);
+  --foreground:         oklch(25% 0 0deg);
+  --card:               oklch(97.3% 0 0deg);
+  --card-foreground:    oklch(25% 0 0deg);
+  --popover:            oklch(100% 0 0deg);
+  --popover-foreground: oklch(25% 0 0deg);
 
-        --destructive: 0 84.2% 60.2%;
-        --destructive-foreground: 210 40% 98%;
+  /* Interactive */
+  --primary:              oklch(54.6% 0.245 262.9deg);
+  --primary-foreground:   oklch(98.5% 0 0deg);
+  --secondary:            oklch(97% 0 0deg);
+  --secondary-foreground: oklch(20.5% 0 0deg);
+  --accent:               oklch(92% 0 0deg);
+  --accent-foreground:    oklch(20.5% 0 0deg);
 
-        /* Metric status colors. Saturated only for state, never decoration. */
-        --success: 142 71% 40%;
-        --warning: 38 92% 45%;
+  /* Chrome */
+  --muted:            oklch(97% 0 0deg);
+  --muted-foreground: oklch(50% 0 0deg);
+  --border:           oklch(92.2% 0 0deg);
+  --input:            oklch(82% 0 0deg);
+  --ring:             oklch(70% 0.245 262.9deg);
 
-        --border: 214.3 31.8% 91.4%;
-        --input: 214.3 31.8% 91.4%;
-        --ring: 222.2 84% 4.9%;
+  /* Metric status — green normal, amber elevated, red critical. */
+  --success:                oklch(59.6% 0.145 163.2deg);
+  --warning:                oklch(70% 0.180 65.0deg);
+  --destructive:            oklch(57.7% 0.245 27.3deg);
+  --destructive-foreground: oklch(98.5% 0 0deg);
 
-        --radius: 0.5rem;
-    }
+  /* Base radius — 10px, matching ../voice/../icons. */
+  --radius: 0.625rem;
+}
 
-    .dark {
-        --background: 222.2 84% 4.9%;
-        --foreground: 210 40% 98%;
+/* Semantic tokens — Dark mode (the shipped appearance). */
+.dark {
+  /* Surface & text — near-black shell, card slightly elevated above it. */
+  --background:         oklch(22.5% 0 0deg);
+  --foreground:         oklch(90% 0 0deg);
+  --card:               oklch(27.5% 0 0deg);
+  --card-foreground:    oklch(90% 0 0deg);
+  --popover:            oklch(20.5% 0 0deg);
+  --popover-foreground: oklch(90% 0 0deg);
 
-        /* Slightly elevated surface so cards read against the near-black shell. */
-        --card: 217.2 32.6% 12%;
-        --card-foreground: 210 40% 98%;
+  /* Interactive */
+  --primary:              oklch(62.9% 0.216 258.2deg);
+  --primary-foreground:   oklch(98% 0 0deg);
+  --secondary:            oklch(26.9% 0 0deg);
+  --secondary-foreground: oklch(70% 0 0deg);
+  --accent:               oklch(35% 0 0deg);
+  --accent-foreground:    oklch(90% 0 0deg);
 
-        --popover: 222.2 84% 4.9%;
-        --popover-foreground: 210 40% 98%;
+  /* Chrome — low-contrast bordered surfaces. */
+  --muted:            oklch(30% 0 0deg);
+  --muted-foreground: oklch(70.8% 0 0deg);
+  --border:           oklch(100% 0 0deg / 10%);
+  --input:            oklch(100% 0 0deg / 15%);
+  --ring:             oklch(67% 0.19 262deg / 80%);
 
-        --primary: 210 40% 98%;
-        --primary-foreground: 222.2 47.4% 11.2%;
-
-        --secondary: 217.2 32.6% 17.5%;
-        --secondary-foreground: 210 40% 98%;
-
-        --muted: 217.2 32.6% 17.5%;
-        --muted-foreground: 215 20.2% 65.1%;
-
-        --accent: 217.2 32.6% 17.5%;
-        --accent-foreground: 210 40% 98%;
-
-        --destructive: 0 62.8% 30.6%;
-        --destructive-foreground: 210 40% 98%;
-
-        /* Metric status colors. Saturated only for state, never decoration. */
-        --success: 142 64% 45%;
-        --warning: 38 92% 52%;
-
-        --border: 217.2 32.6% 17.5%;
-        --input: 217.2 32.6% 17.5%;
-        --ring: 212.7 26.8% 83.9%;
-    }
+  /* Metric status — green normal, amber elevated, red critical. */
+  --success:                oklch(79% 0.19 157deg);
+  --warning:                oklch(82% 0.160 75.0deg);
+  --destructive:            oklch(73.2% 0.183 24.7deg);
+  --destructive-foreground: oklch(90% 0 0deg);
 }
 
 @layer utilities {
@@ -108,11 +161,15 @@
 }
 
 @layer base {
-    * {
-        @apply border-border;
-    }
+  * {
+    border-color: var(--border);
+  }
 
-    body {
-        @apply bg-background text-foreground;
-    }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }

@@ -26,7 +26,12 @@ export class Application {
    * Wires lifecycle handlers, registers IPC services, and shows the window.
    */
   initialize(): void {
-    this.registerThemeService();
+    // MoStats is a dark-only compact utility (DESIGN.md): fix the native theme
+    // to dark so the window chrome matches the renderer rather than following
+    // the OS appearance. There is no in-app theme switch.
+    app.setTheme('dark');
+
+    this.registerAppService();
     this.metrics.start();
 
     // On macOS, reopen the window when the app is activated (Dock click or
@@ -39,10 +44,12 @@ export class Application {
   }
 
   /**
-   * Registers the app-level theme service so the renderer can switch the
-   * native theme. This is the only renderer IPC service in this iteration.
+   * Registers the app-level IPC service. The renderer no longer calls SetTheme
+   * (the app is dark-only and the theme is fixed natively at startup), but the
+   * RPC is kept as the app-level IPC seam; cleanup is deferred to the
+   * pre-release polish pass.
    */
-  private registerThemeService(): void {
+  private registerAppService(): void {
     ipc.registerService(AppServiceDescriptor, {
       async SetTheme(request: SetThemeRequest) {
         app.setTheme(request.theme as Theme);

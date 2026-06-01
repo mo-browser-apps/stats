@@ -16,6 +16,12 @@ const MIN_WINDOW_SIZE = { width: 440, height: 520 } as const;
 const MAC_WINDOW_BUTTON_POSITION = { x: 16, y: 18 } as const;
 
 /**
+ * Keep normal dev launches visually faithful to the compact app. DevTools can
+ * still be opened explicitly when debugging renderer behavior.
+ */
+const OPEN_DEVTOOLS = process.env.MOSTATS_OPEN_DEVTOOLS === '1';
+
+/**
  * Owns the single compact MoStats window and its show/hide lifecycle.
  *
  * Closing the window hides it so the app keeps running in the background; the
@@ -86,6 +92,12 @@ export class ApplicationWindow {
       title: app.name,
       size: { ...WINDOW_SIZE },
       minimumSize: { ...MIN_WINDOW_SIZE },
+      // A compact monitor has one fixed layout; resizing only lets it stretch
+      // into empty space, so the window is a fixed size like the sibling apps.
+      resizable: false,
+      // Hide the green maximize/zoom button: there is no larger layout to
+      // expand into. Close and minimize stay so the window behaves natively.
+      windowButtonVisible: { maximize: false, zoom: false },
       windowTitleVisible: false,
       // Keep the native title bar off on macOS for a compact utility look; the
       // renderer provides its own draggable region. Other platforms keep the
@@ -119,7 +131,7 @@ export class ApplicationWindow {
       this.onVisibilityChange?.();
     });
 
-    if (!app.packaged) {
+    if (!app.packaged && OPEN_DEVTOOLS) {
       window.browser.devTools.open();
     }
 

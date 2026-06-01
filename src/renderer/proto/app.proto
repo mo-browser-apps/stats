@@ -6,6 +6,10 @@ message SetThemeRequest {
   string theme = 1;
 }
 
+// App-level renderer-to-main commands. MoStats ships dark-only and forces the
+// native theme to dark at startup, so the renderer does not currently call
+// SetTheme; the RPC is retained as the app-level IPC seam (cleanup deferred to
+// the pre-release polish pass).
 service AppService {
   rpc SetTheme(SetThemeRequest) returns (google.protobuf.Empty);
 }
