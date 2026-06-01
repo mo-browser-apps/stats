@@ -12,6 +12,8 @@
 
 #include "rpc.h"
 #include "gen/network.rpc.h"
+#include "gen/temperature.rpc.h"
+#include "temperature_probe.h"
 
 using google::protobuf::Empty;
 using mo::rpc::Callback;
@@ -151,6 +153,31 @@ class NetworkServiceImpl : public NetworkService {
   }
 };
 
+/**
+ * Narrow macOS CPU-temperature probe.
+ *
+ * Delegates to ReadCpuTemperature(), which reads the private IOKit HID
+ * temperature sensors and returns a CPU temperature only when it can validate a
+ * trustworthy CPU-cluster sensor (Apple's pACC/eACC performance/efficiency core
+ * naming); otherwise it reports available=false. No Node API exposes thermal
+ * sensors and macOS has no documented public CPU temperature source on Apple
+ * Silicon, so unavailable is an honest, accepted outcome rather than a guessed
+ * value. See temperature_probe.cc for the validation rules.
+ */
+class TemperatureServiceImpl : public TemperatureService {
+ public:
+  void ReadCpuTemperature(const Empty* /*request*/,
+                          Callback<CpuTemperature> done) override {
+    const mostats::CpuTemperatureReading reading = mostats::ReadCpuTemperature();
+
+    CpuTemperature response;
+    response.set_available(reading.available);
+    response.set_celsius(reading.celsius);
+    std::move(done).Complete(response);
+  }
+};
+
 void launch() {
   mo::rpc::RegisterService(new NetworkServiceImpl());
+  mo::rpc::RegisterService(new TemperatureServiceImpl());
 }

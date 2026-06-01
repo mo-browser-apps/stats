@@ -6,6 +6,7 @@ import {
   MetricStatus,
   MetricsSnapshot,
   NetworkMetric,
+  TemperatureMetric,
   UptimeMetric,
 } from '../gen/metrics';
 import { MetricsServiceDescriptor } from '../gen/ipc_service';
@@ -16,6 +17,7 @@ import {
   MemoryReading,
   NetworkReading,
   ReadingStatus,
+  TemperatureReading,
   UptimeReading,
 } from './metric-types';
 
@@ -43,9 +45,10 @@ function toMetricStatus(status: ReadingStatus): MetricStatus {
  * is read once and the snapshot is fanned out to all subscribers, so adding
  * subscribers never triggers extra sampling work.
  *
- * This iteration samples CPU, memory, disk, network throughput, and uptime/load.
- * Network counters come from the native probe, so a tick is async. Temperature is
- * published as explicit unavailable until its iteration lands. Publishing with no
+ * Samples CPU, memory, disk, network throughput, uptime/load, and optional CPU
+ * temperature. Network counters and temperature come from the native probes, so a
+ * tick is async. Temperature is best-effort and is published as explicit
+ * unavailable when no trustworthy CPU sensor is readable. Publishing with no
  * current subscriber is a runtime no-op, so the interval is safe to run
  * unconditionally. `dispose()` stops the interval and tears down any in-flight
  * subscribers.
@@ -93,10 +96,10 @@ export class MetricsService {
   }
 
   /**
-   * Builds the current snapshot from one sampler reading. CPU/memory/disk/network/
-   * uptime carry live (or explicit unknown/unavailable) values; temperature
-   * remains explicit unavailable until its iteration implements it, so a missing
-   * source degrades only its own card.
+   * Builds the current snapshot from one sampler reading. Every group carries a
+   * live value or an explicit unknown/unavailable status, so a missing source
+   * (for example a machine with no readable CPU temperature sensor) degrades only
+   * its own card.
    */
   private async buildSnapshot(): Promise<MetricsSnapshot> {
     const reading = await this.sampler.sample();
@@ -107,7 +110,7 @@ export class MetricsService {
       disk: toDiskMetric(reading.disk),
       network: toNetworkMetric(reading.network),
       uptime: toUptimeMetric(reading.uptime),
-      temperature: { status: MetricStatus.METRIC_STATUS_UNAVAILABLE, celsius: 0 },
+      temperature: toTemperatureMetric(reading.temperature),
     };
   }
 }
@@ -153,5 +156,12 @@ function toUptimeMetric(reading: UptimeReading): UptimeMetric {
     status: toMetricStatus(reading.status),
     uptimeSeconds: reading.uptimeSeconds,
     loadAverage: reading.loadAverage,
+  };
+}
+
+function toTemperatureMetric(reading: TemperatureReading): TemperatureMetric {
+  return {
+    status: toMetricStatus(reading.status),
+    celsius: reading.celsius,
   };
 }

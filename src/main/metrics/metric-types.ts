@@ -66,9 +66,19 @@ export interface UptimeReading {
 }
 
 /**
+ * Optional CPU temperature. Best-effort: macOS has no documented public CPU
+ * temperature source on Apple Silicon, so this is frequently `unavailable`.
+ */
+export interface TemperatureReading {
+  status: ReadingStatus;
+  /** CPU-cluster temperature in degrees Celsius; 0 when not `ok`. */
+  celsius: number;
+}
+
+/**
  * One sampling pass. CPU, memory, disk, and uptime come from Node `os`/`fs`;
- * network comes from the native counter probe. Temperature is owned by a later
- * iteration and is published as explicit unavailable by the metrics service.
+ * network and temperature come from the native probes. Temperature is optional
+ * and frequently `unavailable` on Apple Silicon.
  */
 export interface MetricsReading {
   cpu: CpuReading;
@@ -76,4 +86,5 @@ export interface MetricsReading {
   disk: DiskReading;
   network: NetworkReading;
   uptime: UptimeReading;
+  temperature: TemperatureReading;
 }

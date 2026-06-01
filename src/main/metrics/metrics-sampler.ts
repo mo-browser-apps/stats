@@ -7,6 +7,7 @@ import {
   MemoryReading,
   MetricsReading,
   NetworkReading,
+  TemperatureReading,
   UptimeReading,
 } from "./metric-types";
 
@@ -43,21 +44,23 @@ interface CpuTicks {
 
 /**
  * Samples the system metrics for one snapshot: CPU usage, CPU identity, memory,
- * disk capacity, network throughput, uptime, and load average. CPU/memory/disk/
- * uptime come from Node `os`/`fs`; network throughput comes from the native
- * counter probe (Node has no rx/tx byte counters).
+ * disk capacity, network throughput, uptime, load average, and optional CPU
+ * temperature. CPU/memory/disk/uptime come from Node `os`/`fs`; network
+ * throughput and temperature come from the native probes (Node has no rx/tx byte
+ * counters and no thermal API).
  *
  * Both CPU usage and network throughput are deltas between successive samples
  * (no single call yields an instantaneous value), so this class is stateful: it
  * holds the previous CPU tick counters and the previous network byte counters.
  * The first sample of each has no delta and reports `unknown`; subsequent
- * samples report `ok`. Temperature is intentionally out of scope here and owned
- * by a later iteration.
+ * samples report `ok`. Temperature is best-effort and frequently `unavailable`
+ * on Apple Silicon (no documented public CPU sensor).
  *
  * Technique references (re-implemented over Node/native, no upstream code
  * copied): CPU tick-delta math follows exelban/stats `Modules/CPU/readers.swift`
  * host_cpu_load_info; network counter deltas, reset handling, and impossible-
- * jump rejection follow `Modules/Net/readers.swift`.
+ * jump rejection follow `Modules/Net/readers.swift`; the temperature probe's
+ * sensor-selection rules follow `Modules/Sensors/readers.swift`.
  *
  * Every group is sampled defensively: a failure in one group degrades only that
  * group to `unavailable` and never throws, so one bad source cannot poison the
@@ -69,9 +72,9 @@ export class MetricsSampler {
   private previousNetworkCounters: NetworkCounters | null = null;
 
   /**
-   * Produces one reading of all sampled metric groups. Async because the
-   * network counters are read over the native RPC; the Node `os`/`fs` groups are
-   * synchronous and gathered first.
+   * Produces one reading of all sampled metric groups. Async because the network
+   * counters and temperature are read over native RPCs; the Node `os`/`fs` groups
+   * are synchronous and gathered first.
    */
   async sample(): Promise<MetricsReading> {
     return {
@@ -80,6 +83,7 @@ export class MetricsSampler {
       disk: this.sampleDisk(),
       network: await this.sampleNetwork(),
       uptime: this.sampleUptime(),
+      temperature: await this.sampleTemperature(),
     };
   }
 
@@ -222,6 +226,32 @@ export class MetricsSampler {
     } catch {
       this.previousNetworkCounters = null;
       return { status: "unavailable", rxBytesPerSec: 0, txBytesPerSec: 0 };
+    }
+  }
+
+  /**
+   * Optional CPU temperature from the native HID sensor probe.
+   *
+   * The native side returns a temperature only when it can validate a
+   * trustworthy CPU-cluster sensor (Apple's pACC/eACC core naming) with a
+   * plausible reading; otherwise it reports `available=false`. macOS has no
+   * documented public CPU temperature source on Apple Silicon, so `unavailable`
+   * is an honest, accepted outcome here rather than a guessed value. Any
+   * native/read error also degrades only this group to `unavailable`.
+   *
+   * Technique reference: exelban/stats `Modules/Sensors/readers.swift` reads the
+   * same IOKit HID temperature sensors and filters implausible values; the
+   * sensor-selection and validation are re-implemented in the native probe.
+   */
+  private async sampleTemperature(): Promise<TemperatureReading> {
+    try {
+      const result = await native.temperature.ReadCpuTemperature({});
+      if (!result.available || !Number.isFinite(result.celsius)) {
+        return { status: "unavailable", celsius: 0 };
+      }
+      return { status: "ok", celsius: result.celsius };
+    } catch {
+      return { status: "unavailable", celsius: 0 };
     }
   }
 
