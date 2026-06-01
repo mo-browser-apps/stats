@@ -1,25 +1,43 @@
 import { ipc } from '@mobrowser/api';
-import { MetricStatus, MetricsSnapshot } from '../gen/metrics';
+import { CpuMetric, MemoryMetric, MetricStatus, MetricsSnapshot, UptimeMetric } from '../gen/metrics';
 import { MetricsServiceDescriptor } from '../gen/ipc_service';
+import { MetricsSampler } from './metrics-sampler';
+import { CpuReading, MemoryReading, ReadingStatus, UptimeReading } from './metric-types';
 
 /** Interval between published snapshots, in milliseconds. */
 const PUBLISH_INTERVAL_MS = 1000;
+
+/** Maps the sampler's internal status onto the generated wire enum. */
+function toMetricStatus(status: ReadingStatus): MetricStatus {
+  switch (status) {
+    case 'ok':
+      return MetricStatus.METRIC_STATUS_OK;
+    case 'unavailable':
+      return MetricStatus.METRIC_STATUS_UNAVAILABLE;
+    default:
+      return MetricStatus.METRIC_STATUS_UNKNOWN;
+  }
+}
 
 /**
  * Owns the renderer-facing metrics stream.
  *
  * Registers `MetricsService` as a broadcast (pub/sub fan-out) stream: every
- * subscribing renderer sees the same tick, so there is a single sampling
- * cadence in main rather than per-renderer timers. This iteration publishes an
- * explicit-unavailable snapshot on a fixed cadence; real sampling replaces the
- * snapshot body in a later iteration without changing this wiring.
+ * subscribing renderer sees the same tick, so there is a single sampling cadence
+ * in main rather than per-renderer timers. Each tick the {@link MetricsSampler}
+ * is read once and the snapshot is fanned out to all subscribers, so adding
+ * subscribers never triggers extra sampling work.
  *
- * Publishing with no current subscriber is a runtime no-op, so the interval is
- * safe to run unconditionally. `dispose()` stops the interval and tears down
- * any in-flight subscribers.
+ * This iteration samples the TypeScript-reliable groups (CPU, memory,
+ * uptime/load). Disk, network, and temperature are published as explicit
+ * unavailable until their iterations land. Publishing with no current subscriber
+ * is a runtime no-op, so the interval is safe to run unconditionally.
+ * `dispose()` stops the interval and tears down any in-flight subscribers.
  */
 export class MetricsService {
   private readonly handle = ipc.registerService(MetricsServiceDescriptor);
+
+  private readonly sampler = new MetricsSampler();
 
   private timer: ReturnType<typeof setInterval> | null = null;
 
@@ -49,27 +67,56 @@ export class MetricsService {
   }
 
   /**
-   * Publishes the current snapshot to every subscriber. A no-op when nobody is
-   * subscribed.
+   * Samples once and publishes the snapshot to every subscriber. A no-op for
+   * delivery when nobody is subscribed; sampling still happens so the cadence
+   * stays consistent.
    */
   private publish(): void {
     this.handle.StreamSnapshots(this.buildSnapshot());
   }
 
   /**
-   * Builds an explicit-unavailable snapshot. Each metric group reports
-   * `UNAVAILABLE` so the renderer renders honest placeholder states until real
-   * sampling lands; only the timestamp carries live data.
+   * Builds the current snapshot from one sampler reading. CPU/memory/uptime
+   * carry live (or explicit unknown/unavailable) values; disk, network, and
+   * temperature remain explicit unavailable until their iterations implement
+   * them, so a missing source degrades only its own card.
    */
   private buildSnapshot(): MetricsSnapshot {
+    const reading = this.sampler.sample();
     return {
       timestampMs: Date.now(),
-      cpu: { status: MetricStatus.METRIC_STATUS_UNAVAILABLE, usagePercent: 0, model: '', coreCount: 0 },
-      memory: { status: MetricStatus.METRIC_STATUS_UNAVAILABLE, usedBytes: 0, totalBytes: 0, usedPercent: 0 },
+      cpu: toCpuMetric(reading.cpu),
+      memory: toMemoryMetric(reading.memory),
       disk: { status: MetricStatus.METRIC_STATUS_UNAVAILABLE, usedBytes: 0, totalBytes: 0, freeBytes: 0, usedPercent: 0 },
       network: { status: MetricStatus.METRIC_STATUS_UNAVAILABLE, rxBytesPerSec: 0, txBytesPerSec: 0 },
-      uptime: { status: MetricStatus.METRIC_STATUS_UNAVAILABLE, uptimeSeconds: 0, loadAverage: [] },
+      uptime: toUptimeMetric(reading.uptime),
       temperature: { status: MetricStatus.METRIC_STATUS_UNAVAILABLE, celsius: 0 },
     };
   }
+}
+
+function toCpuMetric(reading: CpuReading): CpuMetric {
+  return {
+    status: toMetricStatus(reading.status),
+    usagePercent: reading.usagePercent,
+    model: reading.model,
+    coreCount: reading.coreCount,
+  };
+}
+
+function toMemoryMetric(reading: MemoryReading): MemoryMetric {
+  return {
+    status: toMetricStatus(reading.status),
+    usedBytes: reading.usedBytes,
+    totalBytes: reading.totalBytes,
+    usedPercent: reading.usedPercent,
+  };
+}
+
+function toUptimeMetric(reading: UptimeReading): UptimeMetric {
+  return {
+    status: toMetricStatus(reading.status),
+    uptimeSeconds: reading.uptimeSeconds,
+    loadAverage: reading.loadAverage,
+  };
 }
