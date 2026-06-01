@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+
+// Native network probe (main <- native C++).
+//
+// Node exposes interface addresses via os.networkInterfaces() but no rx/tx byte
+// counters, so throughput needs a native probe. This service reads the kernel's
+// cumulative per-interface byte counters (getifaddrs / if_data) and returns the
+// summed totals for the active non-loopback interfaces. It is deliberately
+// narrow: it returns raw cumulative counters only. The delta-to-rate math,
+// first-sample handling, and counter-reset rejection live in the main-process
+// sampler, not here.
+
+// Cumulative byte counters since boot, summed across the active non-loopback
+// interfaces. Counters only increase under normal operation; the sampler turns
+// successive readings into a per-second rate.
+message NetworkCounters {
+  // False when no active interface could be read; the other fields are then 0
+  // and the sampler degrades only the network card to unavailable.
+  bool available = 1;
+  uint64 rx_bytes = 2; // Total bytes received (download).
+  uint64 tx_bytes = 3; // Total bytes transmitted (upload).
+}
+
+service NetworkService {
+  // Reads the current cumulative interface byte counters.
+  rpc ReadCounters(google.protobuf.Empty) returns (NetworkCounters);
+}

@@ -1,9 +1,34 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
-import { CpuReading, DiskReading, MemoryReading, MetricsReading, UptimeReading } from "./metric-types";
+import { native } from "../gen/native";
+import {
+  CpuReading,
+  DiskReading,
+  MemoryReading,
+  MetricsReading,
+  NetworkReading,
+  UptimeReading,
+} from "./metric-types";
 
 /** Filesystem path of the main system volume on macOS. */
 const SYSTEM_VOLUME_PATH = "/";
+
+/**
+ * Upper bound on a plausible per-interface throughput, in bytes per second
+ * (100 Gbps). A single-tick delta implying more than this is treated as a
+ * counter discontinuity (e.g. a reconnect handing back a fresh large counter)
+ * and dropped to a 0 rate rather than reported as a spike. The ceiling sits
+ * well above any current Mac NIC so it never clips real traffic.
+ */
+const MAX_PLAUSIBLE_BYTES_PER_SEC = 100_000_000_000 / 8;
+
+/** Cumulative interface byte counters captured at a point in time. */
+interface NetworkCounters {
+  rxBytes: number;
+  txBytes: number;
+  /** `performance.now()`-style monotonic timestamp in milliseconds. */
+  atMs: number;
+}
 
 /**
  * Aggregate CPU tick counters summed across all logical cores, in milliseconds.
@@ -17,18 +42,22 @@ interface CpuTicks {
 }
 
 /**
- * Samples the system metrics that are reliable from Node/TypeScript: CPU usage,
- * CPU identity, memory, disk capacity, uptime, and load average.
+ * Samples the system metrics for one snapshot: CPU usage, CPU identity, memory,
+ * disk capacity, network throughput, uptime, and load average. CPU/memory/disk/
+ * uptime come from Node `os`/`fs`; network throughput comes from the native
+ * counter probe (Node has no rx/tx byte counters).
  *
- * CPU usage is a delta between successive samples (no single call yields an
- * instantaneous percentage), so this class is stateful: it holds the previous
- * aggregate tick counters. The first sample has no delta and reports CPU as
- * `unknown`; subsequent samples report `ok`. Network and temperature are
- * intentionally out of scope here and owned by later iterations.
+ * Both CPU usage and network throughput are deltas between successive samples
+ * (no single call yields an instantaneous value), so this class is stateful: it
+ * holds the previous CPU tick counters and the previous network byte counters.
+ * The first sample of each has no delta and reports `unknown`; subsequent
+ * samples report `ok`. Temperature is intentionally out of scope here and owned
+ * by a later iteration.
  *
- * Technique reference: the CPU tick-delta math follows exelban/stats'
- * `Modules/CPU/readers.swift` host_cpu_load_info approach, re-implemented over
- * Node's `os.cpus()` counters; no upstream code is copied.
+ * Technique references (re-implemented over Node/native, no upstream code
+ * copied): CPU tick-delta math follows exelban/stats `Modules/CPU/readers.swift`
+ * host_cpu_load_info; network counter deltas, reset handling, and impossible-
+ * jump rejection follow `Modules/Net/readers.swift`.
  *
  * Every group is sampled defensively: a failure in one group degrades only that
  * group to `unavailable` and never throws, so one bad source cannot poison the
@@ -37,12 +66,19 @@ interface CpuTicks {
 export class MetricsSampler {
   private previousCpuTicks: CpuTicks | null = null;
 
-  /** Produces one reading of all TypeScript-sampled metric groups. */
-  sample(): MetricsReading {
+  private previousNetworkCounters: NetworkCounters | null = null;
+
+  /**
+   * Produces one reading of all sampled metric groups. Async because the
+   * network counters are read over the native RPC; the Node `os`/`fs` groups are
+   * synchronous and gathered first.
+   */
+  async sample(): Promise<MetricsReading> {
     return {
       cpu: this.sampleCpu(),
       memory: this.sampleMemory(),
       disk: this.sampleDisk(),
+      network: await this.sampleNetwork(),
       uptime: this.sampleUptime(),
     };
   }
@@ -134,6 +170,61 @@ export class MetricsSampler {
     }
   }
 
+  /**
+   * Instantaneous network throughput from the native interface counter probe.
+   *
+   * The native side sums the kernel's cumulative rx/tx byte counters across the
+   * active non-loopback interfaces; this method turns successive readings into a
+   * per-second rate over the measured elapsed time. The first sample (or any
+   * sample after the counters were unavailable) has no baseline and reports
+   * `unknown`, so the card shows a pending placeholder rather than a fake 0 B/s.
+   *
+   * Counter discontinuities are handled instead of surfaced as spikes: a counter
+   * that went backwards (interface reset/reconnect, or a different interface set)
+   * yields a 0 rate while the baseline re-arms, and a forward jump implying more
+   * than {@link MAX_PLAUSIBLE_BYTES_PER_SEC} is treated as a discontinuity and
+   * also dropped to 0. A non-positive elapsed time is ignored to avoid dividing
+   * by zero. Any native/read error degrades only this group to `unavailable`.
+   *
+   * Technique reference: exelban/stats `Modules/Net/readers.swift` reads the same
+   * getifaddrs / if_data counters, clamps negative deltas to 0, and rejects
+   * impossible jumps; re-implemented here over the native probe.
+   */
+  private async sampleNetwork(): Promise<NetworkReading> {
+    try {
+      const counters = await native.network.ReadCounters({});
+      if (!counters.available) {
+        this.previousNetworkCounters = null;
+        return { status: "unavailable", rxBytesPerSec: 0, txBytesPerSec: 0 };
+      }
+
+      const current: NetworkCounters = {
+        rxBytes: counters.rxBytes,
+        txBytes: counters.txBytes,
+        atMs: nowMs(),
+      };
+      const previous = this.previousNetworkCounters;
+      this.previousNetworkCounters = current;
+
+      if (previous === null) {
+        // No baseline yet: pending until the next tick produces a delta.
+        return { status: "unknown", rxBytesPerSec: 0, txBytesPerSec: 0 };
+      }
+
+      const elapsedSeconds = (current.atMs - previous.atMs) / 1000;
+      if (elapsedSeconds <= 0) {
+        return { status: "unknown", rxBytesPerSec: 0, txBytesPerSec: 0 };
+      }
+
+      const rxBytesPerSec = rate(current.rxBytes - previous.rxBytes, elapsedSeconds);
+      const txBytesPerSec = rate(current.txBytes - previous.txBytes, elapsedSeconds);
+      return { status: "ok", rxBytesPerSec, txBytesPerSec };
+    } catch {
+      this.previousNetworkCounters = null;
+      return { status: "unavailable", rxBytesPerSec: 0, txBytesPerSec: 0 };
+    }
+  }
+
   /** System uptime and load average from Node `os`. */
   private sampleUptime(): UptimeReading {
     try {
@@ -163,4 +254,28 @@ function aggregateCpuTicks(cores: os.CpuInfo[]): CpuTicks {
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(100, Math.max(0, value));
+}
+
+/**
+ * Converts a byte delta over an elapsed window into a per-second rate. A
+ * negative delta (counter reset) or a jump above the plausible ceiling is a
+ * discontinuity and yields 0 rather than a spurious spike; non-finite results
+ * also yield 0.
+ */
+function rate(deltaBytes: number, elapsedSeconds: number): number {
+  if (deltaBytes < 0) return 0;
+  const bytesPerSec = deltaBytes / elapsedSeconds;
+  if (!Number.isFinite(bytesPerSec) || bytesPerSec > MAX_PLAUSIBLE_BYTES_PER_SEC) {
+    return 0;
+  }
+  return Math.round(bytesPerSec);
+}
+
+/**
+ * Monotonic millisecond clock for measuring the elapsed time between counter
+ * reads. `performance.now()` is unaffected by wall-clock/NTP adjustments, so the
+ * rate stays correct across system time changes.
+ */
+function nowMs(): number {
+  return performance.now();
 }

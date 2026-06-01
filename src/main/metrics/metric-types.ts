@@ -48,6 +48,15 @@ export interface DiskReading {
   usedPercent: number;
 }
 
+/** Instantaneous network throughput derived from interface counter deltas. */
+export interface NetworkReading {
+  status: ReadingStatus;
+  /** Receive (download) rate in bytes per second. */
+  rxBytesPerSec: number;
+  /** Transmit (upload) rate in bytes per second. */
+  txBytesPerSec: number;
+}
+
 /** System uptime in seconds plus the 1/5/15 minute load averages. */
 export interface UptimeReading {
   status: ReadingStatus;
@@ -57,13 +66,14 @@ export interface UptimeReading {
 }
 
 /**
- * One sampling pass. Only the groups implemented for the TypeScript sampler are
- * present here; network and temperature are owned by later iterations and are
- * published as explicit unavailable by the metrics service.
+ * One sampling pass. CPU, memory, disk, and uptime come from Node `os`/`fs`;
+ * network comes from the native counter probe. Temperature is owned by a later
+ * iteration and is published as explicit unavailable by the metrics service.
  */
 export interface MetricsReading {
   cpu: CpuReading;
   memory: MemoryReading;
   disk: DiskReading;
+  network: NetworkReading;
   uptime: UptimeReading;
 }

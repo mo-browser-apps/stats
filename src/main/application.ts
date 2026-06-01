@@ -10,8 +10,8 @@ import { AppServiceDescriptor } from './gen/ipc_service';
  *
  * Owns the single compact window, the menu-bar tray, app lifecycle wiring, and
  * registration of renderer-facing IPC services, including the metrics stream.
- * The metrics service samples CPU, memory, and uptime/load in main and streams
- * them to the renderer; disk, network, and temperature land in later iterations.
+ * The metrics service samples CPU, memory, disk, network, and uptime/load in
+ * main and streams them to the renderer; temperature lands in a later iteration.
  */
 export class Application {
   private readonly window = new ApplicationWindow(() => {
