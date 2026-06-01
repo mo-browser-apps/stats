@@ -1,5 +1,9 @@
+import * as fs from "node:fs";
 import * as os from "node:os";
-import { CpuReading, MemoryReading, MetricsReading, UptimeReading } from "./metric-types";
+import { CpuReading, DiskReading, MemoryReading, MetricsReading, UptimeReading } from "./metric-types";
+
+/** Filesystem path of the main system volume on macOS. */
+const SYSTEM_VOLUME_PATH = "/";
 
 /**
  * Aggregate CPU tick counters summed across all logical cores, in milliseconds.
@@ -14,12 +18,12 @@ interface CpuTicks {
 
 /**
  * Samples the system metrics that are reliable from Node/TypeScript: CPU usage,
- * CPU identity, memory, uptime, and load average.
+ * CPU identity, memory, disk capacity, uptime, and load average.
  *
  * CPU usage is a delta between successive samples (no single call yields an
  * instantaneous percentage), so this class is stateful: it holds the previous
  * aggregate tick counters. The first sample has no delta and reports CPU as
- * `unknown`; subsequent samples report `ok`. Disk, network, and temperature are
+ * `unknown`; subsequent samples report `ok`. Network and temperature are
  * intentionally out of scope here and owned by later iterations.
  *
  * Technique reference: the CPU tick-delta math follows exelban/stats'
@@ -38,6 +42,7 @@ export class MetricsSampler {
     return {
       cpu: this.sampleCpu(),
       memory: this.sampleMemory(),
+      disk: this.sampleDisk(),
       uptime: this.sampleUptime(),
     };
   }
@@ -95,6 +100,37 @@ export class MetricsSampler {
       return { status: "ok", usedBytes, totalBytes, usedPercent };
     } catch {
       return { status: "unavailable", usedBytes: 0, totalBytes: 0, usedPercent: 0 };
+    }
+  }
+
+  /**
+   * Main system volume capacity via Node's built-in `fs.statfsSync` (no native
+   * code). `bavail` is the space available to the current unprivileged user, so
+   * it is the honest free figure for a user-facing monitor (it excludes the
+   * blocks the filesystem reserves for the superuser); `used` is derived from
+   * total minus that available space. A non-positive total degrades disk to
+   * `unavailable` to avoid a divide-by-zero, and any read/permission error is
+   * caught so only disk degrades, never the whole snapshot.
+   *
+   * Technique reference: exelban/stats `Modules/Disk/readers.swift` uses the
+   * same statfs block math for capacity; this is a scoped Node re-implementation
+   * for the single system volume only (no per-volume listing, SMART, or
+   * activity counters).
+   */
+  private sampleDisk(): DiskReading {
+    try {
+      const stats = fs.statfsSync(SYSTEM_VOLUME_PATH);
+      const totalBytes = stats.blocks * stats.bsize;
+      if (totalBytes <= 0) {
+        return { status: "unavailable", usedBytes: 0, totalBytes: 0, freeBytes: 0, usedPercent: 0 };
+      }
+
+      const freeBytes = Math.max(0, stats.bavail * stats.bsize);
+      const usedBytes = Math.max(0, totalBytes - freeBytes);
+      const usedPercent = clampPercent((usedBytes / totalBytes) * 100);
+      return { status: "ok", usedBytes, totalBytes, freeBytes, usedPercent };
+    } catch {
+      return { status: "unavailable", usedBytes: 0, totalBytes: 0, freeBytes: 0, usedPercent: 0 };
     }
   }
 

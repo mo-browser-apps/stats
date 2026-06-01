@@ -37,6 +37,17 @@ export interface MemoryReading {
   usedPercent: number;
 }
 
+/** Capacity of the main system volume in bytes plus derived percent. */
+export interface DiskReading {
+  status: ReadingStatus;
+  usedBytes: number;
+  totalBytes: number;
+  /** Space available to the current (unprivileged) user; see the sampler. */
+  freeBytes: number;
+  /** 0-100 used percentage. */
+  usedPercent: number;
+}
+
 /** System uptime in seconds plus the 1/5/15 minute load averages. */
 export interface UptimeReading {
   status: ReadingStatus;
@@ -47,11 +58,12 @@ export interface UptimeReading {
 
 /**
  * One sampling pass. Only the groups implemented for the TypeScript sampler are
- * present here; disk, network, and temperature are owned by later iterations and
- * are published as explicit unavailable by the metrics service.
+ * present here; network and temperature are owned by later iterations and are
+ * published as explicit unavailable by the metrics service.
  */
 export interface MetricsReading {
   cpu: CpuReading;
   memory: MemoryReading;
+  disk: DiskReading;
   uptime: UptimeReading;
 }

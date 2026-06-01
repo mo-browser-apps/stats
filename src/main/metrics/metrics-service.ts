@@ -1,8 +1,8 @@
 import { ipc } from '@mobrowser/api';
-import { CpuMetric, MemoryMetric, MetricStatus, MetricsSnapshot, UptimeMetric } from '../gen/metrics';
+import { CpuMetric, DiskMetric, MemoryMetric, MetricStatus, MetricsSnapshot, UptimeMetric } from '../gen/metrics';
 import { MetricsServiceDescriptor } from '../gen/ipc_service';
 import { MetricsSampler } from './metrics-sampler';
-import { CpuReading, MemoryReading, ReadingStatus, UptimeReading } from './metric-types';
+import { CpuReading, DiskReading, MemoryReading, ReadingStatus, UptimeReading } from './metric-types';
 
 /** Interval between published snapshots, in milliseconds. */
 const PUBLISH_INTERVAL_MS = 1000;
@@ -76,10 +76,10 @@ export class MetricsService {
   }
 
   /**
-   * Builds the current snapshot from one sampler reading. CPU/memory/uptime
-   * carry live (or explicit unknown/unavailable) values; disk, network, and
-   * temperature remain explicit unavailable until their iterations implement
-   * them, so a missing source degrades only its own card.
+   * Builds the current snapshot from one sampler reading. CPU/memory/disk/uptime
+   * carry live (or explicit unknown/unavailable) values; network and temperature
+   * remain explicit unavailable until their iterations implement them, so a
+   * missing source degrades only its own card.
    */
   private buildSnapshot(): MetricsSnapshot {
     const reading = this.sampler.sample();
@@ -87,7 +87,7 @@ export class MetricsService {
       timestampMs: Date.now(),
       cpu: toCpuMetric(reading.cpu),
       memory: toMemoryMetric(reading.memory),
-      disk: { status: MetricStatus.METRIC_STATUS_UNAVAILABLE, usedBytes: 0, totalBytes: 0, freeBytes: 0, usedPercent: 0 },
+      disk: toDiskMetric(reading.disk),
       network: { status: MetricStatus.METRIC_STATUS_UNAVAILABLE, rxBytesPerSec: 0, txBytesPerSec: 0 },
       uptime: toUptimeMetric(reading.uptime),
       temperature: { status: MetricStatus.METRIC_STATUS_UNAVAILABLE, celsius: 0 },
@@ -109,6 +109,16 @@ function toMemoryMetric(reading: MemoryReading): MemoryMetric {
     status: toMetricStatus(reading.status),
     usedBytes: reading.usedBytes,
     totalBytes: reading.totalBytes,
+    usedPercent: reading.usedPercent,
+  };
+}
+
+function toDiskMetric(reading: DiskReading): DiskMetric {
+  return {
+    status: toMetricStatus(reading.status),
+    usedBytes: reading.usedBytes,
+    totalBytes: reading.totalBytes,
+    freeBytes: reading.freeBytes,
     usedPercent: reading.usedPercent,
   };
 }
