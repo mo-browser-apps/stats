@@ -2,6 +2,7 @@ import { ThemeProvider, useTheme } from "@/components/theme-provider";
 import { ipc } from "@/gen/ipc";
 import { Sun, Moon, Monitor, Activity } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { MetricsOverview } from "@/components/metrics-overview";
 
 /**
  * Renderer composition root. Dark is the primary design target for the compact
@@ -16,11 +17,9 @@ function App() {
 }
 
 /**
- * Compact application shell: a draggable title row and the overview surface.
- *
- * This iteration establishes the shell only. The live metric cards are added in
- * a later iteration; until then the overview area shows an explicit placeholder
- * rather than fake metric values.
+ * Compact application shell: a draggable title row plus the live metrics
+ * overview. The overview subscribes to the main-process metrics stream and
+ * renders explicit unavailable/pending states until real sampling lands.
  */
 function AppShell() {
   const { theme, setTheme } = useTheme();
@@ -42,8 +41,8 @@ function AppShell() {
         <ThemeToggle theme={theme} onChange={setAppTheme} />
       </header>
 
-      <main className="flex flex-1 items-center justify-center px-4 pb-4">
-        <p className="text-xs text-muted-foreground">Metrics overview coming soon.</p>
+      <main className="flex flex-1 flex-col overflow-hidden">
+        <MetricsOverview />
       </main>
     </div>
   );

@@ -27,6 +27,10 @@
         --destructive: 0 84.2% 60.2%;
         --destructive-foreground: 210 40% 98%;
 
+        /* Metric status colors. Saturated only for state, never decoration. */
+        --success: 142 71% 40%;
+        --warning: 38 92% 45%;
+
         --border: 214.3 31.8% 91.4%;
         --input: 214.3 31.8% 91.4%;
         --ring: 222.2 84% 4.9%;
@@ -38,7 +42,8 @@
         --background: 222.2 84% 4.9%;
         --foreground: 210 40% 98%;
 
-        --card: 222.2 84% 4.9%;
+        /* Slightly elevated surface so cards read against the near-black shell. */
+        --card: 217.2 32.6% 12%;
         --card-foreground: 210 40% 98%;
 
         --popover: 222.2 84% 4.9%;
@@ -58,6 +63,10 @@
 
         --destructive: 0 62.8% 30.6%;
         --destructive-foreground: 210 40% 98%;
+
+        /* Metric status colors. Saturated only for state, never decoration. */
+        --success: 142 64% 45%;
+        --warning: 38 92% 52%;
 
         --border: 217.2 32.6% 17.5%;
         --input: 217.2 32.6% 17.5%;
@@ -87,6 +96,14 @@
   .title-bar button,
   .title-bar [role="button"] {
     -webkit-app-region: no-drag;
+  }
+
+  /*
+   * Tabular numerals keep frequently changing metric values from jittering
+   * horizontally as digits change width (DESIGN.md typography rules).
+   */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
   }
 }
 
