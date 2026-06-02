@@ -28,11 +28,14 @@ const VALUE_COLOR_BY_STATE: Record<MetricState, string> = {
   unavailable: "text-muted-foreground",
 }
 
-/** Meter fill + marker color, mirroring the value color so state never relies on the meter alone. */
+/**
+ * Meter fill + marker color, mirroring the value color so state never relies on
+ * the meter alone.
+ */
 const FILL_BY_STATE: Record<MetricState, string> = {
-  ok: "bg-success",
-  elevated: "bg-warning",
-  critical: "bg-destructive",
+  ok: "bg-success shadow-[0_0_4px_var(--success)]",
+  elevated: "bg-warning shadow-[0_0_4px_var(--warning)]",
+  critical: "bg-destructive shadow-[0_0_4px_var(--destructive)]",
   pending: "bg-muted-foreground/30",
   unavailable: "bg-muted-foreground/30",
 }
