@@ -137,7 +137,7 @@ function FooterStats({ snapshot }: { snapshot: MetricsSnapshot | null }) {
 
       <div>
         {temperature && temperatureLive ? (
-          <FooterStat icon={Thermometer} label="CPU Temp" value={formatCelsius(temperature.celsius)} />
+          <FooterStat icon={Thermometer} label="CPU" value={formatCelsius(temperature.celsius)} />
         ) : null}
       </div>
     </div>
