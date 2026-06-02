@@ -10,9 +10,10 @@ import { UNAVAILABLE_TEXT } from "@/lib/format"
  * One compact metric card: icon + label, a primary value, an optional secondary
  * line, and an optional usage bar.
  *
- * Dimensions are fixed (`h-[112px]`) so values changing every tick never resize
- * the card or shift the grid (DESIGN.md "stable across updates"). Presentation
- * only - it renders whatever derived view the overview hands it.
+ * The four rows are always present (the secondary line and bar row reserve their
+ * height even when empty), so with uniform padding and gap the card height is
+ * constant across updates without a hand-tuned fixed height (DESIGN.md "stable
+ * across updates"). Presentation only - it renders whatever the overview hands it.
  */
 export interface MetricCardProps {
   icon: LucideIcon
@@ -48,29 +49,33 @@ export function MetricCard({
   const primaryText = live && value ? value : state === "pending" ? "--" : UNAVAILABLE_TEXT
 
   return (
-    <Card className="flex h-[112px] flex-col justify-between p-4">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span className="truncate text-[13px] font-medium">{label}</span>
+    <Card className="flex flex-col gap-1.5 p-3">
+      <div className="flex items-center gap-1.5 text-muted-foreground">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-muted-foreground/10">
+          <Icon className="h-3 w-3" strokeWidth={1.75} aria-hidden="true" />
+        </span>
+        <span className="truncate text-[11px] font-medium uppercase tracking-wide">{label}</span>
       </div>
 
-      <div className="flex flex-col gap-0.5">
-        <span
-          className={cn(
-            "truncate text-xl font-semibold tabular-nums leading-tight",
-            VALUE_COLOR_BY_STATE[state],
-          )}
-        >
-          {primaryText}
-        </span>
-        {/* Reserve the secondary line height even when empty to keep cards even. */}
-        <span className="h-4 truncate text-[11px] text-muted-foreground tabular-nums">
-          {live && secondary ? secondary : null}
-        </span>
-      </div>
+      <span
+        className={cn(
+          "truncate font-semibold tabular-nums",
+          live ? "text-2xl" : "text-base",
+          VALUE_COLOR_BY_STATE[state],
+        )}
+      >
+        {primaryText}
+      </span>
 
-      {/* Reserve the bar row height whether or not a bar is shown. */}
-      <div className="h-1.5">{showBar ? <ProgressBar value={percent} state={state} /> : null}</div>
+      {/* Reserve the secondary line height even when empty to keep cards even. */}
+      <span className="h-4 truncate text-[11px] text-muted-foreground tabular-nums">
+        {live && secondary ? secondary : null}
+      </span>
+
+      {/* Reserve the bar row height whether a bar is shown. */}
+      <div className="h-1">
+        {showBar ? <ProgressBar value={percent} state={state} /> : null}
+      </div>
     </Card>
   )
 }

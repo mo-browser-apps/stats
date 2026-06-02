@@ -1,19 +1,12 @@
-import { useEffect, useState } from "react"
-import { Cpu, MemoryStick, HardDrive, Network, Clock, Thermometer } from "lucide-react"
+import {useEffect, useState} from "react"
+import type {LucideIcon} from "lucide-react"
+import {Clock, Cpu, HardDrive, MemoryStick, Network, Thermometer} from "lucide-react"
 
-import { MetricCard } from "@/components/metric-card"
-import { metricsGateway } from "@/gateway/metrics-gateway"
-import type { MetricsSnapshot } from "@/gen/metrics"
-import { baseState, usageState, isLive } from "@/domain/metric-view"
-import {
-  formatBytes,
-  formatCelsius,
-  formatLoadAverage,
-  formatPercent,
-  formatRate,
-  formatTimestamp,
-  formatUptime,
-} from "@/lib/format"
+import {MetricCard} from "@/components/metric-card"
+import {metricsGateway} from "@/gateway/metrics-gateway"
+import type {MetricsSnapshot} from "@/gen/metrics"
+import {baseState, isLive, usageState} from "@/domain/metric-view"
+import {formatBytes, formatCelsius, formatPercent, formatRate, formatUptime,} from "@/lib/format"
 
 /**
  * Live overview grid. Subscribes once to the main-process metrics stream and
@@ -26,32 +19,32 @@ import {
  */
 export function MetricsOverview() {
   const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null)
-  const [streamError, setStreamError] = useState(false)
 
   useEffect(() => {
     // One subscription per mount; the returned unsubscribe is the cleanup.
-    const unsubscribe = metricsGateway.subscribe(
-      (next) => {
-        setStreamError(false)
-        setSnapshot(next)
-      },
-      () => setStreamError(true),
-    )
-    return unsubscribe
+    // The cards themselves render pending/unavailable when no snapshot arrives,
+    // so stream health needs no separate status line.
+    return metricsGateway.subscribe(setSnapshot, () => setSnapshot(null))
   }, [])
 
   return (
-    <div className="flex flex-1 flex-col gap-3 px-4 pb-4">
-      <div className="grid grid-cols-2 gap-3">
-        <CpuCard snapshot={snapshot} />
-        <MemoryCard snapshot={snapshot} />
-        <DiskCard snapshot={snapshot} />
-        <NetworkCard snapshot={snapshot} />
-        <UptimeCard snapshot={snapshot} />
-        <TemperatureCard snapshot={snapshot} />
+    <div className="flex flex-1 flex-col gap-4 px-4 pb-4">
+      {/* The four primary metrics are the cards; they sit centered in the space
+          between the title row and the footer so the vertical margins match. */}
+      <div className="flex flex-1 items-center">
+        <div className="grid w-full grid-cols-2 gap-3">
+          <CpuCard snapshot={snapshot} />
+          <MemoryCard snapshot={snapshot} />
+          <DiskCard snapshot={snapshot} />
+          <NetworkCard snapshot={snapshot} />
+        </div>
       </div>
 
-      <StatusLine snapshot={snapshot} streamError={streamError} />
+      {/* Uptime and Temperature are secondary stats, kept quiet in the footer. */}
+      <div className="flex flex-col gap-2">
+        <div className="h-px bg-border" />
+        <FooterStats snapshot={snapshot} />
+      </div>
     </div>
   )
 }
@@ -120,56 +113,52 @@ function NetworkCard({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   )
 }
 
-function UptimeCard({ snapshot }: { snapshot: MetricsSnapshot | null }) {
-  const uptime = snapshot?.uptime
-  const state = uptime ? baseState(uptime.status) : "pending"
-  const live = isLive(state)
-  return (
-    <MetricCard
-      icon={Clock}
-      label="Uptime"
-      state={state}
-      value={uptime && live ? formatUptime(uptime.uptimeSeconds) : undefined}
-      secondary={uptime && live ? `Load ${formatLoadAverage(uptime.loadAverage)}` : undefined}
-    />
-  )
-}
-
-function TemperatureCard({ snapshot }: { snapshot: MetricsSnapshot | null }) {
-  const temperature = snapshot?.temperature
-  const state = temperature ? baseState(temperature.status) : "pending"
-  const live = isLive(state)
-  return (
-    <MetricCard
-      icon={Thermometer}
-      label="Temperature"
-      state={state}
-      value={temperature && live ? formatCelsius(temperature.celsius) : undefined}
-    />
-  )
-}
-
 /**
- * Footer caption: shows the last-update time, or an explicit connecting/error
- * state. Honest about stream health rather than silently showing stale cards.
+ * Compact footer: Uptime in the left corner and CPU temperature in the right
+ * corner.
+ *
+ * CPU temperature is best-effort on Apple Silicon, so it is shown only when a
+ * sensor reading is actually available rather than as a dead placeholder.
  */
-function StatusLine({
-  snapshot,
-  streamError,
-}: {
-  snapshot: MetricsSnapshot | null
-  streamError: boolean
-}) {
-  let text: string
-  if (streamError) {
-    text = "Metrics stream disconnected."
-  } else if (!snapshot) {
-    text = "Connecting to metrics..."
-  } else {
-    text = `Updated ${formatTimestamp(snapshot.timestampMs)}`
-  }
+function FooterStats({ snapshot }: { snapshot: MetricsSnapshot | null }) {
+  const uptime = snapshot?.uptime
+  const uptimeLive = uptime ? isLive(baseState(uptime.status)) : false
+
+  const temperature = snapshot?.temperature
+  const temperatureLive = temperature ? isLive(baseState(temperature.status)) : false
 
   return (
-    <p className="mt-auto text-center text-[11px] text-muted-foreground tabular-nums">{text}</p>
+    <div className="flex items-center justify-between text-[11px]">
+      <div>
+        {uptime && uptimeLive ? (
+          <FooterStat icon={Clock} label="Uptime" value={formatUptime(uptime.uptimeSeconds)} />
+        ) : null}
+      </div>
+
+      <div>
+        {temperature && temperatureLive ? (
+          <FooterStat icon={Thermometer} label="CPU Temp" value={formatCelsius(temperature.celsius)} />
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+/** A single footer stat: quiet icon + label, then the value. */
+function FooterStat({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon
+  label: string
+  value: string
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Icon className="h-3 w-3 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium tabular-nums">{value}</span>
+    </div>
   )
 }

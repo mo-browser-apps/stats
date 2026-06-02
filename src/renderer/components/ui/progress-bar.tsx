@@ -32,7 +32,7 @@ export function ProgressBar({ value, state, className }: ProgressBarProps) {
 
   return (
     <div
-      className={cn("h-1.5 w-full overflow-hidden rounded-full bg-muted", className)}
+      className={cn("h-1 w-full overflow-hidden rounded-full bg-muted", className)}
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}

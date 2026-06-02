@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
 
 /**
  * Minimal Shadcn-style surface primitive. MoStats uses a single flat card per
- * metric (no nested cards per DESIGN.md), so this is just an elevated, bordered,
+ * metric (no nested cards per DESIGN.md), so this is just a quiet, bordered,
  * rounded container; metric-specific layout lives in the metric card component.
  */
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
@@ -12,7 +12,7 @@ const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
     <div
       ref={ref}
       className={cn(
-        "rounded-2xl border border-border bg-card text-card-foreground",
+        "rounded-xl border border-border/60 bg-card/60 text-card-foreground",
         className,
       )}
       {...props}
