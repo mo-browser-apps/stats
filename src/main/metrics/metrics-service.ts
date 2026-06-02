@@ -48,10 +48,18 @@ function toMetricStatus(status: ReadingStatus): MetricStatus {
  * Samples CPU, memory, disk, network throughput, uptime/load, and optional CPU
  * temperature. Network counters and temperature come from the native probes, so a
  * tick is async. Temperature is best-effort and is published as explicit
- * unavailable when no trustworthy CPU sensor is readable. Publishing with no
- * current subscriber is a runtime no-op, so the interval is safe to run
- * unconditionally. `dispose()` stops the interval and tears down any in-flight
- * subscribers.
+ * unavailable when no trustworthy CPU sensor is readable.
+ *
+ * Lifecycle hardening (I09): the cadence runs only while the UI is active. The
+ * sole consumer is the single compact window, so {@link setActive} pauses the
+ * interval (and the two native probes it drives) while the window is hidden and
+ * resumes it when shown. A tick is skipped if the previous async publish has not
+ * finished, so a slow or hung probe cannot stack overlapping work. `publish()`
+ * never rejects: the sampler degrades per-group failures to unavailable, and a
+ * delivery error (e.g. a stale publish after `dispose()`) is swallowed rather
+ * than left as an unhandled rejection. `dispose()` stops the interval and closes
+ * any in-flight subscribers; it is called from the app quit path so the process
+ * exits cleanly.
  */
 export class MetricsService {
   private readonly handle = ipc.registerService(MetricsServiceDescriptor);
@@ -60,11 +68,52 @@ export class MetricsService {
 
   private timer: ReturnType<typeof setInterval> | null = null;
 
+  /** Whether the UI is active and snapshots should be sampled and published. */
+  private active = false;
+
+  /** Set while an async publish is in flight, to guard against overlap. */
+  private publishing = false;
+
+  /** Set once `dispose()` has run; blocks any further start or publish. */
+  private disposed = false;
+
   /**
-   * Starts the publish cadence. Emits one snapshot immediately so a renderer
-   * that is already subscribed paints without waiting a full interval.
+   * Marks the service active or idle and (re)starts or pauses the cadence to
+   * match. Active means a renderer can see snapshots, i.e. the window is shown;
+   * idle means the window is hidden and there is nothing to display, so sampling
+   * the native probes every second would be wasted work. Resuming emits one
+   * snapshot immediately so a freshly shown window paints without waiting a full
+   * interval. Idempotent for repeated calls with the same state.
    */
-  start(): void {
+  setActive(active: boolean): void {
+    if (this.disposed || active === this.active) {
+      return;
+    }
+
+    this.active = active;
+    if (active) {
+      this.startTimer();
+    } else {
+      this.stopTimer();
+    }
+  }
+
+  /**
+   * Stops the cadence and closes the broadcast stream. Idempotent. After this
+   * the service cannot be reactivated; it is intended for app shutdown.
+   */
+  dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+
+    this.disposed = true;
+    this.active = false;
+    this.stopTimer();
+    this.handle.dispose();
+  }
+
+  private startTimer(): void {
     if (this.timer !== null) {
       return;
     }
@@ -73,26 +122,43 @@ export class MetricsService {
     this.timer = setInterval(() => void this.publish(), PUBLISH_INTERVAL_MS);
   }
 
-  /**
-   * Stops the cadence and closes the broadcast stream. Idempotent.
-   */
-  dispose(): void {
+  private stopTimer(): void {
     if (this.timer !== null) {
       clearInterval(this.timer);
       this.timer = null;
     }
-
-    this.handle.dispose();
   }
 
   /**
    * Samples once and publishes the snapshot to every subscriber. A no-op for
    * delivery when nobody is subscribed; sampling still happens so the cadence
-   * stays consistent. Async because the network counters are read over the
-   * native RPC; the sampler swallows per-group errors so this never rejects.
+   * stays consistent. Async because the network counters and temperature are
+   * read over native RPCs.
+   *
+   * Never rejects: a tick that overlaps an in-flight publish is skipped (so a
+   * slow probe cannot stack work), and any delivery failure - including a stale
+   * publish racing a `dispose()`, which the runtime makes throw - is swallowed so
+   * the floating caller never produces an unhandled rejection.
    */
   private async publish(): Promise<void> {
-    this.handle.StreamSnapshots(await this.buildSnapshot());
+    if (this.publishing || this.disposed) {
+      return;
+    }
+
+    this.publishing = true;
+    try {
+      const snapshot = await this.buildSnapshot();
+      if (!this.disposed) {
+        this.handle.StreamSnapshots(snapshot);
+      }
+    } catch {
+      // Degrade silently: the sampler already maps source failures to
+      // unavailable, so reaching here means a delivery/runtime fault. Dropping
+      // the tick keeps the cadence alive without an unhandled rejection or a
+      // retry storm; the next tick republishes.
+    } finally {
+      this.publishing = false;
+    }
   }
 
   /**

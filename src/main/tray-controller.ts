@@ -7,12 +7,22 @@ import type { ApplicationWindow } from './application-window';
  *
  * The tray is the primary way to bring the compact window back after it has
  * been hidden, and to quit the app. A left click toggles the window; a right
- * click opens the menu with explicit Show/Hide and Quit actions.
+ * click opens the menu with explicit Show/Hide and Quit actions. Quit is routed
+ * through the injected callback (rather than calling `app.quit()` directly) so
+ * the owner can tear down runtime services before the process exits.
  */
 export class TrayController {
   private readonly tray: Tray;
 
-  constructor(private readonly window: ApplicationWindow) {
+  /**
+   * @param window The compact window the tray shows, hides, and toggles.
+   * @param onQuit Invoked when the user selects Quit; the owner disposes
+   *   services and then quits the app.
+   */
+  constructor(
+    private readonly window: ApplicationWindow,
+    private readonly onQuit: () => void,
+  ) {
     this.tray = new Tray({
       tooltip: app.name,
       imagePath: `${app.getPath('appResources')}/imageTemplate.png`,
@@ -30,16 +40,24 @@ export class TrayController {
 
   /**
    * Rebuilds the tray menu. Called when window visibility changes so the
-   * Show/Hide label matches the current state.
+   * Show/Hide label matches the current state. A no-op once the tray is
+   * destroyed, since a window visibility event can still fire during quit
+   * (after `destroy()`) when the window is closed.
    */
   refresh(): void {
+    if (this.tray.destroyed) {
+      return;
+    }
     this.tray.setMenu(this.buildMenu());
   }
 
   /**
-   * Releases the native tray resource.
+   * Releases the native tray resource. Idempotent.
    */
   destroy(): void {
+    if (this.tray.destroyed) {
+      return;
+    }
     this.tray.destroy();
   }
 
@@ -59,7 +77,7 @@ export class TrayController {
           label: 'Quit MoStats',
           shortcut: 'CommandOrControl+Q',
           action: () => {
-            app.quit();
+            this.onQuit();
           },
         }),
       ],
