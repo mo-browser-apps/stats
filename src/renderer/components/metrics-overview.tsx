@@ -1,28 +1,17 @@
-import {useEffect, useState} from "react"
 import type {LucideIcon} from "lucide-react"
 import {Clock, Cpu, HardDrive, MemoryStick, Network, Thermometer} from "lucide-react"
 
 import {MetricRow} from "@/components/metric-row"
-import {metricsGateway} from "@/gateway/metrics-gateway"
 import type {MetricsSnapshot} from "@/gen/metrics"
 import {baseState, isLive, usageState} from "@/domain/metric-view"
 import {formatBytes, formatCelsius, formatPercent, formatRate, formatUptime,} from "@/lib/format"
 
 /**
- * Live overview. Subscribes once to the main-process metrics stream and
- * re-renders each row as snapshots arrive; the subscription is torn down on
- * unmount. Main owns the sampling cadence, so this component holds no timer.
+ * Live overview.
+ *
+ * Renders the latest snapshot as a stack of metric rows.
  */
-export function MetricsOverview() {
-  const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null)
-
-  useEffect(() => {
-    // One subscription per mount; the returned unsubscribe is the cleanup.
-    // The rows themselves render pending/unavailable when no snapshot arrives,
-    // so stream health needs no separate status line.
-    return metricsGateway.subscribe(setSnapshot, () => setSnapshot(null))
-  }, [])
-
+export function MetricsOverview({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   return (
     <div className="flex flex-1 flex-col px-6 pb-5">
       <div className="flex flex-1 flex-col justify-center divide-y divide-border/50">
