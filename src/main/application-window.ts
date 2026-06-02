@@ -6,8 +6,8 @@ import type { CloseBrowserWindowAction, CloseBrowserWindowParams } from '@mobrow
  * Compact window dimensions aligned with DESIGN.md. The minimum size still
  * preserves every primary metric slot without overlap once the overview lands.
  */
-const WINDOW_SIZE = { width: 460, height: 340 } as const;
-const MIN_WINDOW_SIZE = { width: 420, height: 340 } as const;
+const WINDOW_SIZE = { width: 320, height: 440 } as const;
+const MIN_WINDOW_SIZE = { width: 300, height: 440 } as const;
 
 /**
  * Position of the macOS traffic-light buttons so they clear the custom

@@ -2,113 +2,111 @@ import {useEffect, useState} from "react"
 import type {LucideIcon} from "lucide-react"
 import {Clock, Cpu, HardDrive, MemoryStick, Network, Thermometer} from "lucide-react"
 
-import {MetricCard} from "@/components/metric-card"
+import {MetricRow} from "@/components/metric-row"
 import {metricsGateway} from "@/gateway/metrics-gateway"
 import type {MetricsSnapshot} from "@/gen/metrics"
 import {baseState, isLive, usageState} from "@/domain/metric-view"
 import {formatBytes, formatCelsius, formatPercent, formatRate, formatUptime,} from "@/lib/format"
 
 /**
- * Live overview grid. Subscribes once to the main-process metrics stream and
- * re-renders each card as snapshots arrive; the subscription is torn down on
+ * Live overview. Subscribes once to the main-process metrics stream and
+ * re-renders each row as snapshots arrive; the subscription is torn down on
  * unmount. Main owns the sampling cadence, so this component holds no timer.
- *
- * Presentation only: it reads the latest snapshot and renders derived views.
- * Until real sampling lands (I05+), groups arrive UNAVAILABLE/UNKNOWN, which the
- * cards render explicitly rather than as fake values.
  */
 export function MetricsOverview() {
   const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null)
 
   useEffect(() => {
     // One subscription per mount; the returned unsubscribe is the cleanup.
-    // The cards themselves render pending/unavailable when no snapshot arrives,
+    // The rows themselves render pending/unavailable when no snapshot arrives,
     // so stream health needs no separate status line.
     return metricsGateway.subscribe(setSnapshot, () => setSnapshot(null))
   }, [])
 
   return (
-    <div className="flex flex-1 flex-col gap-3 px-4 pb-4">
-      {/* The four primary metrics are the cards; they sit centered in the space
-          between the title row and the footer so the vertical margins match. */}
-      <div className="flex flex-1 items-center">
-        <div className="grid w-full grid-cols-2 gap-2.5">
-          <CpuCard snapshot={snapshot} />
-          <MemoryCard snapshot={snapshot} />
-          <DiskCard snapshot={snapshot} />
-          <NetworkCard snapshot={snapshot} />
+    <div className="flex flex-1 flex-col px-6 pb-5">
+      <div className="flex flex-1 flex-col justify-center divide-y divide-border/50">
+        <div className="pb-4">
+          <CpuRow snapshot={snapshot} />
+        </div>
+        <div className="py-4">
+          <MemoryRow snapshot={snapshot} />
+        </div>
+        <div className="py-4">
+          <DiskRow snapshot={snapshot} />
+        </div>
+        <div className="pt-4">
+          <NetworkRow snapshot={snapshot} />
         </div>
       </div>
-
-      {/* Uptime and Temperature are secondary stats, kept quiet in the footer. */}
-      <div className="flex flex-col gap-2">
-        <div className="h-px bg-border" />
+      <div className="flex flex-col gap-3">
+        <div className="h-px bg-border/50" />
         <FooterStats snapshot={snapshot} />
       </div>
     </div>
   )
 }
 
-function CpuCard({ snapshot }: { snapshot: MetricsSnapshot | null }) {
+function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const cpu = snapshot?.cpu
   const state = cpu ? usageState(cpu.status, cpu.usagePercent) : "pending"
   const live = isLive(state)
-  const identity = cpu && cpu.model ? `${cpu.model}${cpu.coreCount ? ` - ${cpu.coreCount} cores` : ""}` : undefined
+  const detail = cpu && cpu.model ? `${cpu.model}${cpu.coreCount ? ` - ${cpu.coreCount} cores` : ""}` : undefined
   return (
-    <MetricCard
+    <MetricRow
       icon={Cpu}
       label="CPU"
       state={state}
       value={cpu ? formatPercent(cpu.usagePercent) : undefined}
-      secondary={live ? identity : undefined}
+      detail={live ? detail : undefined}
       percent={live ? cpu?.usagePercent : undefined}
     />
   )
 }
 
-function MemoryCard({ snapshot }: { snapshot: MetricsSnapshot | null }) {
+function MemoryRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const memory = snapshot?.memory
   const state = memory ? usageState(memory.status, memory.usedPercent) : "pending"
   const live = isLive(state)
   return (
-    <MetricCard
+    <MetricRow
       icon={MemoryStick}
       label="Memory"
       state={state}
       value={memory ? formatPercent(memory.usedPercent) : undefined}
-      secondary={live ? `${formatBytes(memory!.usedBytes)} / ${formatBytes(memory!.totalBytes)}` : undefined}
+      detail={live ? `${formatBytes(memory!.usedBytes)} / ${formatBytes(memory!.totalBytes)}` : undefined}
       percent={live ? memory?.usedPercent : undefined}
     />
   )
 }
 
-function DiskCard({ snapshot }: { snapshot: MetricsSnapshot | null }) {
+function DiskRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const disk = snapshot?.disk
   const state = disk ? usageState(disk.status, disk.usedPercent) : "pending"
   const live = isLive(state)
   return (
-    <MetricCard
+    <MetricRow
       icon={HardDrive}
       label="Disk"
       state={state}
       value={disk ? formatPercent(disk.usedPercent) : undefined}
-      secondary={live ? `${formatBytes(disk!.usedBytes)} / ${formatBytes(disk!.totalBytes)}` : undefined}
+      detail={live ? `${formatBytes(disk!.usedBytes)} / ${formatBytes(disk!.totalBytes)}` : undefined}
       percent={live ? disk?.usedPercent : undefined}
     />
   )
 }
 
-function NetworkCard({ snapshot }: { snapshot: MetricsSnapshot | null }) {
+function NetworkRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const network = snapshot?.network
   const state = network ? baseState(network.status) : "pending"
   const live = isLive(state)
   return (
-    <MetricCard
+    <MetricRow
       icon={Network}
       label="Network"
       state={state}
       value={network && live ? `↓ ${formatRate(network.rxBytesPerSec)}` : undefined}
-      secondary={network && live ? `↑ ${formatRate(network.txBytesPerSec)}` : undefined}
+      detail={network && live ? `↑ ${formatRate(network.txBytesPerSec)}` : undefined}
     />
   )
 }

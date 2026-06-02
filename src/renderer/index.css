@@ -39,6 +39,7 @@
   --color-border:           var(--border);
   --color-input:            var(--input);
   --color-ring:             var(--ring);
+  --color-track:            var(--track);
 
   /* Metric status — saturated only for state, never decoration. */
   --color-success:             var(--success);
@@ -84,6 +85,8 @@
   --border:           oklch(92.2% 0 0deg);
   --input:            oklch(82% 0 0deg);
   --ring:             oklch(70% 0.245 262.9deg);
+  /* Unfilled meter rail; faint, but a step stronger than dividers. */
+  --track:            oklch(0% 0 0deg / 8%);
 
   /* Metric status — green normal, amber elevated, red critical. */
   --success:                oklch(59.6% 0.145 163.2deg);
@@ -119,6 +122,9 @@
   --border:           oklch(100% 0 0deg / 10%);
   --input:            oklch(100% 0 0deg / 15%);
   --ring:             oklch(67% 0.19 262deg / 80%);
+  /* Unfilled meter rail; faint, but a step stronger than dividers so the meter
+     and the row separators read as different elements (DESIGN.md track token). */
+  --track:            oklch(100% 0 0deg / 9%);
 
   /* Metric status — green normal, amber elevated, red critical. */
   --success:                oklch(79% 0.19 157deg);
