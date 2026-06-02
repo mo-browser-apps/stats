@@ -78,6 +78,13 @@ export class ApplicationWindow {
     return this.window !== null && !this.window.isClosed && this.window.isVisible;
   }
 
+  /**
+   * Pins or unpins the window above other windows.
+   */
+  setAlwaysOnTop(alwaysOnTop: boolean): void {
+    this.getOrCreateWindow().setAlwaysOnTop(alwaysOnTop);
+  }
+
   private getOrCreateWindow(): BrowserWindow {
     if (this.window === null || this.window.isClosed) {
       this.window = this.create();

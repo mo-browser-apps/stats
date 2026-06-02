@@ -2,7 +2,7 @@ import { app, ipc, Theme } from '@mobrowser/api';
 import { ApplicationWindow } from './application-window';
 import { TrayController } from './tray-controller';
 import { MetricsService } from './metrics/metrics-service';
-import { SetThemeRequest } from './gen/app';
+import { SetAlwaysOnTopRequest, SetThemeRequest } from './gen/app';
 import { AppServiceDescriptor } from './gen/ipc_service';
 
 /**
@@ -80,15 +80,19 @@ export class Application {
   }
 
   /**
-   * Registers the app-level IPC service. The renderer no longer calls SetTheme
-   * (the app is dark-only and the theme is fixed natively at startup), but the
-   * RPC is kept as the app-level IPC seam; cleanup is deferred to the
-   * pre-release polish pass.
+   * Registers the app-level IPC service. SetTheme is unused by the renderer
+   * (the app is dark-only and the theme is fixed natively at startup) but is
+   * kept as the app-level IPC seam.
    */
   private registerAppService(): void {
+    const window = this.window;
     ipc.registerService(AppServiceDescriptor, {
       async SetTheme(request: SetThemeRequest) {
         app.setTheme(request.theme as Theme);
+        return {};
+      },
+      async SetAlwaysOnTop(request: SetAlwaysOnTopRequest) {
+        window.setAlwaysOnTop(request.alwaysOnTop);
         return {};
       },
     });
