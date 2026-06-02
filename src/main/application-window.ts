@@ -16,12 +16,6 @@ const MIN_WINDOW_SIZE = { width: 300, height: 440 } as const;
 const MAC_WINDOW_BUTTON_POSITION = { x: 16, y: 18 } as const;
 
 /**
- * Keep normal dev launches visually faithful to the compact app. DevTools can
- * still be opened explicitly when debugging renderer behavior.
- */
-const OPEN_DEVTOOLS = process.env.MOSTATS_OPEN_DEVTOOLS === '1';
-
-/**
  * Owns the single compact MoStats window and its show/hide lifecycle.
  *
  * Closing the window hides it so the app keeps running in the background; the
@@ -137,10 +131,6 @@ export class ApplicationWindow {
       this.window = null;
       this.onVisibilityChange?.();
     });
-
-    if (!app.packaged && OPEN_DEVTOOLS) {
-      window.browser.devTools.open();
-    }
 
     return window;
   }
