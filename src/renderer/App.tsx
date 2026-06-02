@@ -15,10 +15,9 @@ function App() {
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <header className={cn("title-bar relative flex items-center pr-2", isMac && "title-bar-mac")}>
-        {/* Centered wordmark. Absolutely centered so the left traffic-light room
-            and the right pin button never pull it off-center. */}
-        <span className="pointer-events-none absolute inset-x-0 text-center text-[13px] font-semibold">
+        <span className="pointer-events-none absolute inset-x-0 flex items-center justify-center gap-2 text-[13px] font-semibold">
           MoStats
+          <LiveDot />
         </span>
         <PinToggle />
       </header>
@@ -27,6 +26,20 @@ function App() {
         <MetricsOverview />
       </main>
     </div>
+  );
+}
+
+/**
+ * Small "live" beacon next to the wordmark: a green dot that gently pulses,
+ * signaling the metrics stream is updating.
+ */
+function LiveDot() {
+  return (
+    <span
+      className="h-1 w-1 animate-pulse rounded-full bg-success shadow-[0_0_6px_var(--success)]"
+      aria-label="Live"
+      title="Live"
+    />
   );
 }
 
