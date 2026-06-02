@@ -61,16 +61,22 @@ function LiveDot({ live }: { live: boolean }) {
 
 /**
  * Title-bar "pin on top" toggle. Keeps the compact monitor above other windows
- * so it stays visible while working elsewhere. Local state drives the visual,
- * and the main process applies the actual window flag over typed IPC.
+ * so it stays visible while working elsewhere. The visual state changes only
+ * after the typed IPC command succeeds.
  */
 function PinToggle() {
   const [pinned, setPinned] = useState(false);
+  const [pending, setPending] = useState(false);
 
   function toggle() {
+    if (pending) return;
+
     const next = !pinned;
-    setPinned(next);
-    void appGateway.setAlwaysOnTop(next);
+    setPending(true);
+    void appGateway.setAlwaysOnTop(next)
+      .then(() => setPinned(next))
+      .catch(() => undefined)
+      .finally(() => setPending(false));
   }
 
   return (
@@ -78,6 +84,7 @@ function PinToggle() {
       variant="ghost"
       size="icon"
       onClick={toggle}
+      disabled={pending}
       aria-label={pinned ? "Unpin from top" : "Pin on top"}
       aria-pressed={pinned}
       title={pinned ? "Unpin from top" : "Keep on top"}

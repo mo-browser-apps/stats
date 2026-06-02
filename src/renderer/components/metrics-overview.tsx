@@ -4,7 +4,7 @@ import {Clock, Cpu, HardDrive, MemoryStick, Network, Thermometer} from "lucide-r
 import {MetricRow} from "@/components/metric-row"
 import type {MetricsSnapshot} from "@/gen/metrics"
 import {baseState, isLive, usageState} from "@/domain/metric-view"
-import {formatBytes, formatCelsius, formatPercent, formatRate, formatUptime,} from "@/lib/format"
+import {UNAVAILABLE_TEXT, formatBytes, formatCelsius, formatPercent, formatRate, formatUptime,} from "@/lib/format"
 
 /**
  * Live overview.
@@ -109,7 +109,13 @@ function NetworkRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
  */
 function FooterStats({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const uptime = snapshot?.uptime
-  const uptimeLive = uptime ? isLive(baseState(uptime.status)) : false
+  const uptimeState = uptime ? baseState(uptime.status) : "pending"
+  const uptimeLive = isLive(uptimeState)
+  const uptimeValue = uptime && uptimeLive
+    ? formatUptime(uptime.uptimeSeconds)
+    : uptimeState === "pending"
+      ? "--"
+      : UNAVAILABLE_TEXT
 
   const temperature = snapshot?.temperature
   const temperatureLive = temperature ? isLive(baseState(temperature.status)) : false
@@ -117,9 +123,7 @@ function FooterStats({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   return (
     <div className="flex items-center justify-between text-[11px]">
       <div>
-        {uptime && uptimeLive ? (
-          <FooterStat icon={Clock} label="Uptime" value={formatUptime(uptime.uptimeSeconds)} />
-        ) : null}
+        <FooterStat icon={Clock} label="Uptime" value={uptimeValue} />
       </div>
 
       <div>

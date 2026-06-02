@@ -7,8 +7,7 @@ import { ipc } from '@/gen/ipc';
  */
 export const appGateway = {
   /**
-   * Pins or unpins the window above other windows. Fire-and-forget: the title
-   * bar already reflects the toggle locally, so the call needs no return value.
+   * Pins or unpins the window above other windows.
    */
   setAlwaysOnTop(alwaysOnTop: boolean): Promise<unknown> {
     return ipc.app.SetAlwaysOnTop({ alwaysOnTop });
