@@ -31,8 +31,13 @@ export interface CpuReading {
 /** Physical memory usage in bytes plus derived percent. */
 export interface MemoryReading {
   status: ReadingStatus;
+  /** Memory in use after excluding reclaimable cache. */
   usedBytes: number;
   totalBytes: number;
+  /** Memory available to apps, including reclaimable cache. */
+  availableBytes: number;
+  /** Reclaimable cached files/purgeable memory. */
+  cachedBytes: number;
   /** 0-100 used percentage. */
   usedPercent: number;
 }

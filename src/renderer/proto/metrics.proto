@@ -6,8 +6,7 @@ syntax = "proto3";
 // renderer over a server-streaming RPC; the renderer subscribes once and
 // renders whatever arrives. Every metric group carries an explicit status so a
 // single unavailable source degrades only its own card instead of poisoning
-// the whole snapshot. Real sampling lands in later iterations; this slice
-// publishes explicit-unavailable snapshots.
+// the whole snapshot.
 
 // Availability of a metric group within a snapshot. UNKNOWN is the proto3
 // default and means "not yet determined" (e.g. before the first real sample);
@@ -27,12 +26,16 @@ message CpuMetric {
   uint32 core_count = 4;    // Logical core count; 0 when unknown.
 }
 
-// Physical memory usage. Bytes use uint64 to stay correct above 4 GB.
+// Physical memory usage. The primary used value excludes reclaimable cache so
+// the memory row does not present cached files as pressure. Bytes use uint64 to
+// stay correct above 4 GB.
 message MemoryMetric {
   MetricStatus status = 1;
   uint64 used_bytes = 2;
   uint64 total_bytes = 3;
   double used_percent = 4; // 0-100.
+  uint64 available_bytes = 5; // Free/available to apps, including cache.
+  uint64 cached_bytes = 6;    // Reclaimable cached files/purgeable memory.
 }
 
 // Usage for the main system volume.

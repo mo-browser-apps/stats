@@ -39,7 +39,7 @@ export function baseState(status: MetricStatus): MetricState {
 export function usageState(
   status: MetricStatus,
   usedPercent: number,
-  elevatedAt = 75,
+  elevatedAt = 70,
   criticalAt = 90,
 ): MetricState {
   const base = baseState(status);

@@ -3,14 +3,19 @@
 #include <net/if_dl.h>
 #include <net/if_media.h>
 #include <net/if_types.h>
+#include <mach/mach.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/sockio.h>
+#include <sys/sysctl.h>
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <unistd.h>
 
 #include "rpc.h"
+#include "gen/memory.rpc.h"
 #include "gen/network.rpc.h"
 #include "gen/temperature.rpc.h"
 #include "temperature_probe.h"
@@ -19,6 +24,45 @@ using google::protobuf::Empty;
 using mo::rpc::Callback;
 
 namespace {
+
+uint64_t SaturatingAdd(uint64_t left, uint64_t right) {
+  const uint64_t max = std::numeric_limits<uint64_t>::max();
+  if (max - left < right) {
+    return max;
+  }
+  return left + right;
+}
+
+uint64_t SaturatingSubtract(uint64_t left, uint64_t right) {
+  return left > right ? left - right : 0;
+}
+
+uint64_t PagesToBytes(uint64_t pages, uint64_t page_size) {
+  if (page_size == 0) {
+    return 0;
+  }
+  const uint64_t max = std::numeric_limits<uint64_t>::max();
+  if (pages > max / page_size) {
+    return max;
+  }
+  return pages * page_size;
+}
+
+bool ReadPhysicalMemorySize(uint64_t* total_bytes) {
+  if (total_bytes == nullptr) {
+    return false;
+  }
+
+  uint64_t value = 0;
+  size_t size = sizeof(value);
+  if (sysctlbyname("hw.memsize", &value, &size, nullptr, 0) != 0 ||
+      size != sizeof(value) || value == 0) {
+    return false;
+  }
+
+  *total_bytes = value;
+  return true;
+}
 
 bool HasActiveMedia(int media_socket, const char* name) {
   if (media_socket < 0 || name == nullptr) {
@@ -85,6 +129,79 @@ bool IsCountedInterface(const ifaddrs* ptr, int media_socket) {
 }
 
 }  // namespace
+
+/**
+ * Narrow macOS memory probe.
+ *
+ * Reads the host VM page counters via host_statistics64() and returns a compact
+ * Activity Monitor-style breakdown. Reclaimable file cache (external +
+ * purgeable pages) is subtracted from the primary "used" figure and surfaced
+ * separately so the UI does not present cache as pressure. The main-process
+ * sampler owns percentage derivation and unavailable-state mapping.
+ *
+ * Technique reference: exelban/stats Modules/RAM/readers.swift uses the same
+ * host_statistics64 VM categories; this is a scoped C++ re-implementation that
+ * exposes only total, used, available, and cache for MoStats' single row.
+ */
+class MemoryServiceImpl : public MemoryService {
+ public:
+  void ReadUsage(const Empty* /*request*/, Callback<MemoryUsage> done) override {
+    MemoryUsage response;
+
+    uint64_t total_bytes = 0;
+    if (!ReadPhysicalMemorySize(&total_bytes)) {
+      response.set_available(false);
+      std::move(done).Complete(response);
+      return;
+    }
+
+    const long raw_page_size = sysconf(_SC_PAGESIZE);
+    if (raw_page_size <= 0) {
+      response.set_available(false);
+      std::move(done).Complete(response);
+      return;
+    }
+    const uint64_t page_size = static_cast<uint64_t>(raw_page_size);
+
+    vm_statistics64_data_t stats = {};
+    mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+    const kern_return_t result = host_statistics64(
+        mach_host_self(), HOST_VM_INFO64, reinterpret_cast<host_info64_t>(&stats),
+        &count);
+    if (result != KERN_SUCCESS) {
+      response.set_available(false);
+      std::move(done).Complete(response);
+      return;
+    }
+
+    uint64_t occupied_pages = 0;
+    occupied_pages = SaturatingAdd(occupied_pages, stats.active_count);
+    occupied_pages = SaturatingAdd(occupied_pages, stats.inactive_count);
+    occupied_pages = SaturatingAdd(occupied_pages, stats.speculative_count);
+    occupied_pages = SaturatingAdd(occupied_pages, stats.wire_count);
+    occupied_pages = SaturatingAdd(occupied_pages, stats.compressor_page_count);
+
+    uint64_t cached_pages = 0;
+    cached_pages = SaturatingAdd(cached_pages, stats.purgeable_count);
+    cached_pages = SaturatingAdd(cached_pages, stats.external_page_count);
+
+    const uint64_t used_pages =
+        SaturatingSubtract(occupied_pages, cached_pages);
+    uint64_t used_bytes = PagesToBytes(used_pages, page_size);
+    uint64_t cached_bytes = PagesToBytes(cached_pages, page_size);
+
+    used_bytes = std::min(used_bytes, total_bytes);
+    const uint64_t available_bytes = total_bytes - used_bytes;
+    cached_bytes = std::min(cached_bytes, available_bytes);
+
+    response.set_available(true);
+    response.set_total_bytes(total_bytes);
+    response.set_used_bytes(used_bytes);
+    response.set_available_bytes(available_bytes);
+    response.set_cached_bytes(cached_bytes);
+    std::move(done).Complete(response);
+  }
+};
 
 /**
  * Narrow macOS network probe.
@@ -178,6 +295,7 @@ class TemperatureServiceImpl : public TemperatureService {
 };
 
 void launch() {
+  mo::rpc::RegisterService(new MemoryServiceImpl());
   mo::rpc::RegisterService(new NetworkServiceImpl());
   mo::rpc::RegisterService(new TemperatureServiceImpl());
 }

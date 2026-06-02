@@ -45,9 +45,9 @@ interface CpuTicks {
 /**
  * Samples the system metrics for one snapshot: CPU usage, CPU identity, memory,
  * disk capacity, network throughput, uptime, load average, and optional CPU
- * temperature. CPU/memory/disk/uptime come from Node `os`/`fs`; network
- * throughput and temperature come from the native probes (Node has no rx/tx byte
- * counters and no thermal API).
+ * temperature. CPU/disk/uptime come from Node `os`/`fs`; memory, network
+ * throughput, and temperature come from native probes (Node cannot expose the
+ * macOS VM cache breakdown, rx/tx byte counters, or thermal sensors).
  *
  * Both CPU usage and network throughput are deltas between successive samples
  * (no single call yields an instantaneous value), so this class is stateful: it
@@ -79,7 +79,7 @@ export class MetricsSampler {
   async sample(): Promise<MetricsReading> {
     return {
       cpu: this.sampleCpu(),
-      memory: this.sampleMemory(),
+      memory: await this.sampleMemory(),
       disk: this.sampleDisk(),
       network: await this.sampleNetwork(),
       uptime: this.sampleUptime(),
@@ -126,20 +126,29 @@ export class MetricsSampler {
     }
   }
 
-  /** Physical memory usage from Node `os` totals. */
-  private sampleMemory(): MemoryReading {
+  /**
+   * Physical memory usage from the native macOS VM-statistics probe.
+   *
+   * Node's `os.freemem()` cannot distinguish truly used memory from reclaimable
+   * file cache on macOS, so it makes healthy cache look like pressure. The native
+   * probe returns an Activity Monitor-style breakdown: used excludes
+   * reclaimable cache, while available/cache are kept as separate values.
+   */
+  private async sampleMemory(): Promise<MemoryReading> {
     try {
-      const totalBytes = os.totalmem();
-      const freeBytes = os.freemem();
-      if (totalBytes <= 0) {
-        return { status: "unavailable", usedBytes: 0, totalBytes: 0, usedPercent: 0 };
+      const usage = await native.memory.ReadUsage({});
+      if (!usage.available || !Number.isFinite(usage.totalBytes) || usage.totalBytes <= 0) {
+        return { status: "unavailable", usedBytes: 0, totalBytes: 0, availableBytes: 0, cachedBytes: 0, usedPercent: 0};
       }
 
-      const usedBytes = Math.max(0, totalBytes - freeBytes);
+      const totalBytes = usage.totalBytes;
+      const usedBytes = clampBytes(usage.usedBytes, totalBytes);
+      const availableBytes = clampBytes(usage.availableBytes, totalBytes);
+      const cachedBytes = clampBytes(usage.cachedBytes, totalBytes);
       const usedPercent = clampPercent((usedBytes / totalBytes) * 100);
-      return { status: "ok", usedBytes, totalBytes, usedPercent };
+      return { status: "ok", usedBytes, totalBytes, availableBytes, cachedBytes, usedPercent };
     } catch {
-      return { status: "unavailable", usedBytes: 0, totalBytes: 0, usedPercent: 0 };
+      return { status: "unavailable", usedBytes: 0, totalBytes: 0, availableBytes: 0, cachedBytes: 0, usedPercent: 0};
     }
   }
 
@@ -284,6 +293,12 @@ function aggregateCpuTicks(cores: os.CpuInfo[]): CpuTicks {
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(100, Math.max(0, value));
+}
+
+/** Clamps a byte count to the 0-total range; non-finite values become 0. */
+function clampBytes(value: number, totalBytes: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(totalBytes)) return 0;
+  return Math.min(Math.max(0, totalBytes), Math.max(0, value));
 }
 
 /**
