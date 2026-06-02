@@ -28,11 +28,11 @@ export function MetricsOverview() {
   }, [])
 
   return (
-    <div className="flex flex-1 flex-col gap-4 px-4 pb-4">
+    <div className="flex flex-1 flex-col gap-3 px-4 pb-4">
       {/* The four primary metrics are the cards; they sit centered in the space
           between the title row and the footer so the vertical margins match. */}
       <div className="flex flex-1 items-center">
-        <div className="grid w-full grid-cols-2 gap-3">
+        <div className="grid w-full grid-cols-2 gap-2.5">
           <CpuCard snapshot={snapshot} />
           <MemoryCard snapshot={snapshot} />
           <DiskCard snapshot={snapshot} />
@@ -137,7 +137,7 @@ function FooterStats({ snapshot }: { snapshot: MetricsSnapshot | null }) {
 
       <div>
         {temperature && temperatureLive ? (
-          <FooterStat icon={Thermometer} label="CPU" value={formatCelsius(temperature.celsius)} />
+          <FooterStat icon={Thermometer} label="CPU Temp" value={formatCelsius(temperature.celsius)} />
         ) : null}
       </div>
     </div>
