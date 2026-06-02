@@ -2,19 +2,11 @@ syntax = "proto3";
 
 import "google/protobuf/empty.proto";
 
-message SetThemeRequest {
-  string theme = 1;
-}
-
 message SetAlwaysOnTopRequest {
   bool always_on_top = 1;
 }
 
-// App-level renderer-to-main commands. MoStats ships dark-only and forces the
-// native theme to dark at startup, so the renderer does not currently call
-// SetTheme; the RPC is retained as the app-level IPC seam (cleanup deferred to
-// the pre-release polish pass).
+// App-level renderer-to-main commands.
 service AppService {
-  rpc SetTheme(SetThemeRequest) returns (google.protobuf.Empty);
   rpc SetAlwaysOnTop(SetAlwaysOnTopRequest) returns (google.protobuf.Empty);
 }
