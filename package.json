@@ -13,7 +13,7 @@
     "verify": "npm run gen && npm run lint && npm run typecheck && npm run build"
   },
   "dependencies": {
-    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/sora": "^5.2.8",
     "@mobrowser/api": "2.8.0",
     "@mobrowser/cli": "2.8.0",
     "@mobrowser/native": "2.8.0",

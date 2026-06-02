@@ -1,5 +1,4 @@
-/* Typeface — Inter Variable, matching the sibling MoBrowser apps. */
-@import "@fontsource-variable/inter/index.css";
+@import "@fontsource-variable/sora/index.css";
 
 @import 'tailwindcss';
 
@@ -15,7 +14,7 @@
  * from the sibling apps are intentionally omitted.
  */
 @theme inline {
-  --font-sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Sora Variable', system-ui, sans-serif;
 
   /* Surface & text */
   --color-background:         var(--background);
