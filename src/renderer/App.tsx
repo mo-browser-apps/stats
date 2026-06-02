@@ -16,9 +16,7 @@ function App() {
   const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null);
 
   useEffect(() => {
-    // One subscription per mount; the returned unsubscribe is the cleanup. A
-    // snapshot marks the stream live; an error clears it so the dot stops
-    // claiming "live" when data is no longer arriving.
+    // One subscription per mount; the returned unsubscribe is the cleanup.
     return metricsGateway.subscribe(setSnapshot, () => setSnapshot(null));
   }, []);
 
