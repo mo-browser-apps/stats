@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { memo, useState } from "react"
 import { Box } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -10,8 +10,13 @@ import type { ProcessGroup } from "@/components/processes/process-view"
  * app name, an optional "+N" grouped-child badge, and the right-aligned active
  * metric. Height is fixed and the name truncates, so long names or large values
  * never reflow the list.
+ *
+ * Wrapped in {@link memo} with a field-wise comparator: the projection rebuilds
+ * fresh group objects every 2s tick, but most rows' displayed fields are
+ * identical between ticks, so comparing the rendered fields lets an unchanged
+ * row skip re-rendering entirely instead of reconciling on every snapshot.
  */
-export function ProcessRow({ group }: { group: ProcessGroup }) {
+export const ProcessRow = memo(function ProcessRow({ group }: { group: ProcessGroup }) {
   return (
     <div className="flex h-11 items-center gap-2.5 px-1">
       <ProcessIcon iconPngBase64={group.iconPngBase64} name={group.name} />
@@ -36,6 +41,30 @@ export function ProcessRow({ group }: { group: ProcessGroup }) {
         {metricText(group)}
       </span>
     </div>
+  )
+}, areGroupsEqual)
+
+/**
+ * Equality check for the memoized row: a row only needs to re-render when one of
+ * its visible fields changes. The projection produces new group objects every
+ * tick, so a referential compare would always miss; comparing the displayed
+ * fields lets a steady row skip rendering. `key` is the group identity and is
+ * compared too so React never reuses a row across distinct groups.
+ */
+function areGroupsEqual(
+  previous: { group: ProcessGroup },
+  next: { group: ProcessGroup },
+): boolean {
+  const a = previous.group
+  const b = next.group
+  return (
+    a.key === b.key &&
+    a.name === b.name &&
+    a.iconPngBase64 === b.iconPngBase64 &&
+    a.childCount === b.childCount &&
+    a.memberCount === b.memberCount &&
+    a.metricState === b.metricState &&
+    a.metricText === b.metricText
   )
 }
 
@@ -70,7 +99,7 @@ function ProcessIcon({ iconPngBase64, name }: { iconPngBase64?: string; name: st
         src={`data:image/png;base64,${iconPngBase64}`}
         alt=""
         aria-hidden="true"
-        className="h-5 w-5 shrink-0 rounded-[4px]"
+        className="h-5 w-5 shrink-0 rounded-lg"
         onError={() => setFailed(true)}
       />
     )
@@ -78,7 +107,7 @@ function ProcessIcon({ iconPngBase64, name }: { iconPngBase64?: string; name: st
 
   return (
     <span
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] bg-muted"
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-lg bg-muted"
       aria-hidden="true"
       title={name}
     >

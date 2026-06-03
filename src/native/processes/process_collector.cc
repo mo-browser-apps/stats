@@ -244,30 +244,43 @@ bool ParseProcArgs2(const char* data, size_t size,
   return true;
 }
 
-// Reads and parses the command-line arguments for one PID via KERN_PROCARGS2.
-// Sensitive data: returned for display/search only; never logged here.
-void FillCommandLine(pid_t pid, NativeCommandLine* out) {
+// Reads the system-wide KERN_ARGMAX argument-buffer size. It is constant for the
+// running kernel, so the collector reads it once per pass and reuses it for
+// every PID rather than issuing this sysctl per process. Returns 0 on failure.
+int ReadArgMax() {
   int arg_max = 0;
   size_t arg_max_size = sizeof(arg_max);
   int max_mib[] = {CTL_KERN, KERN_ARGMAX};
-  errno = 0;
   if (sysctl(max_mib, 2, &arg_max, &arg_max_size, nullptr, 0) != 0 ||
       arg_max <= 0) {
-    out->set_status(StatusFromErrno(errno));
+    return 0;
+  }
+  return arg_max;
+}
+
+// Reads and parses the command-line arguments for one PID via KERN_PROCARGS2.
+// The caller owns `buffer` (sized to KERN_ARGMAX, ~1 MiB) and reuses it across
+// every PID in the pass, so this hot path performs no per-process allocation -
+// only the sysctl copy and the parse. KERN_ARGMAX is constant for the kernel and
+// is read once by the caller. Sensitive data: returned for display/search only;
+// never logged here.
+void FillCommandLine(pid_t pid, int arg_max, std::vector<char>* buffer,
+                     NativeCommandLine* out) {
+  if (arg_max <= 0 || buffer->empty()) {
+    out->set_status(NATIVE_FIELD_STATUS_UNAVAILABLE);
     return;
   }
 
-  std::vector<char> buffer(static_cast<size_t>(arg_max));
-  size_t buffer_size = buffer.size();
+  size_t buffer_size = buffer->size();
   int args_mib[] = {CTL_KERN, KERN_PROCARGS2, static_cast<int>(pid)};
   errno = 0;
-  if (sysctl(args_mib, 3, buffer.data(), &buffer_size, nullptr, 0) != 0) {
+  if (sysctl(args_mib, 3, buffer->data(), &buffer_size, nullptr, 0) != 0) {
     out->set_status(StatusFromErrno(errno));
     return;
   }
 
   std::vector<std::string> arguments;
-  if (!ParseProcArgs2(buffer.data(), buffer_size, &arguments)) {
+  if (!ParseProcArgs2(buffer->data(), buffer_size, &arguments)) {
     out->set_status(NATIVE_FIELD_STATUS_PARSE_FAILED);
     return;
   }
@@ -345,7 +358,8 @@ void FillCpu(const proc_taskallinfo& task, bool task_ok,
 // app_metadata holds GUI-app metadata keyed by PID (from NSWorkspace); a record
 // with no entry keeps its app fields unset and falls back to a generic icon.
 void FillRecord(
-    pid_t pid, NativeProcessRecord* record,
+    pid_t pid, int arg_max, std::vector<char>* args_buffer,
+    NativeProcessRecord* record,
     const std::unordered_map<int32_t, NativeAppMetadata>& app_metadata) {
   NativeProcessIdentity* identity = record->mutable_identity();
   identity->set_pid(pid);
@@ -366,7 +380,7 @@ void FillRecord(
   FillCommandName(pid, task, task_ok, record->mutable_command_name());
   FillExecutablePathAndName(pid, record->mutable_executable_path(),
                             record->mutable_executable_name());
-  FillCommandLine(pid, record->mutable_command_line());
+  FillCommandLine(pid, arg_max, args_buffer, record->mutable_command_line());
   FillMemory(pid, task, task_ok, task_status, record->mutable_memory());
   FillCpu(task, task_ok, task_status, record->mutable_cpu());
 
@@ -406,8 +420,18 @@ void CollectProcesses(CollectProcessesResponse* response) {
   const std::unordered_map<int32_t, NativeAppMetadata> app_metadata =
       SnapshotRunningAppMetadata();
 
+  // Allocate the KERN_PROCARGS2 argument buffer once and reuse it for every PID.
+  // KERN_ARGMAX (~1 MiB) is constant for the kernel, so reading it once and
+  // sharing a single buffer turns a per-PID 1 MiB allocate-and-zero into one
+  // allocation per pass - the dominant collection cost on a machine with many
+  // processes. A 0 arg_max leaves the buffer empty and FillCommandLine reports
+  // command lines unavailable for the pass.
+  const int arg_max = ReadArgMax();
+  std::vector<char> args_buffer(arg_max > 0 ? static_cast<size_t>(arg_max) : 0);
+
   for (const pid_t pid : pids) {
-    FillRecord(pid, response->add_records(), app_metadata);
+    FillRecord(pid, arg_max, &args_buffer, response->add_records(),
+               app_metadata);
   }
 }
 
