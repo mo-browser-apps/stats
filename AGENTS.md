@@ -52,12 +52,15 @@ Before non-trivial work, read:
 - Keep the product compact: one main window, tray/menu bar presence, no preferences screen unless the product brief changes.
 - The process explorer is now in scope, but it must stay compact: one extra in-window view/panel, fast search, simple
   CPU/memory/process-detail workflows, no large Activity Monitor clone, no preferences, no second window.
+- Process explorer changes must be minimal and clear. Add only the contracts, services, helpers, and UI pieces needed by
+  the current iteration; do not prebuild general-purpose process-management infrastructure.
 - Static analysis must be zero-warning. Do not suppress lint/static-analysis warnings without explicit user confirmation.
 - Do not manually edit generated files under `src/main/gen`, `src/renderer/gen`, or `src/native/gen`; update protobuf files and run `npm run gen`.
 - Do not invent MōBrowser API names, native APIs, metric sources, or UI requirements. Use official docs, local references, or explicit unavailable states.
-- For process explorer implementation, use `/Users/danylo.didkovskyi/IdeaProjects/mo-browser-apps/mo-activity` as a
-  native/domain reference only. Do not copy its large renderer layout, sidebar/table-heavy design, preferences,
-  watch/pin features, command palette, or multi-window structure.
+- For process explorer implementation, use `/Users/danylo.didkovskyi/IdeaProjects/mo-browser-apps/mo-activity` only as
+  native API research for libproc/sysctl/proc_pid_rusage/NSWorkspace techniques. Do not copy its architecture, main
+  process services, shared/domain layer, renderer layout, sidebar/table-heavy design, preferences, watch/pin features,
+  command palette, or multi-window structure.
 
 Follow the workflow in `docs/AGENT_WORKFLOW.md`:
 
