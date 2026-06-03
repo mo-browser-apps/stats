@@ -4,9 +4,7 @@ import { Pin } from "lucide-react";
 import { MetricsOverview } from "@/components/metrics-overview";
 import { Button } from "@/components/ui/button";
 import { appGateway } from "@/gateway/app-gateway";
-import { metricsGateway } from "@/gateway/metrics-gateway";
 import { ActiveView } from "@/gen/app";
-import type { MetricsSnapshot } from "@/gen/metrics";
 import { cn } from "@/lib/utils";
 import { ProcessExplorerView } from "@/processes/process-explorer-view";
 import { ProcessViewSwitch, type AppView } from "@/processes/process-view-switch";
@@ -21,22 +19,13 @@ const ACTIVE_VIEW_BY_VIEW: Record<AppView, ActiveView> = {
  * Renderer composition root.
  *
  * Owns the top-level view switch (Stats overview vs Processes explorer) inside
- * the single window, plus the always-on metrics-stream subscription that feeds
- * the overview. The process explorer owns its own data lifecycle while it is
- * mounted, so it is rendered only on the Processes view.
+ * the single window and reports the active view to main. Each view owns its own
+ * data lifecycle while mounted - the overview holds the metrics subscription and
+ * the explorer its snapshot pull - so this root holds no metric/process state.
  */
 function App() {
   const isMac = navigator.userAgent.includes("Mac");
   const [view, setView] = useState<AppView>("stats");
-  const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null);
-
-  useEffect(() => {
-    // One subscription per mount; the returned unsubscribe is the cleanup. Main
-    // gates the metrics cadence on visibility + active view, so the latest
-    // snapshot may be a moment stale after returning to Stats; it refreshes on
-    // the next tick.
-    return metricsGateway.subscribe(setSnapshot, () => setSnapshot(null));
-  }, []);
 
   useEffect(() => {
     // Report the on-screen view so main runs only the visible view's service
@@ -57,7 +46,7 @@ function App() {
       </header>
 
       <main className="flex flex-1 flex-col overflow-hidden">
-        {view === "stats" ? <MetricsOverview snapshot={snapshot} /> : <ProcessExplorerView />}
+        {view === "stats" ? <MetricsOverview /> : <ProcessExplorerView />}
       </main>
     </div>
   );

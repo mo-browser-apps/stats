@@ -1,17 +1,32 @@
+import {useEffect, useState} from "react"
 import type {LucideIcon} from "lucide-react"
 import {Clock, Cpu, HardDrive, MemoryStick, Network, Thermometer} from "lucide-react"
 
 import {MetricRow} from "@/components/metric-row"
+import {metricsGateway} from "@/gateway/metrics-gateway"
 import type {MetricsSnapshot} from "@/gen/metrics"
 import {baseState, isLive, usageState} from "@/domain/metric-view"
 import {UNAVAILABLE_TEXT, formatBytes, formatCelsius, formatPercent, formatRate, formatUptime,} from "@/lib/format"
 
 /**
- * Live overview.
+ * Live overview (the Stats view).
  *
- * Renders the latest snapshot as a stack of metric rows.
+ * Owns the metrics-stream subscription for its own lifetime: it subscribes on
+ * mount and unsubscribes on unmount, holding the latest snapshot in local state.
+ * Because the view switch mounts this only while Stats is on screen - and main
+ * pauses the metrics cadence off the Stats view - the subscription exists exactly
+ * when there is a live stream to consume. After returning to Stats the first
+ * paint shows the last value until the next tick (~1s). Renders the snapshot as a
+ * stack of metric rows; the renderer holds no sampling timer.
  */
-export function MetricsOverview({ snapshot }: { snapshot: MetricsSnapshot | null }) {
+export function MetricsOverview() {
+  const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null)
+
+  useEffect(() => {
+    // One subscription per mount; the returned unsubscribe is the cleanup.
+    return metricsGateway.subscribe(setSnapshot, () => setSnapshot(null))
+  }, [])
+
   return (
     <div className="flex flex-1 flex-col px-6 pb-5">
       <div className="flex flex-1 flex-col justify-center divide-y divide-border/50">
