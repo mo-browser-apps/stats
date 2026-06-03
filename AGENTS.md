@@ -20,8 +20,8 @@ If the `docs/` directory is missing, ask the user to run `npm run gen`. It will 
 
 # Project-specific agent instructions
 
-This project is MoStats, a compact macOS system resources monitor built with MōBrowser, React, TypeScript, Shadcn-style
-UI, and optional native C++ support.
+This project is MoStats, a compact macOS system resources monitor and process explorer built with MōBrowser, React,
+TypeScript, Shadcn-style UI, and optional native C++ support.
 
 ## Read Order
 
@@ -50,9 +50,14 @@ Before non-trivial work, read:
 - Do not introduce a second UI component library without explicit user approval.
 - Tokenize reusable styling through `src/renderer/index.css` and `DESIGN.md`. Do not introduce random colors, fonts, or one-off visual systems.
 - Keep the product compact: one main window, tray/menu bar presence, no preferences screen unless the product brief changes.
+- The process explorer is now in scope, but it must stay compact: one extra in-window view/panel, fast search, simple
+  CPU/memory/process-detail workflows, no large Activity Monitor clone, no preferences, no second window.
 - Static analysis must be zero-warning. Do not suppress lint/static-analysis warnings without explicit user confirmation.
 - Do not manually edit generated files under `src/main/gen`, `src/renderer/gen`, or `src/native/gen`; update protobuf files and run `npm run gen`.
 - Do not invent MōBrowser API names, native APIs, metric sources, or UI requirements. Use official docs, local references, or explicit unavailable states.
+- For process explorer implementation, use `/Users/danylo.didkovskyi/IdeaProjects/mo-browser-apps/mo-activity` as a
+  native/domain reference only. Do not copy its large renderer layout, sidebar/table-heavy design, preferences,
+  watch/pin features, command palette, or multi-window structure.
 
 Follow the workflow in `docs/AGENT_WORKFLOW.md`:
 

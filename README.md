@@ -1,7 +1,7 @@
 # MoStats
 
-MoStats is a compact macOS system resources monitor built with MōBrowser, React, TypeScript, Shadcn-style UI primitives,
-and an optional native module.
+MoStats is a compact macOS system resources monitor and process explorer built with MōBrowser, React, TypeScript,
+Shadcn-style UI primitives, and an optional native module.
 
 The target product is intentionally small:
 
@@ -10,7 +10,9 @@ The target product is intentionally small:
 - Background operation.
 - No preferences screen.
 - Live CPU, memory, disk, and network usage.
-- Optional CPU temperature when a reliable macOS sensor approach is available.
+- Optional CPU temperature when a reliable macOS sensor is available.
+- Planned compact process explorer with command-line arguments, fast search, process details, and guarded quit/force quit
+  actions.
 
 Start future work by reading:
 
