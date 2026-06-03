@@ -36,8 +36,15 @@ import { ProcessExplorerServiceDescriptor } from '../gen/ipc_service';
  */
 const COLLECT_INTERVAL_MS = 2000;
 
-/** Logical-core count used to normalize per-process CPU into a 0-100 percent. */
+/**
+ * Logical-core count. Per-process CPU uses Activity Monitor semantics (a process
+ * pegging one core reads ~100%), so usage is NOT divided by this; it only caps
+ * the reported value at cores * 100 (a fully busy machine).
+ */
 const LOGICAL_CORE_COUNT = Math.max(1, os.cpus().length);
+
+/** Upper bound on reported per-process CPU percent: all cores fully busy. */
+const MAX_CPU_PERCENT = LOGICAL_CORE_COUNT * 100;
 
 /** Identity key for matching a process across snapshots (pid + start time). */
 type ProcessKey = string;
@@ -447,8 +454,11 @@ export class ProcessSnapshotService {
    * and records the new baseline. The result is UNKNOWN on a first sample, a
    * missing identity, a missing/!available counter, a process restart (the
    * key resets), or a non-positive elapsed interval, so a fresh or ambiguous row
-   * never shows a fabricated value. The percent is normalized to logical-core
-   * count and clamped to 0-100.
+   * never shows a fabricated value. Uses Activity Monitor semantics: the percent
+   * is CPU time over wall time without dividing by core count, so one fully busy
+   * core reads ~100% and a multi-threaded process can exceed 100% (capped at
+   * cores * 100). The native counter is in real nanoseconds (mach ticks are
+   * converted in the collector).
    */
   private deriveCpu(
     cpu: NativeProcessCpu | undefined,
@@ -482,8 +492,10 @@ export class ProcessSnapshotService {
     }
 
     const wallDeltaNs = wallDeltaMs * 1_000_000;
-    const usageFraction = cpuDeltaNs / wallDeltaNs / LOGICAL_CORE_COUNT;
-    const usagePercent = Math.min(100, Math.max(0, usageFraction * 100));
+    const usagePercent = Math.min(
+      MAX_CPU_PERCENT,
+      Math.max(0, (cpuDeltaNs / wallDeltaNs) * 100),
+    );
     return { status: FieldStatus.FIELD_STATUS_OK, usagePercent };
   }
 }

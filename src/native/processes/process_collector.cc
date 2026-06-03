@@ -1,6 +1,7 @@
 #include "processes/process_collector.h"
 
 #include <libproc.h>
+#include <mach/mach_time.h>
 #include <sys/proc_info.h>
 #include <sys/resource.h>
 #include <sys/sysctl.h>
@@ -300,7 +301,29 @@ void FillMemory(pid_t pid, const proc_taskallinfo& task, bool task_ok,
   }
 }
 
-// Fills the cumulative CPU-time counter (user + system, nanoseconds) from task
+// Converts a mach absolute-time tick count to nanoseconds using the host
+// timebase. proc_pidinfo reports pti_total_user/pti_total_system in mach time
+// units, NOT nanoseconds (verified on Apple Silicon, where the timebase is
+// numer/denom = 125/3, so one tick is ~41.67 ns); the timebase is 1/1 only on
+// older Intel Macs. A 128-bit intermediate avoids overflow in tick * numer for
+// large cumulative counters. The timebase is constant for the host, so it is
+// queried once.
+uint64_t MachTicksToNanos(uint64_t ticks) {
+  static const mach_timebase_info_data_t timebase = [] {
+    mach_timebase_info_data_t info = {1, 1};
+    mach_timebase_info(&info);
+    return info;
+  }();
+  if (timebase.denom == 0) {
+    return ticks;  // Defensive: never divide by zero.
+  }
+  const __uint128_t nanos =
+      (static_cast<__uint128_t>(ticks) * timebase.numer) / timebase.denom;
+  const __uint128_t max_u64 = std::numeric_limits<uint64_t>::max();
+  return static_cast<uint64_t>(nanos > max_u64 ? max_u64 : nanos);
+}
+
+// Fills the cumulative CPU-time counter (user + system) in nanoseconds from task
 // info. Main diffs this across snapshots; the collector never computes a rate.
 void FillCpu(const proc_taskallinfo& task, bool task_ok,
              NativeFieldStatus task_status, NativeProcessCpu* out) {
@@ -308,12 +331,13 @@ void FillCpu(const proc_taskallinfo& task, bool task_ok,
     out->mutable_cumulative_cpu_time_ns()->set_status(task_status);
     return;
   }
-  // pti_total_user/system are already in nanoseconds on macOS.
-  uint64_t total = task.ptinfo.pti_total_user;
-  const uint64_t remaining = std::numeric_limits<uint64_t>::max() - total;
-  total += std::min(remaining, task.ptinfo.pti_total_system);
+  // pti_total_user/system are mach absolute-time ticks; sum them (saturating)
+  // and convert to real nanoseconds so the contract's _ns field is honest.
+  uint64_t ticks = task.ptinfo.pti_total_user;
+  const uint64_t remaining = std::numeric_limits<uint64_t>::max() - ticks;
+  ticks += std::min(remaining, task.ptinfo.pti_total_system);
   SetAvailableInt64(out->mutable_cumulative_cpu_time_ns(),
-                    SaturatingInt64(total));
+                    SaturatingInt64(MachTicksToNanos(ticks)));
 }
 
 // Builds one process record from all sources. Each field carries its own

@@ -1,5 +1,5 @@
 import { FieldStatus, type ProcessRow, type ProcessSnapshot } from "@/gen/process_explorer"
-import { formatBytes, formatPercent } from "@/lib/format"
+import { formatBytes, formatCpuPercent } from "@/lib/format"
 
 /**
  * Pure presentation logic for the process explorer list.
@@ -183,7 +183,7 @@ interface GroupAccumulator {
 
 /** Formats a group's summed metric for display under the active sort. */
 function formatGroupMetric(sum: number, sort: SortMode): string {
-  return sort === "cpu" ? formatPercent(sum) : formatBytes(sum)
+  return sort === "cpu" ? formatCpuPercent(sum) : formatBytes(sum)
 }
 
 /**

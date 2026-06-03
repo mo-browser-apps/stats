@@ -13,12 +13,23 @@ const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"] as const;
 
 /**
  * Formats a 0-100 percentage with a single fractional digit, e.g. `42.0%`.
- * The fixed precision keeps the string width stable across updates.
+ * The fixed precision keeps the string width stable across updates. Intended for
+ * whole-machine gauges (CPU/memory/disk overview) that are bounded at 100%.
  */
 export function formatPercent(value: number): string {
   if (!Number.isFinite(value)) return UNAVAILABLE_TEXT;
   const clamped = Math.min(100, Math.max(0, value));
   return `${clamped.toFixed(1)}%`;
+}
+
+/**
+ * Formats a per-process CPU percentage. Uses Activity Monitor semantics, so the
+ * value is NOT clamped at 100: one fully busy core is ~100% and a multi-threaded
+ * process can read higher (e.g. `240.0%`). Negative noise is floored at 0.
+ */
+export function formatCpuPercent(value: number): string {
+  if (!Number.isFinite(value)) return UNAVAILABLE_TEXT;
+  return `${Math.max(0, value).toFixed(1)}%`;
 }
 
 /**
