@@ -3,7 +3,7 @@ import { Box } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { UNAVAILABLE_TEXT } from "@/lib/format"
-import type { ProcessGroup } from "@/processes/process-view"
+import type { ProcessGroup } from "@/components/processes/process-view"
 
 /**
  * One fixed-height process row: app icon (or a generic fallback), the process or
@@ -30,13 +30,30 @@ export function ProcessRow({ group }: { group: ProcessGroup }) {
       <span
         className={cn(
           "shrink-0 text-right text-[13px] font-medium tabular-nums",
-          group.metricText ? "text-foreground" : "text-muted-foreground",
+          group.metricState === "ok" ? "text-foreground" : "text-muted-foreground",
         )}
       >
-        {group.metricText ?? UNAVAILABLE_TEXT}
+        {metricText(group)}
       </span>
     </div>
   )
+}
+
+/**
+ * The right-aligned value text for a row: the formatted value when OK, a quiet
+ * `--` while the metric is still pending (e.g. a first-sample CPU delta), and the
+ * explicit unavailable text only when the source was tried and could not be read.
+ * Mirrors the overview's MetricRow so the two views read the same.
+ */
+function metricText(group: ProcessGroup): string {
+  switch (group.metricState) {
+    case "ok":
+      return group.metricText ?? UNAVAILABLE_TEXT
+    case "pending":
+      return "--"
+    default:
+      return UNAVAILABLE_TEXT
+  }
 }
 
 /**

@@ -267,6 +267,7 @@ export class ProcessSnapshotService {
     this.disposed = true;
     this.active = false;
     this.stopTimer();
+    this.cpuBaselines.clear();
     this.revisionHandle.dispose();
   }
 
@@ -284,9 +285,15 @@ export class ProcessSnapshotService {
       clearInterval(this.timer);
       this.timer = null;
     }
-    // Drop CPU baselines so a resume re-arms: the first post-resume collection
-    // reports UNKNOWN per-process CPU rather than averaging over the paused gap.
-    this.cpuBaselines.clear();
+    // CPU baselines are intentionally kept across a pause (matching the metrics
+    // sampler, which keeps its CPU tick counters), so re-entering the Processes
+    // view computes a real per-process CPU delta on the first collection instead
+    // of a cold start that sorts alphabetically with no values. The delta math
+    // stays correct: both the CPU-time delta and the wall delta span the same
+    // real elapsed gap, so the first post-resume tick reports true average usage
+    // across the absence (it converges to instantaneous on the next tick). A
+    // reused PID is a different (pid, started_at) key, so it still reports UNKNOWN
+    // rather than diffing against an unrelated process.
   }
 
   /**

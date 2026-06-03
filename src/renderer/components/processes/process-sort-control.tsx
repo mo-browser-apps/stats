@@ -1,5 +1,5 @@
 import { SegmentedControl, type SegmentedOption } from "@/components/ui/segmented-control"
-import type { SortMode } from "@/processes/process-view"
+import type { SortMode } from "@/components/processes/process-view"
 
 /**
  * Sort selector for the process list. CPU and Memory are live; Network is shown

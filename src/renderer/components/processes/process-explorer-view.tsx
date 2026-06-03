@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { processExplorerGateway } from "@/gateway/process-explorer-gateway"
 import type { ProcessSnapshot } from "@/gen/process_explorer"
-import { ProcessList } from "@/processes/process-list"
-import { ProcessSearchField } from "@/processes/process-search-field"
-import { ProcessSortControl } from "@/processes/process-sort-control"
-import { projectProcessList, type SortMode } from "@/processes/process-view"
+import { ProcessList } from "@/components/processes/process-list"
+import { ProcessSearchField } from "@/components/processes/process-search-field"
+import { ProcessSortControl } from "@/components/processes/process-sort-control"
+import { projectProcessList, type SortMode } from "@/components/processes/process-view"
 
 /**
  * The Processes view: a compact searchable, CPU/Memory-ranked, app-grouped

@@ -1,6 +1,6 @@
 import { SnapshotStatus } from "@/gen/process_explorer"
-import { ProcessRow } from "@/processes/process-row"
-import type { ProcessListProjection } from "@/processes/process-view"
+import { ProcessRow } from "@/components/processes/process-row"
+import type { ProcessListProjection } from "@/components/processes/process-view"
 
 /**
  * The ranked, grouped process rows plus the loading/empty/unavailable/

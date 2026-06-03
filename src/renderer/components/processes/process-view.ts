@@ -17,6 +17,13 @@ import { formatBytes, formatPercent } from "@/lib/format"
 export type SortMode = "cpu" | "memory"
 
 /**
+ * Display state of a group's active-metric value, mirroring the overview's metric
+ * states: `ok` has a value, `pending` is not computed yet (show `--`), and
+ * `unavailable` was tried and could not be read (show the unavailable text).
+ */
+export type MetricState = "ok" | "pending" | "unavailable"
+
+/**
  * One display row in the list. A group collapses an app's sibling processes (by
  * bundle id, else executable/command name) into a single row with a summed
  * metric and a child count, mirroring the compact OneMenu list.
@@ -34,9 +41,11 @@ export interface ProcessGroup {
   memberCount: number
   /** Extra members beyond the representative, shown as a "+N" badge when > 0. */
   childCount: number
-  /** Formatted active-metric value for the row, or undefined when none is known. */
+  /** Display state of the active metric (drives ok value vs `--` vs unavailable). */
+  metricState: MetricState
+  /** Formatted active-metric value for the row; set only when metricState is ok. */
   metricText?: string
-  /** Numeric active-metric magnitude used for ranking (0 when unknown). */
+  /** Numeric active-metric magnitude used for ranking (0 when not ok). */
   sortValue: number
 }
 
@@ -70,34 +79,50 @@ export function rowDisplayName(row: ProcessRow): string {
   )
 }
 
-/** Per-process CPU percent when the reading is OK, else undefined. */
-function rowCpuPercent(row: ProcessRow): number | undefined {
+/**
+ * A single row's active-metric reading. `value` is set only when the metric is
+ * OK; otherwise `pending` distinguishes "not computed yet" (proto UNKNOWN, e.g.
+ * a first-sample CPU delta) from "tried and unavailable" so the row can show a
+ * quiet `--` while pending versus an explicit unavailable state.
+ */
+interface MetricCell {
+  value?: number
+  pending: boolean
+}
+
+/** Whether a field status is the proto default UNKNOWN ("not yet determined"). */
+function isPending(status: FieldStatus): boolean {
+  return status === FieldStatus.FIELD_STATUS_UNKNOWN
+}
+
+/** Per-process CPU percent with pending/unavailable distinction. */
+function rowCpu(row: ProcessRow): MetricCell {
   const cpu = row.cpu
   if (cpu && cpu.status === FieldStatus.FIELD_STATUS_OK && Number.isFinite(cpu.usagePercent)) {
-    return cpu.usagePercent
+    return { value: cpu.usagePercent, pending: false }
   }
-  return undefined
+  return { pending: cpu === undefined || isPending(cpu.status) }
 }
 
 /**
  * Per-process memory in bytes: physical footprint when OK, else the resident
- * fallback when OK, else undefined.
+ * fallback when OK. Pending only if the primary footprint is still UNKNOWN.
  */
-function rowMemoryBytes(row: ProcessRow): number | undefined {
+function rowMemory(row: ProcessRow): MetricCell {
   const footprint = row.memory?.physicalFootprintBytes
   if (footprint && footprint.status === FieldStatus.FIELD_STATUS_OK) {
-    return footprint.value
+    return { value: footprint.value, pending: false }
   }
   const resident = row.memory?.residentBytes
   if (resident && resident.status === FieldStatus.FIELD_STATUS_OK) {
-    return resident.value
+    return { value: resident.value, pending: false }
   }
-  return undefined
+  return { pending: footprint === undefined || isPending(footprint.status) }
 }
 
-/** The active-metric magnitude for a single row under the current sort. */
-function rowMetric(row: ProcessRow, sort: SortMode): number | undefined {
-  return sort === "cpu" ? rowCpuPercent(row) : rowMemoryBytes(row)
+/** The active-metric reading for a single row under the current sort. */
+function rowMetric(row: ProcessRow, sort: SortMode): MetricCell {
+  return sort === "cpu" ? rowCpu(row) : rowMemory(row)
 }
 
 /**
@@ -150,6 +175,8 @@ interface GroupAccumulator {
   sortValueSum: number
   /** True once any member contributed a real (OK) metric value. */
   hasMetric: boolean
+  /** True if any member's metric is pending (UNKNOWN); used when none is OK. */
+  anyPending: boolean
   /** Metric magnitude of the current representative member. */
   bestMemberMetric: number
 }
@@ -182,7 +209,7 @@ export function projectProcessList(
 
     const key = rowGroupKey(row)
     const metric = rowMetric(row, sort)
-    const metricValue = metric ?? 0
+    const metricValue = metric.value ?? 0
     const pid = row.identity?.pid ?? 0
     const existing = groups.get(key)
 
@@ -194,7 +221,8 @@ export function projectProcessList(
         iconPngBase64: okString(row.app?.iconPngBase64),
         memberCount: 1,
         sortValueSum: metricValue,
-        hasMetric: metric !== undefined,
+        hasMetric: metric.value !== undefined,
+        anyPending: metric.pending,
         bestMemberMetric: metricValue,
       })
       continue
@@ -202,7 +230,8 @@ export function projectProcessList(
 
     existing.memberCount += 1
     existing.sortValueSum += metricValue
-    existing.hasMetric = existing.hasMetric || metric !== undefined
+    existing.hasMetric = existing.hasMetric || metric.value !== undefined
+    existing.anyPending = existing.anyPending || metric.pending
     // Keep the highest-usage member as the representative so the row's icon and
     // name track the dominant process; ties break to the lower PID for stability.
     if (metricValue > existing.bestMemberMetric || (metricValue === existing.bestMemberMetric && pid < existing.pid)) {
@@ -214,20 +243,39 @@ export function projectProcessList(
     }
   }
 
-  const projected: ProcessGroup[] = Array.from(groups.values()).map((group) => ({
-    key: group.key,
-    name: group.name,
-    pid: group.pid,
-    iconPngBase64: group.iconPngBase64,
-    memberCount: group.memberCount,
-    childCount: group.memberCount - 1,
-    metricText: group.hasMetric ? formatGroupMetric(group.sortValueSum, sort) : undefined,
-    sortValue: group.sortValueSum,
-  }))
+  const projected: ProcessGroup[] = Array.from(groups.values()).map((group) => {
+    const metricState: MetricState = group.hasMetric
+      ? "ok"
+      : group.anyPending
+        ? "pending"
+        : "unavailable"
+    return {
+      key: group.key,
+      name: group.name,
+      pid: group.pid,
+      iconPngBase64: group.iconPngBase64,
+      memberCount: group.memberCount,
+      childCount: group.memberCount - 1,
+      metricState,
+      metricText: metricState === "ok" ? formatGroupMetric(group.sortValueSum, sort) : undefined,
+      sortValue: group.sortValueSum,
+    }
+  })
 
-  projected.sort(
-    (left, right) => right.sortValue - left.sortValue || left.name.localeCompare(right.name),
-  )
+  // Rank by summed metric descending. The name tiebreak applies only between two
+  // rows that both have a real value, so on a first-sample cold start (every row
+  // pending, all sortValue 0) the list keeps the snapshot's insertion order
+  // instead of snapping to an alphabetical layout that then reshuffles a tick
+  // later. Array.sort is stable, so equal comparisons preserve that order.
+  projected.sort((left, right) => {
+    if (right.sortValue !== left.sortValue) {
+      return right.sortValue - left.sortValue
+    }
+    if (left.metricState === "ok" && right.metricState === "ok") {
+      return left.name.localeCompare(right.name)
+    }
+    return 0
+  })
 
   return {
     groups: projected,

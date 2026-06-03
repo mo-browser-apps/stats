@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { appGateway } from "@/gateway/app-gateway";
 import { ActiveView } from "@/gen/app";
 import { cn } from "@/lib/utils";
-import { ProcessExplorerView } from "@/processes/process-explorer-view";
-import { ProcessViewSwitch, type AppView } from "@/processes/process-view-switch";
+import { ProcessExplorerView } from "@/components/processes/process-explorer-view";
+import { ProcessViewSwitch, type AppView } from "@/components/processes/process-view-switch";
 
 /** Maps the renderer view vocabulary onto the generated active-view enum. */
 const ACTIVE_VIEW_BY_VIEW: Record<AppView, ActiveView> = {
