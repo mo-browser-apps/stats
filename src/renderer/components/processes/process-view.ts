@@ -62,14 +62,6 @@ export const DISPLAY_LIMIT = 50
 export interface ProcessListProjection {
   /** The ranked rows to render, capped at {@link DISPLAY_LIMIT}. */
   groups: ProcessGroup[]
-  /** Total processes considered before grouping/search (for empty-vs-filtered UI). */
-  totalProcesses: number
-  /**
-   * Total groups matching the current search (before the display cap). When this
-   * exceeds {@link groups}.length the list is showing only the top slice, which
-   * the UI surfaces as an honest "showing top N of M" footer.
-   */
-  matchedGroups: number
 }
 
 /** Reads a string field only when it is explicitly OK. */
@@ -291,11 +283,9 @@ export function projectProcessList(
     return 0
   })
 
+  // Render only the top slice; search has already narrowed `projected` to
+  // matches, so any process beyond the cap is still reachable by typing.
   return {
-    // Render only the top slice; matchedGroups keeps the true total so the UI
-    // can show "top N of M". Search has already narrowed `projected` to matches.
     groups: projected.slice(0, DISPLAY_LIMIT),
-    totalProcesses: rows.length,
-    matchedGroups: projected.length,
   }
 }

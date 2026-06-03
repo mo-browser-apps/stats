@@ -130,6 +130,9 @@ export class Application {
       SetActiveView: async (request: SetActiveViewRequest) => {
         this.activeView = request.view;
         this.updateServiceActivation();
+        this.window.resizeForView(
+          request.view === ActiveView.ACTIVE_VIEW_PROCESSES ? 'processes' : 'stats',
+        );
         return {};
       },
     });

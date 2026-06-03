@@ -11,14 +11,12 @@ import { projectProcessList, type SortMode } from "@/components/processes/proces
  * The Processes view: a compact searchable, CPU/Memory-ranked, app-grouped
  * process list.
  *
- * It owns the process-explorer data lifecycle while it is mounted (which is only
- * while the Processes tab is selected, since App.tsx mounts it conditionally):
- * it tells main to start collecting, pulls the cached snapshot, and re-pulls
- * whenever main signals a new revision. On unmount it tells main to stop, so the
- * sensitive per-process command-line reads run only while this view is on
- * screen. Search/sort are local presentation state; the heavy projection is
- * memoized and lives in pure code. Command-line arguments are used only as a
- * local search haystack and are never logged or persisted here.
+ * It owns the process-explorer data lifecycle while active: App.tsx keeps the
+ * view mounted across tab switches, reports the active top-level view to main,
+ * and this component pulls the cached snapshot plus revision updates only while
+ * Processes is visible. Search/sort are local presentation state; the heavy
+ * projection is memoized and lives in pure code. Command-line arguments are used
+ * only as a local search haystack and are never logged or persisted here.
  */
 export function ProcessExplorerView({ active }: { active: boolean }) {
   const [snapshot, setSnapshot] = useState<ProcessSnapshot>(() =>
