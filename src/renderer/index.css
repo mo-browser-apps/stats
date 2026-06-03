@@ -161,6 +161,15 @@
   .tabular-nums {
     font-variant-numeric: tabular-nums;
   }
+
+  /*
+   * Hide the scrollbar while keeping the element scrollable (wheel/trackpad).
+   * Used by the compact process list so a long ranked list stays scannable
+   * without a visible scrollbar in the small popover.
+   */
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @layer base {

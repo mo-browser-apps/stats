@@ -49,12 +49,26 @@ export interface ProcessGroup {
   sortValue: number
 }
 
+/**
+ * Maximum number of ranked rows shown at once. The window is a compact popover,
+ * not an Activity Monitor table, and past the top consumers the list is a long
+ * tail of idle (0%/--) processes; capping keeps it scannable. Any process is
+ * still reachable by typing in the search field, which filters the full snapshot
+ * before this cap is applied.
+ */
+export const DISPLAY_LIMIT = 50
+
 /** Result of projecting a snapshot for the current sort/search. */
 export interface ProcessListProjection {
+  /** The ranked rows to render, capped at {@link DISPLAY_LIMIT}. */
   groups: ProcessGroup[]
   /** Total processes considered before grouping/search (for empty-vs-filtered UI). */
   totalProcesses: number
-  /** Groups left after applying the search query. */
+  /**
+   * Total groups matching the current search (before the display cap). When this
+   * exceeds {@link groups}.length the list is showing only the top slice, which
+   * the UI surfaces as an honest "showing top N of M" footer.
+   */
   matchedGroups: number
 }
 
@@ -278,7 +292,9 @@ export function projectProcessList(
   })
 
   return {
-    groups: projected,
+    // Render only the top slice; matchedGroups keeps the true total so the UI
+    // can show "top N of M". Search has already narrowed `projected` to matches.
+    groups: projected.slice(0, DISPLAY_LIMIT),
     totalProcesses: rows.length,
     matchedGroups: projected.length,
   }

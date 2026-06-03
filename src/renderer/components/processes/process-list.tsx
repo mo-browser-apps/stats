@@ -19,7 +19,7 @@ export function ProcessList({
   const { groups } = projection
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="scrollbar-hidden flex-1 overflow-y-auto">
       {groups.length > 0 ? (
         <ul className="divide-y divide-border/40">
           {groups.map((group) => (
