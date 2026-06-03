@@ -20,7 +20,7 @@ import { projectProcessList, type SortMode } from "@/components/processes/proces
  * memoized and lives in pure code. Command-line arguments are used only as a
  * local search haystack and are never logged or persisted here.
  */
-export function ProcessExplorerView() {
+export function ProcessExplorerView({ active }: { active: boolean }) {
   const [snapshot, setSnapshot] = useState<ProcessSnapshot>(() =>
     processExplorerGateway.emptySnapshot(),
   )
@@ -45,22 +45,29 @@ export function ProcessExplorerView() {
   }, [])
 
   useEffect(() => {
-    let active = true
+    // The view stays mounted across tab switches (so it keeps its rows, sort,
+    // search, and scroll), but only consumes data while it is the active view.
+    // While hidden it holds its last rows and does nothing; main pauses
+    // collection then anyway.
+    if (!active) {
+      return
+    }
 
-    // Main activates collection while the Processes view is the visible one (it
-    // is driven by App.tsx reporting the active view). Here we only consume:
-    // pull once for first paint, then re-pull on each revision ping.
+    let live = true
+
+    // Pull immediately on becoming active so the (cached) rows show at once,
+    // then re-pull on each revision ping.
     void pull()
 
     const unsubscribe = processExplorerGateway.subscribeRevisions(() => {
-      if (active) void pull()
+      if (live) void pull()
     })
 
     return () => {
-      active = false
+      live = false
       unsubscribe()
     }
-  }, [pull])
+  }, [active, pull])
 
   const projection = useMemo(
     () => projectProcessList(snapshot, sort, query),

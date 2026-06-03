@@ -11,21 +11,23 @@ import {UNAVAILABLE_TEXT, formatBytes, formatCelsius, formatPercent, formatRate,
 /**
  * Live overview (the Stats view).
  *
- * Owns the metrics-stream subscription for its own lifetime: it subscribes on
- * mount and unsubscribes on unmount, holding the latest snapshot in local state.
- * Because the view switch mounts this only while Stats is on screen - and main
- * pauses the metrics cadence off the Stats view - the subscription exists exactly
- * when there is a live stream to consume. After returning to Stats the first
- * paint shows the last value until the next tick (~1s). Renders the snapshot as a
- * stack of metric rows; the renderer holds no sampling timer.
+ * Owns the metrics-stream subscription, but consumes it only while it is the
+ * active view: the view stays mounted across tab switches (retaining its last
+ * rows), and subscribes when `active` and unsubscribes when hidden. Main also
+ * pauses the metrics cadence off the Stats view, so the stream is idle then.
+ * After returning to Stats the rows show the last value until the next tick
+ * (~1s). The renderer holds no sampling timer.
  */
-export function MetricsOverview() {
+export function MetricsOverview({ active }: { active: boolean }) {
   const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null)
 
   useEffect(() => {
-    // One subscription per mount; the returned unsubscribe is the cleanup.
+    if (!active) {
+      return
+    }
+    // Subscribe while active; the returned unsubscribe is the cleanup on hide.
     return metricsGateway.subscribe(setSnapshot, () => setSnapshot(null))
-  }, [])
+  }, [active])
 
   return (
     <div className="flex flex-1 flex-col px-6 pb-5">

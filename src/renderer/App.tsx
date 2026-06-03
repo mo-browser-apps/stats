@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Pin } from "lucide-react";
 
 import { MetricsOverview } from "@/components/metrics-overview";
@@ -46,10 +46,32 @@ function App() {
       </header>
 
       <main className="flex flex-1 flex-col overflow-hidden">
-        {view === "stats" ? <MetricsOverview /> : <ProcessExplorerView />}
+        {/*
+          Both views stay mounted and visibility is toggled, rather than
+          mounting one at a time. Remounting the process list on every switch
+          made it flash from an empty list to populated rows; keeping it mounted
+          lets it retain its rows, sort, search, and scroll and switch with no
+          flicker. Each view consumes data only while active (idle when hidden).
+        */}
+        <ViewPane active={view === "stats"}>
+          <MetricsOverview active={view === "stats"} />
+        </ViewPane>
+        <ViewPane active={view === "processes"}>
+          <ProcessExplorerView active={view === "processes"} />
+        </ViewPane>
       </main>
     </div>
   );
+}
+
+/**
+ * Wraps one top-level view, keeping it mounted but hiding it with `display:none`
+ * when it is not the active view. Mounted-but-hidden preserves the view's state
+ * (and avoids the remount flicker) while taking it out of layout so it does not
+ * affect the visible view.
+ */
+function ViewPane({ active, children }: { active: boolean; children: ReactNode }) {
+  return <div className={cn("flex-1 flex-col overflow-hidden", active ? "flex" : "hidden")}>{children}</div>;
 }
 
 /**
