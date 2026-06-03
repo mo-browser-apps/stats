@@ -37,7 +37,14 @@ import {
   type NativeProcessRecord,
   type NativeStringValue,
 } from '../gen/native/process_collector';
-import { PROCESS_SNAPSHOT_WARNINGS } from './process-explorer-config';
+
+/**
+ * Safe, argv-free warning text for records that could not be mapped. Like every
+ * collector warning, it is count-only and must never include command-line
+ * argument values, paths, names, or bundle identifiers.
+ */
+const RECORD_MAPPING_PARTIAL_MESSAGE =
+  'Some process records could not be mapped and were omitted from the snapshot.';
 
 export interface ProcessSnapshotMapperInput {
   readonly nativeResponse: CollectProcessesResponse;
@@ -338,7 +345,7 @@ function mapperWarnings(skippedRecordCount: number): readonly CollectorWarning[]
   return [
     {
       code: CollectorWarningCode.COLLECTOR_WARNING_CODE_PARTIAL_COLLECTION,
-      safeMessage: PROCESS_SNAPSHOT_WARNINGS.nativeRecordMappingPartial,
+      safeMessage: RECORD_MAPPING_PARTIAL_MESSAGE,
       affectedProcessCount: skippedRecordCount,
     },
   ];

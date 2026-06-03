@@ -17,44 +17,39 @@ import {
   type SelectionMemoryTotal,
 } from '../gen/process_explorer';
 import { identityKeyFromRenderer } from './process-identity';
-import {
-  PROCESS_SNAPSHOT_ID_PREFIX,
-  PROCESS_SNAPSHOT_REFRESH_INTERVAL_MS,
-  PROCESS_SNAPSHOT_WARNINGS,
-} from './process-explorer-config';
 import { ProcessSnapshotMapper } from './process-snapshot-mapper';
-import { SnapshotRefreshLoop } from './snapshot-refresh-loop';
 
-export interface ProcessSnapshotClock {
-  now(): number;
-  logicalCoreCount(): number;
-}
+/** How often main re-collects the process snapshot while the view is active. */
+const REFRESH_INTERVAL_MS = 2000;
 
-const SYSTEM_CLOCK: ProcessSnapshotClock = {
-  now: () => Date.now(),
-  logicalCoreCount: () => os.cpus().length,
-};
+/** Prefix for the per-collection snapshot id (the revision is appended). */
+const SNAPSHOT_ID_PREFIX = 'process-snapshot';
+
+/**
+ * Safe, argv-free warning text surfaced to the renderer. Warning messages are
+ * count-only and must never include command-line argument values, executable
+ * paths, process names, or bundle identifiers.
+ */
+const COLLECTION_FAILED_MESSAGE = 'The process snapshot could not be collected from the system.';
 
 export interface ProcessSnapshotServiceOptions {
   readonly refreshIntervalMs?: number;
-  readonly clock?: ProcessSnapshotClock;
   readonly mapper?: ProcessSnapshotMapper;
 }
 
 /**
- * Owns the latest main-side process snapshot, the native refresh loop, and the
+ * Owns the latest main-side process snapshot, the collection cadence, and the
  * renderer read APIs (snapshot, revision, selection memory total).
  *
- * Reads the native process collector directly (`native.processCollector`), the
- * same way the metrics sampler reads its native probes; per-refresh failures are
- * caught and degraded to a safe warning rather than wrapped behind an adapter.
- *
- * Collection runs only while the process view is active: the renderer is the
- * sole consumer, so the refresh loop (and the native collection it drives) is
- * paused via {@link setActive} while there is nothing to display, mirroring the
- * metrics service. The loop is non-overlapping, so a slow collection cannot
- * stack work. Until the first collection completes, reads return an explicit
- * `NOT_COLLECTED`/`REFRESH_FAILED` empty state rather than throwing.
+ * Reads the native process collector directly (`native.processCollector`) and
+ * runs its own `setInterval` cadence, the same way {@link MetricsService} reads
+ * its native probes and drives `setInterval` - there is no separate collector
+ * adapter or refresh-loop class. The cadence is gated on process-view visibility
+ * via {@link setActive}: the single window is the sole consumer, so collection
+ * (and the native work it drives) runs only while the window is shown. A tick is
+ * skipped while a prior collection is still in flight, so a slow collection
+ * cannot stack work. Until the first collection completes, reads return an
+ * explicit `NOT_COLLECTED`/`REFRESH_FAILED` empty state rather than throwing.
  *
  * Privacy: command-line argument values pass through for renderer display and
  * local search only; they are never logged, persisted, or echoed in warnings.
@@ -62,9 +57,9 @@ export interface ProcessSnapshotServiceOptions {
 export class ProcessSnapshotService {
   private readonly mapper: ProcessSnapshotMapper;
 
-  private readonly clock: ProcessSnapshotClock;
+  private readonly refreshIntervalMs: number;
 
-  private readonly refreshLoop: SnapshotRefreshLoop;
+  private timer: ReturnType<typeof setInterval> | null = null;
 
   private latestSnapshot: ProcessSnapshot | undefined;
 
@@ -75,24 +70,23 @@ export class ProcessSnapshotService {
   /** Whether the process view is active and snapshots should be collected. */
   private active = false;
 
+  /** Set while a collection is in flight, to skip overlapping ticks. */
+  private collecting = false;
+
   /** Set once disposed; blocks any further activation or collection. */
   private disposed = false;
 
   constructor(options: ProcessSnapshotServiceOptions = {}) {
     this.mapper = options.mapper ?? new ProcessSnapshotMapper();
-    this.clock = options.clock ?? SYSTEM_CLOCK;
-    this.refreshLoop = new SnapshotRefreshLoop({
-      intervalMs: options.refreshIntervalMs ?? PROCESS_SNAPSHOT_REFRESH_INTERVAL_MS,
-      refresh: async () => this.collectAndStoreSnapshot(),
-    });
+    this.refreshIntervalMs = options.refreshIntervalMs ?? REFRESH_INTERVAL_MS;
   }
 
   /**
    * Activates or pauses collection to match process-view visibility. Active
-   * starts the refresh loop (and runs one collection immediately); idle stops
-   * future ticks and clears the CPU baselines so the first post-resume sample
-   * reports pending rather than a delta across the paused gap. Idempotent for
-   * repeated calls with the same state.
+   * starts the cadence (and runs one collection immediately); idle stops future
+   * ticks and clears the CPU baselines so the first post-resume sample reports
+   * pending rather than a delta across the paused gap. Idempotent for repeated
+   * calls with the same state.
    */
   setActive(active: boolean): void {
     if (this.disposed || active === this.active) {
@@ -101,14 +95,14 @@ export class ProcessSnapshotService {
 
     this.active = active;
     if (active) {
-      this.refreshLoop.start();
+      this.startTimer();
     } else {
-      this.refreshLoop.stop();
+      this.stopTimer();
       this.mapper.reset();
     }
   }
 
-  /** Stops the refresh loop permanently. Idempotent. For app shutdown. */
+  /** Stops the cadence permanently. Idempotent. For app shutdown. */
   dispose(): void {
     if (this.disposed) {
       return;
@@ -116,7 +110,7 @@ export class ProcessSnapshotService {
 
     this.disposed = true;
     this.active = false;
-    this.refreshLoop.stop();
+    this.stopTimer();
   }
 
   getProcessSnapshot(): GetProcessSnapshotResponse {
@@ -186,10 +180,9 @@ export class ProcessSnapshotService {
       }
     }
 
-    const requestedSelectionCount = request.selectedIdentities.length;
     return {
       total: buildSelectionTotal({
-        requestedSelectionCount,
+        requestedSelectionCount: request.selectedIdentities.length,
         liveMatchedCount,
         unavailableCount,
         metricKind,
@@ -203,19 +196,44 @@ export class ProcessSnapshotService {
     return this.latestSnapshot;
   }
 
-  private async collectAndStoreSnapshot(): Promise<void> {
-    const startedAt = this.clock.now();
+  private startTimer(): void {
+    if (this.timer !== null) {
+      return;
+    }
 
+    void this.collect();
+    this.timer = setInterval(() => void this.collect(), this.refreshIntervalMs);
+  }
+
+  private stopTimer(): void {
+    if (this.timer !== null) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  /**
+   * Collects one native snapshot, maps it, and stores it. Never rejects: a tick
+   * that overlaps an in-flight collection is skipped (so a slow collection
+   * cannot stack work), and a collection error degrades to a safe count-only
+   * warning rather than an unhandled rejection. The result is dropped if the
+   * view was hidden or disposed while collection was in flight, so a stale
+   * baseline cannot arm the CPU calculator after a pause.
+   */
+  private async collect(): Promise<void> {
+    if (this.collecting || this.disposed) {
+      return;
+    }
+
+    this.collecting = true;
+    const startedAt = Date.now();
     try {
       const nativeResponse = await native.processCollector.CollectProcesses({});
-      // The view may have been hidden or disposed while collection was in
-      // flight; dropping the result keeps a stale baseline from arming the CPU
-      // calculator after a pause and avoids storing post-dispose.
       if (!this.active || this.disposed) {
         return;
       }
 
-      const completedAt = this.clock.now();
+      const completedAt = Date.now();
       const nextRevision = this.revision + 1;
       const capturedAtUnixMs =
         nativeResponse.collectedAtUnixMs > 0 ? nativeResponse.collectedAtUnixMs : completedAt;
@@ -227,11 +245,11 @@ export class ProcessSnapshotService {
 
       this.latestSnapshot = this.mapper.map({
         nativeResponse,
-        snapshotId: `${PROCESS_SNAPSHOT_ID_PREFIX}-${String(nextRevision)}`,
+        snapshotId: `${SNAPSHOT_ID_PREFIX}-${String(nextRevision)}`,
         revision: nextRevision,
         capturedAtUnixMs,
         refreshDurationMs,
-        logicalCoreCount: this.clock.logicalCoreCount(),
+        logicalCoreCount: os.cpus().length,
       });
       this.revision = nextRevision;
       this.lastFailureWarnings = [];
@@ -240,6 +258,8 @@ export class ProcessSnapshotService {
       // could carry process-identifying text; the renderer only needs to know a
       // refresh failed.
       this.lastFailureWarnings = [createNativeFailureWarning()];
+    } finally {
+      this.collecting = false;
     }
   }
 
@@ -307,7 +327,7 @@ function buildSelectionTotal(parts: SelectionTotalParts): SelectionMemoryTotal {
 function createNativeFailureWarning(): CollectorWarning {
   return {
     code: CollectorWarningCode.COLLECTOR_WARNING_CODE_COLLECTION_FAILED,
-    safeMessage: PROCESS_SNAPSHOT_WARNINGS.nativeCollectionFailed,
+    safeMessage: COLLECTION_FAILED_MESSAGE,
     affectedProcessCount: 0,
   };
 }
