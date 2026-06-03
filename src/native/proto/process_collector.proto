@@ -1,0 +1,204 @@
+syntax = "proto3";
+
+// Native process collector contract (main <- native C++).
+//
+// Node has no complete process-table API and shelling out to ps is rejected as
+// brittle and privacy-risky for command-line data, so process enumeration is a
+// native probe (libproc + sysctl KERN_PROCARGS2 + proc_pid_rusage, with
+// optional NSWorkspace app enrichment). This file is the contract only; the
+// collector implementation lands in I11. The native module exposes raw records;
+// main owns identity keys, hierarchy, classification, search, memory totals,
+// per-process CPU deltas, and action validation.
+//
+// Scope note: this is modeled for MoStats, not copied wholesale. Host-level CPU
+// ticks and system memory are deliberately omitted because MoStats already
+// samples those through its own native metrics probes (memory.proto,
+// network.proto) and the metrics pipeline; duplicating them here would create a
+// second source of truth.
+//
+// Privacy: command-line argument values are sensitive display/search data and
+// must never be logged, persisted, exported, or echoed in warnings.
+
+// Availability of a collected field. Mirrors the renderer-facing
+// AvailabilityReason so the main mapper is a near-direct translation. Each value
+// carries its own state because a process can exit or deny access mid-collection.
+enum NativeAvailabilityReason {
+  NATIVE_AVAILABILITY_REASON_UNSPECIFIED = 0;
+  // The value is present and should be read from the matching value field.
+  NATIVE_AVAILABILITY_REASON_AVAILABLE = 1;
+  // Unavailable for an unspecified or collector-level reason.
+  NATIVE_AVAILABILITY_REASON_UNAVAILABLE = 2;
+  // macOS denied access to the value for this process.
+  NATIVE_AVAILABILITY_REASON_PERMISSION_DENIED = 3;
+  // The process exited before the value could be read.
+  NATIVE_AVAILABILITY_REASON_PROCESS_EXITED = 4;
+  // The current platform or API path does not support the value.
+  NATIVE_AVAILABILITY_REASON_UNSUPPORTED = 5;
+  // Source data was read but could not be parsed safely.
+  NATIVE_AVAILABILITY_REASON_PARSE_FAILED = 6;
+  // The value does not apply to this process or request.
+  NATIVE_AVAILABILITY_REASON_NOT_APPLICABLE = 7;
+}
+
+// Kind of native memory metric.
+enum NativeMemoryMetricKind {
+  NATIVE_MEMORY_METRIC_KIND_UNSPECIFIED = 0;
+  // macOS physical footprint in bytes (preferred).
+  NATIVE_MEMORY_METRIC_KIND_PHYSICAL_FOOTPRINT = 1;
+  // Resident set size in bytes (fallback).
+  NATIVE_MEMORY_METRIC_KIND_RESIDENT = 2;
+}
+
+// Source API for a native memory metric value.
+enum NativeMemoryMetricProvenance {
+  NATIVE_MEMORY_METRIC_PROVENANCE_UNSPECIFIED = 0;
+  // Value came from proc_pid_rusage.
+  NATIVE_MEMORY_METRIC_PROVENANCE_PROC_PID_RUSAGE = 1;
+  // Value came from PROC_PIDTASKALLINFO or equivalent task info.
+  NATIVE_MEMORY_METRIC_PROVENANCE_PROC_TASKINFO = 2;
+}
+
+// Safe warning categories emitted by the collector. safe_message must never
+// include command-line argument values.
+enum NativeCollectorWarningCode {
+  NATIVE_COLLECTOR_WARNING_CODE_UNSPECIFIED = 0;
+  // Collection completed with some per-process fields unavailable.
+  NATIVE_COLLECTOR_WARNING_CODE_PARTIAL_COLLECTION = 1;
+  // macOS denied access to one or more protected process fields.
+  NATIVE_COLLECTOR_WARNING_CODE_PERMISSION_DENIED = 2;
+  // Command-line arguments were partially unavailable or unparsable.
+  NATIVE_COLLECTOR_WARNING_CODE_COMMAND_LINE_PARTIAL = 3;
+  // Collection failed before producing a complete process list.
+  NATIVE_COLLECTOR_WARNING_CODE_COLLECTION_FAILED = 4;
+}
+
+// Native string with explicit availability; empty string is only a real value
+// when availability is AVAILABLE.
+message NativeStringValue {
+  NativeAvailabilityReason availability = 1;
+  string value = 2;
+}
+
+// Native PNG icon with explicit availability. The base64 payload is volatile
+// display-only app icon data and must not be logged or persisted.
+message NativePngImageValue {
+  NativeAvailabilityReason availability = 1;
+  string png_base64 = 2;
+  int32 width_px = 3;
+  int32 height_px = 4;
+}
+
+// Native signed 64-bit integer with explicit availability; zero is only a real
+// value when availability is AVAILABLE.
+message NativeInt64Value {
+  NativeAvailabilityReason availability = 1;
+  int64 value = 2;
+}
+
+// Process identity inputs for main-process identity-key mapping.
+message NativeProcessIdentity {
+  int32 pid = 1;
+  NativeAvailabilityReason started_at_availability = 2;
+  int64 started_at_unix_ms = 3;
+}
+
+// Parent reference for main-process hierarchy mapping.
+message NativeParentProcess {
+  NativeAvailabilityReason availability = 1;
+  // Parent PID when available; root/system processes may be NOT_APPLICABLE.
+  int32 parent_pid = 2;
+  int64 parent_started_at_unix_ms = 3;
+}
+
+// Command-line data from KERN_PROCARGS2; values are sensitive display/search
+// data only and must never be logged, persisted, exported, or echoed.
+message NativeCommandLine {
+  NativeAvailabilityReason availability = 1;
+  repeated string arguments = 2;
+  string display_text = 3;
+}
+
+// One native per-process memory metric in bytes.
+message NativeMemoryMetric {
+  NativeMemoryMetricKind kind = 1;
+  NativeAvailabilityReason availability = 2;
+  int64 bytes = 3;
+  NativeMemoryMetricProvenance provenance = 4;
+}
+
+// Memory metrics for one process: physical footprint preferred, resident as a
+// fallback/display metric.
+message NativeProcessMemoryMetrics {
+  NativeMemoryMetric physical_footprint = 1;
+  NativeMemoryMetric resident = 2;
+}
+
+// Per-process cumulative counters. Values are cumulative and must be diffed
+// across snapshots in main before rendering a rate. Narrow for MoStats: CPU
+// time for per-process CPU usage; network is explicit-availability only and the
+// collector should mark it UNSUPPORTED (no reliable per-process source proven).
+message NativeProcessPerformanceMetrics {
+  // Total user + system CPU time in nanoseconds from PROC_PIDTASKALLINFO.
+  NativeInt64Value cumulative_cpu_time_ns = 1;
+  // Per-process network bytes received. The current macOS collector path does
+  // not expose this, so producers mark it UNSUPPORTED. Never faked.
+  NativeInt64Value cumulative_network_received_bytes = 2;
+  // Per-process network bytes sent. The current macOS collector path does not
+  // expose this, so producers mark it UNSUPPORTED. Never faked.
+  NativeInt64Value cumulative_network_sent_bytes = 3;
+}
+
+// Optional GUI app metadata from NSWorkspace enrichment.
+message NativeProcessAppMetadata {
+  NativeStringValue bundle_identifier = 1;
+  NativeStringValue localized_name = 2;
+  // Volatile display-only app icon PNG when available.
+  NativePngImageValue icon_png = 3;
+}
+
+// One raw native process record returned to the main process for mapping.
+message NativeProcessRecord {
+  NativeProcessIdentity identity = 1;
+  NativeParentProcess parent = 2;
+  // Short process command name from macOS.
+  NativeStringValue command_name = 3;
+  // Executable file name derived from the path or command name.
+  NativeStringValue executable_name = 4;
+  // Absolute executable path when macOS permits access.
+  NativeStringValue executable_path = 5;
+  NativeProcessAppMetadata app = 6;
+  NativeCommandLine command_line = 7;
+  NativeProcessMemoryMetrics memory = 8;
+  NativeProcessPerformanceMetrics performance = 9;
+}
+
+// Native warning safe to surface. safe_message must not include command-line
+// argument values.
+message NativeCollectorWarning {
+  NativeCollectorWarningCode code = 1;
+  string safe_message = 2;
+  int32 affected_process_count = 3;
+}
+
+message CollectProcessesRequest {}
+
+// Native process collection result. Identity-only host timing is included; host
+// CPU/memory totals are intentionally not collected here (MoStats samples those
+// in its own metrics probes).
+message CollectProcessesResponse {
+  // Unix timestamp in milliseconds when native collection completed.
+  int64 collected_at_unix_ms = 1;
+  // Native collection duration in milliseconds.
+  int64 collection_duration_ms = 2;
+  // Raw native records to be mapped by main-process services.
+  repeated NativeProcessRecord records = 3;
+  // Safe collector warnings that do not echo command-line argument values.
+  repeated NativeCollectorWarning warnings = 4;
+}
+
+// Main-to-native process collection API. Inspection-only; process actions are
+// owned by main (it sends signals and reveals paths), not the native module.
+service ProcessCollectorService {
+  // Collects macOS process metadata with per-field availability.
+  rpc CollectProcesses(CollectProcessesRequest) returns (CollectProcessesResponse);
+}

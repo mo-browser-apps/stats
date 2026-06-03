@@ -1,0 +1,450 @@
+syntax = "proto3";
+
+// Process explorer IPC contract (renderer <-> main).
+//
+// The process explorer is a separate service from metrics.proto on purpose:
+// process rows carry sensitive command-line arguments, so isolating them lets
+// the data be gated, tested, and reviewed independently and keeps argv out of
+// the always-on metrics snapshot.
+//
+// Shape: a cached unary GetProcessSnapshot (full rows) plus a lightweight
+// GetSnapshotRevision for cheap freshness polling. Main owns the collection
+// cadence and caching; a full snapshot can be large, so it is pulled on demand
+// rather than pushed every tick (see docs/ARCHITECTURE.md "IPC Shape"). Process
+// actions are unary so every privileged operation has an explicit user target
+// validated in main.
+//
+// Privacy: command-line arguments may be displayed, searched locally, and
+// manually copied by the user, but must never be logged, persisted, exported,
+// included in telemetry, or sent over a network. Action results are count-only
+// and must not echo command lines, paths, names, or bundle identifiers.
+
+// Availability of a process field or metric. Many values can disappear between
+// or during snapshots (a process exits, macOS denies access), so each carries
+// its own availability instead of a sentinel value. UNSPECIFIED is the proto3
+// default and means a producer never assigned a state.
+enum AvailabilityReason {
+  AVAILABILITY_REASON_UNSPECIFIED = 0;
+  // The value is present and should be read from the matching value field.
+  AVAILABILITY_REASON_AVAILABLE = 1;
+  // Unavailable for an unspecified or collector-level reason.
+  AVAILABILITY_REASON_UNAVAILABLE = 2;
+  // macOS denied access to the value for this process.
+  AVAILABILITY_REASON_PERMISSION_DENIED = 3;
+  // The process exited before the value could be read.
+  AVAILABILITY_REASON_PROCESS_EXITED = 4;
+  // The current platform or API path does not support the value.
+  AVAILABILITY_REASON_UNSUPPORTED = 5;
+  // Source data was read but could not be parsed safely.
+  AVAILABILITY_REASON_PARSE_FAILED = 6;
+  // The value does not apply to this process or request.
+  AVAILABILITY_REASON_NOT_APPLICABLE = 7;
+}
+
+// Snapshot-level availability for a renderer request, distinct from per-field
+// availability: it answers "is there a snapshot at all" before the rows.
+enum SnapshotAvailability {
+  SNAPSHOT_AVAILABILITY_UNSPECIFIED = 0;
+  // A snapshot or revision is present in the response.
+  SNAPSHOT_AVAILABILITY_AVAILABLE = 1;
+  // No process snapshot has been collected yet.
+  SNAPSHOT_AVAILABILITY_NOT_COLLECTED = 2;
+  // A refresh failed; warnings carry safe summaries without command lines.
+  SNAPSHOT_AVAILABILITY_REFRESH_FAILED = 3;
+}
+
+// User-facing Chromium-family classification assigned by main-process domain
+// logic (from command-line switches), so Chromium/Electron/MoBrowser helper
+// processes can be understood at a glance.
+enum ChromiumProcessKind {
+  CHROMIUM_PROCESS_KIND_UNSPECIFIED = 0;
+  // Chromium browser/main process.
+  CHROMIUM_PROCESS_KIND_BROWSER = 1;
+  // Chromium renderer helper process.
+  CHROMIUM_PROCESS_KIND_RENDERER = 2;
+  // Chromium utility helper process.
+  CHROMIUM_PROCESS_KIND_UTILITY = 3;
+  // Chromium GPU helper process.
+  CHROMIUM_PROCESS_KIND_GPU = 4;
+  // Chromium crashpad handler/helper process.
+  CHROMIUM_PROCESS_KIND_CRASHPAD = 5;
+  // Chromium network service process.
+  CHROMIUM_PROCESS_KIND_NETWORK_SERVICE = 6;
+  // Other Chromium-family helper process.
+  CHROMIUM_PROCESS_KIND_HELPER = 7;
+  // Recognized as not a Chromium-family process.
+  CHROMIUM_PROCESS_KIND_UNKNOWN = 8;
+}
+
+// Memory metric kind used for per-process values and selection totals.
+enum MemoryMetricKind {
+  MEMORY_METRIC_KIND_UNSPECIFIED = 0;
+  // macOS physical footprint in bytes (preferred).
+  MEMORY_METRIC_KIND_PHYSICAL_FOOTPRINT = 1;
+  // Resident set size in bytes (display fallback).
+  MEMORY_METRIC_KIND_RESIDENT = 2;
+}
+
+// Source of a memory metric value, so the UI can note when a row falls back to
+// resident memory or a total is a main-process aggregate.
+enum MemoryMetricProvenance {
+  MEMORY_METRIC_PROVENANCE_UNSPECIFIED = 0;
+  // Value came from proc_pid_rusage.
+  MEMORY_METRIC_PROVENANCE_PROC_PID_RUSAGE = 1;
+  // Value came from PROC_PIDTASKALLINFO or equivalent task info.
+  MEMORY_METRIC_PROVENANCE_PROC_TASKINFO = 2;
+  // Value is a main-process aggregate over row metrics.
+  MEMORY_METRIC_PROVENANCE_AGGREGATED = 3;
+}
+
+// Safe warning categories. A warning's safe_message must never include
+// command-line argument values.
+enum CollectorWarningCode {
+  COLLECTOR_WARNING_CODE_UNSPECIFIED = 0;
+  // The snapshot is valid but some process fields are unavailable.
+  COLLECTOR_WARNING_CODE_PARTIAL_COLLECTION = 1;
+  // macOS denied access to one or more protected process fields.
+  COLLECTOR_WARNING_CODE_PERMISSION_DENIED = 2;
+  // Command-line arguments were partially unavailable or unparsable.
+  COLLECTOR_WARNING_CODE_COMMAND_LINE_PARTIAL = 3;
+  // Collection failed before a complete snapshot could be produced.
+  COLLECTOR_WARNING_CODE_COLLECTION_FAILED = 4;
+}
+
+// Process action the renderer can request. Destructive actions require renderer
+// confirmation and main-process target validation before execution.
+enum ProcessActionKind {
+  PROCESS_ACTION_KIND_UNSPECIFIED = 0;
+  // Reveal one process executable path in Finder.
+  PROCESS_ACTION_KIND_REVEAL_EXECUTABLE = 1;
+  // Ask macOS to terminate the target gracefully (SIGTERM).
+  PROCESS_ACTION_KIND_QUIT = 2;
+  // Ask macOS to terminate the target immediately (SIGKILL).
+  PROCESS_ACTION_KIND_FORCE_KILL = 3;
+}
+
+// Target shape for a process action.
+enum ProcessActionTargetKind {
+  PROCESS_ACTION_TARGET_KIND_UNSPECIFIED = 0;
+  // Exactly one process identity from the referenced snapshot.
+  PROCESS_ACTION_TARGET_KIND_PROCESS = 1;
+  // A renderer-selected app/process family group from the referenced snapshot.
+  PROCESS_ACTION_TARGET_KIND_GROUP = 2;
+}
+
+// Safe machine-readable reason an action is disabled or blocked. Never carries
+// raw OS diagnostics or process-identifying text.
+enum ProcessActionDisabledReason {
+  PROCESS_ACTION_DISABLED_REASON_UNSPECIFIED = 0;
+  // Action is currently allowed.
+  PROCESS_ACTION_DISABLED_REASON_NONE = 1;
+  // No latest process snapshot is available to validate targets.
+  PROCESS_ACTION_DISABLED_REASON_SNAPSHOT_UNAVAILABLE = 2;
+  // The renderer referenced a snapshot older than the latest main state.
+  PROCESS_ACTION_DISABLED_REASON_STALE_SNAPSHOT = 3;
+  // The action target is empty or malformed.
+  PROCESS_ACTION_DISABLED_REASON_EMPTY_TARGET = 4;
+  // One or more requested identities are not in the validated snapshot.
+  PROCESS_ACTION_DISABLED_REASON_TARGET_NOT_FOUND = 5;
+  // The target lacks identity data safe enough for this action.
+  PROCESS_ACTION_DISABLED_REASON_TARGET_UNAVAILABLE = 6;
+  // The executable path needed for reveal is unavailable.
+  PROCESS_ACTION_DISABLED_REASON_EXECUTABLE_PATH_UNAVAILABLE = 7;
+  // The process is protected by app policy.
+  PROCESS_ACTION_DISABLED_REASON_PROTECTED_PROCESS = 8;
+  // The process is classified as system-owned or system-critical.
+  PROCESS_ACTION_DISABLED_REASON_SYSTEM_PROCESS = 9;
+  // The action requires an explicit destructive-action confirmation.
+  PROCESS_ACTION_DISABLED_REASON_CONFIRMATION_REQUIRED = 10;
+  // The requested action/target combination is not supported.
+  PROCESS_ACTION_DISABLED_REASON_UNSUPPORTED_ACTION = 11;
+  // macOS rejected the best-effort action request.
+  PROCESS_ACTION_DISABLED_REASON_OS_REJECTED = 12;
+  // The action is recognized but not implemented yet in this build.
+  PROCESS_ACTION_DISABLED_REASON_NOT_IMPLEMENTED = 13;
+}
+
+// Count-only action result status. A result must not include command lines,
+// executable paths, process names, bundle identifiers, or raw OS diagnostics.
+enum ProcessActionStatus {
+  PROCESS_ACTION_STATUS_UNSPECIFIED = 0;
+  // Every target accepted the requested action.
+  PROCESS_ACTION_STATUS_SUCCEEDED = 1;
+  // At least one target accepted and at least one failed.
+  PROCESS_ACTION_STATUS_PARTIALLY_SUCCEEDED = 2;
+  // The action was blocked before attempting any target.
+  PROCESS_ACTION_STATUS_BLOCKED = 3;
+  // No target accepted the requested action.
+  PROCESS_ACTION_STATUS_FAILED = 4;
+}
+
+// String with explicit availability; empty string is only a real value when
+// availability is AVAILABLE.
+message AvailableStringValue {
+  AvailabilityReason availability = 1;
+  string value = 2;
+}
+
+// PNG icon with explicit availability. The base64 payload is volatile
+// display-only app icon data and must not be logged, persisted, or exported.
+message AvailablePngImageValue {
+  AvailabilityReason availability = 1;
+  string png_base64 = 2;
+  int32 width_px = 3;
+  int32 height_px = 4;
+}
+
+// Signed 64-bit integer with explicit availability; zero is only a real value
+// when availability is AVAILABLE.
+message AvailableInt64Value {
+  AvailabilityReason availability = 1;
+  int64 value = 2;
+}
+
+// Process identity safe for renderer selection state. The identity_key is a
+// main-generated stable key (PID plus start time when available) so a reused
+// PID does not silently retarget a stale selection.
+message ProcessIdentity {
+  int32 pid = 1;
+  AvailabilityReason started_at_availability = 2;
+  int64 started_at_unix_ms = 3;
+  string identity_key = 4;
+}
+
+// Parent reference used for hierarchy construction in main/domain code.
+message ParentProcessIdentity {
+  AvailabilityReason availability = 1;
+  // Parent PID when available; root/system processes may be NOT_APPLICABLE.
+  int32 parent_pid = 2;
+  int64 parent_started_at_unix_ms = 3;
+}
+
+// Bundle and application metadata for GUI processes when NSWorkspace enrichment
+// finds it. The icon is volatile display data only.
+message ProcessAppMetadata {
+  AvailableStringValue bundle_identifier = 1;
+  AvailableStringValue localized_name = 2;
+  AvailablePngImageValue icon_png = 3;
+}
+
+// Sensitive command-line data for display and local search only. The argument
+// values must not be logged, persisted, exported, copied automatically, or sent
+// over a network.
+message ProcessCommandLine {
+  AvailabilityReason availability = 1;
+  repeated string arguments = 2;
+  // Optional display-ready command-line text the mapper may provide.
+  string display_text = 3;
+}
+
+// One per-process memory metric in bytes.
+message ProcessMemoryMetric {
+  MemoryMetricKind kind = 1;
+  AvailabilityReason availability = 2;
+  int64 bytes = 3;
+  MemoryMetricProvenance provenance = 4;
+}
+
+// Memory metrics reported for one process row: physical footprint preferred,
+// resident as a fallback/display metric.
+message ProcessMemoryMetrics {
+  ProcessMemoryMetric physical_footprint = 1;
+  ProcessMemoryMetric resident = 2;
+}
+
+// Per-process performance counters. Cumulative counters must be diffed across
+// snapshots in main before rendering a rate. MoStats keeps this narrow: CPU
+// time for per-process CPU usage, and network as explicit availability only
+// (no reliable non-brittle per-process source is proven, so it stays
+// UNSUPPORTED rather than faked).
+message ProcessPerformanceMetrics {
+  // Total user + system CPU time in nanoseconds.
+  AvailableInt64Value cumulative_cpu_time_nanoseconds = 1;
+  // Per-process network bytes received; UNSUPPORTED until a reliable source is
+  // proven. Never faked.
+  AvailableInt64Value cumulative_network_received_bytes = 2;
+  // Per-process network bytes sent; UNSUPPORTED until a reliable source is
+  // proven. Never faked.
+  AvailableInt64Value cumulative_network_sent_bytes = 3;
+}
+
+// Per-process CPU usage computed in main by diffing the cumulative CPU-time
+// counter across snapshots, normalized to the machine's logical-core capacity
+// (100 percent is every core fully busy on this process). The renderer is
+// presentation-only and must not derive this itself; main owns the delta math.
+// The first sample, a process restart, or an invalid window report UNAVAILABLE
+// rather than a fake value.
+message ProcessCpuUsage {
+  AvailabilityReason availability = 1;
+  double percent = 2;
+}
+
+// One renderer-facing process row.
+message ProcessRow {
+  ProcessIdentity identity = 1;
+  ParentProcessIdentity parent = 2;
+  AvailableStringValue command_name = 3;
+  AvailableStringValue executable_name = 4;
+  AvailableStringValue executable_path = 5;
+  ProcessAppMetadata app = 6;
+  ProcessCommandLine command_line = 7;
+  ChromiumProcessKind chromium_kind = 8;
+  ProcessMemoryMetrics memory = 9;
+  ProcessPerformanceMetrics performance = 10;
+  // Main-computed per-process CPU usage (see ProcessCpuUsage). The renderer
+  // ranks and displays this; it does not compute it.
+  ProcessCpuUsage cpu_usage = 11;
+}
+
+// Collector or mapper warning safe to display. safe_message must not include
+// command-line argument values.
+message CollectorWarning {
+  CollectorWarningCode code = 1;
+  string safe_message = 2;
+  int32 affected_process_count = 3;
+}
+
+// Full process snapshot returned to the renderer. snapshot_id/revision change
+// together when a new snapshot replaces the previous one; the renderer carries
+// them back in action targets so main can reject a stale selection.
+message ProcessSnapshot {
+  string snapshot_id = 1;
+  int64 revision = 2;
+  int64 captured_at_unix_ms = 3;
+  int64 refresh_duration_ms = 4;
+  repeated ProcessRow rows = 5;
+  repeated CollectorWarning warnings = 6;
+}
+
+// Lightweight snapshot identity for polling freshness without transferring rows.
+message SnapshotRevision {
+  string snapshot_id = 1;
+  int64 revision = 2;
+  int64 captured_at_unix_ms = 3;
+}
+
+message GetProcessSnapshotRequest {}
+
+message GetProcessSnapshotResponse {
+  SnapshotAvailability availability = 1;
+  // Latest snapshot when availability is AVAILABLE.
+  ProcessSnapshot snapshot = 2;
+  // Safe warnings available even when a full snapshot is absent.
+  repeated CollectorWarning warnings = 3;
+}
+
+message GetSnapshotRevisionRequest {}
+
+message GetSnapshotRevisionResponse {
+  SnapshotAvailability availability = 1;
+  // Latest revision when availability is AVAILABLE.
+  SnapshotRevision revision = 2;
+  repeated CollectorWarning warnings = 3;
+}
+
+// Request to total memory for selected process identities in one snapshot, so
+// the user does not compute group totals by hand.
+message CalculateSelectionMemoryTotalRequest {
+  string snapshot_id = 1;
+  int64 revision = 2;
+  repeated ProcessIdentity selected_identities = 3;
+  // PHYSICAL_FOOTPRINT is expected for default totals.
+  MemoryMetricKind preferred_metric_kind = 4;
+}
+
+// Result of selected-process memory aggregation, including stale/unavailable
+// counts so a partial total is shown honestly.
+message SelectionMemoryTotal {
+  int32 requested_selection_count = 1;
+  int32 live_matched_count = 2;
+  int32 stale_selection_count = 3;
+  int32 unavailable_count = 4;
+  MemoryMetricKind metric_kind = 5;
+  AvailabilityReason availability = 6;
+  int64 total_bytes = 7;
+  MemoryMetricProvenance provenance = 8;
+}
+
+message CalculateSelectionMemoryTotalResponse {
+  SelectionMemoryTotal total = 1;
+}
+
+// Snapshot-bound target for a process action. Main revalidates these identities
+// against its latest snapshot before any privileged operation.
+message ProcessActionTarget {
+  ProcessActionTargetKind target_kind = 1;
+  // Snapshot the renderer saw when the user chose the target.
+  string snapshot_id = 2;
+  int64 revision = 3;
+  // Identities for the action; a group includes every process in the group.
+  repeated ProcessIdentity identities = 4;
+  // User-visible executable/app-bundle path for Reveal in Finder only. This is
+  // sensitive volatile data; main must ignore it for destructive actions and
+  // must never include it in action results, warnings, persistence, or logs.
+  AvailableStringValue reveal_path = 5;
+}
+
+message GetProcessActionStatesRequest {
+  ProcessActionTarget target = 1;
+  // Actions to evaluate for the target.
+  repeated ProcessActionKind action_kinds = 2;
+}
+
+// Main-authoritative enablement state driving renderer control state.
+message ProcessActionState {
+  ProcessActionKind action_kind = 1;
+  ProcessActionTargetKind target_kind = 2;
+  bool enabled = 3;
+  // Safe disabled reason when enabled is false, or NONE when enabled is true.
+  ProcessActionDisabledReason disabled_reason = 4;
+  // Count of validated live processes the action would affect.
+  int32 affected_process_count = 5;
+  // Whether the renderer must collect an explicit confirmation before running.
+  bool requires_confirmation = 6;
+}
+
+message GetProcessActionStatesResponse {
+  // Evaluated states, one per requested action when possible.
+  repeated ProcessActionState states = 1;
+}
+
+// Request to execute an action after renderer-side confirmation when required.
+// Main repeats the same validation it used for the action state.
+message RunProcessActionRequest {
+  ProcessActionKind action_kind = 1;
+  ProcessActionTarget target = 2;
+  // True only after the user confirmed a destructive-action prompt.
+  bool confirmed = 3;
+}
+
+// Count-only action result safe for renderer display.
+message ProcessActionResult {
+  ProcessActionKind action_kind = 1;
+  ProcessActionStatus status = 2;
+  // Safe reason for blocked/failed states, or NONE on full success.
+  ProcessActionDisabledReason reason = 3;
+  int32 affected_process_count = 4;
+  int32 succeeded_process_count = 5;
+  int32 failed_process_count = 6;
+}
+
+message RunProcessActionResponse {
+  ProcessActionResult result = 1;
+}
+
+// Renderer-to-main process explorer API. Snapshot reads are unary plus a
+// lightweight revision poll; actions are unary so each privileged operation has
+// an explicit, main-validated user target.
+service ProcessExplorerService {
+  // Returns the latest process snapshot, including sensitive command-line data
+  // for display only and safe warnings that do not echo argument values.
+  rpc GetProcessSnapshot(GetProcessSnapshotRequest) returns (GetProcessSnapshotResponse);
+  // Returns only the latest snapshot revision for cheap freshness polling.
+  rpc GetSnapshotRevision(GetSnapshotRevisionRequest) returns (GetSnapshotRevisionResponse);
+  // Totals selected-process memory for identities from one snapshot.
+  rpc CalculateSelectionMemoryTotal(CalculateSelectionMemoryTotalRequest) returns (CalculateSelectionMemoryTotalResponse);
+  // Returns main-authoritative action enablement for a process or group target.
+  rpc GetProcessActionStates(GetProcessActionStatesRequest) returns (GetProcessActionStatesResponse);
+  // Executes a validated process action and returns count-only safe results.
+  rpc RunProcessAction(RunProcessActionRequest) returns (RunProcessActionResponse);
+}

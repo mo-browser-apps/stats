@@ -18,6 +18,7 @@
 #include "gen/memory.rpc.h"
 #include "gen/network.rpc.h"
 #include "gen/temperature.rpc.h"
+#include "processes/process_collector_service.h"
 #include "temperature_probe.h"
 
 using google::protobuf::Empty;
@@ -298,4 +299,5 @@ void launch() {
   mo::rpc::RegisterService(new MemoryServiceImpl());
   mo::rpc::RegisterService(new NetworkServiceImpl());
   mo::rpc::RegisterService(new TemperatureServiceImpl());
+  mo::rpc::RegisterService(new mostats::processes::ProcessCollectorServiceImpl());
 }

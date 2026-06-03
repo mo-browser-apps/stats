@@ -2,6 +2,7 @@ import { app, ipc } from '@mobrowser/api';
 import { ApplicationWindow } from './application-window';
 import { TrayController } from './tray-controller';
 import { MetricsService } from './metrics/metrics-service';
+import { ProcessExplorerService } from './processes/process-explorer-service';
 import { SetAlwaysOnTopRequest } from './gen/app';
 import { AppServiceDescriptor } from './gen/ipc_service';
 
@@ -14,10 +15,11 @@ import { AppServiceDescriptor } from './gen/ipc_service';
  * optional CPU temperature in main and streams them to the renderer.
  *
  * Lifecycle (I09): the window hides instead of closing, so the app keeps running
- * in the background with only the tray present. The metrics cadence follows
- * window visibility - it samples while the window is shown and pauses while it is
- * hidden, since a hidden compact monitor has nothing to display. Quit is routed
- * through {@link quit} so the metrics interval/stream and the tray are torn down
+ * in the background with only the tray present. The metrics cadence and the
+ * process-collection cadence (I11) both follow window visibility - they run
+ * while the window is shown and pause while it is hidden, since a hidden compact
+ * monitor has nothing to display. Quit is routed through {@link quit} so the
+ * metrics interval/stream, the process refresh loop, and the tray are torn down
  * before the process exits.
  */
 export class Application {
@@ -31,6 +33,8 @@ export class Application {
 
   private readonly metrics = new MetricsService();
 
+  private readonly processExplorer = new ProcessExplorerService();
+
   /**
    * Wires lifecycle handlers, registers IPC services, and shows the window.
    */
@@ -41,6 +45,10 @@ export class Application {
     app.setTheme('dark');
 
     this.registerAppService();
+    // Process explorer IPC (I11). The snapshot service collects live process
+    // data via the native collector while the process view is active; its
+    // cadence is gated on window visibility below, alongside the metrics one.
+    this.processExplorer.register();
 
     // On macOS, reopen the window when the app is activated (Dock click or
     // Cmd+Tab) after all windows were hidden or closed.
@@ -50,33 +58,38 @@ export class Application {
 
     this.window.show();
     // Showing the window normally emits the visibility change that starts the
-    // cadence; sync explicitly too so startup never depends on event ordering.
+    // cadences; sync explicitly too so startup never depends on event ordering.
     // setActive is idempotent, so this is a no-op if the event already fired.
     this.metrics.setActive(this.window.isVisible);
+    this.processExplorer.setActive(this.window.isVisible);
   }
 
   /**
    * Tears down runtime services and quits. Disposing the metrics service stops
-   * the sampling interval and closes the broadcast stream, and destroying the
-   * tray releases the native status item, so no timer, stream subscriber, or
-   * native resource is left dangling when the process exits. This MoBrowser
-   * version has no before-quit/will-quit app event, so quit is funneled here
-   * (from the tray Quit action) rather than hooked after the fact.
+   * the sampling interval and closes the broadcast stream, disposing the process
+   * explorer stops its refresh loop, and destroying the tray releases the native
+   * status item, so no timer, stream subscriber, or native resource is left
+   * dangling when the process exits. This MoBrowser version has no
+   * before-quit/will-quit app event, so quit is funneled here (from the tray
+   * Quit action) rather than hooked after the fact.
    */
   quit(): void {
     this.metrics.dispose();
+    this.processExplorer.dispose();
     this.tray.destroy();
     app.quit();
   }
 
   /**
    * Reacts to the window being shown, hidden, or destroyed: keeps the tray menu
-   * label in sync and gates the metrics cadence on visibility so the native
-   * probes only run while there is a visible window to display them.
+   * label in sync and gates the metrics and process-collection cadences on
+   * visibility so the native probes only run while there is a visible window to
+   * display them.
    */
   private handleWindowVisibilityChange(): void {
     this.tray.refresh();
     this.metrics.setActive(this.window.isVisible);
+    this.processExplorer.setActive(this.window.isVisible);
   }
 
   /**
