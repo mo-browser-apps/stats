@@ -1,0 +1,315 @@
+syntax = "proto3";
+
+// Process explorer IPC contract (renderer <-> main).
+//
+// Kept separate from metrics.proto on purpose: command-line arguments are
+// sensitive local debugging data, so the process explorer surface is isolated
+// in its own service/contract that can be gated, tested, and reviewed
+// independently of the always-on metrics stream. Command-line arguments may be
+// displayed, searched locally, and manually copied by the user, but must never
+// be logged, persisted, exported, included in telemetry, or sent over a
+// network - and they must not be echoed back in action results.
+//
+// Delivery shape: full snapshots (hundreds of rows with argv and icons) are too
+// large to push every tick, so main owns the collection cadence/cache and the
+// renderer pulls a cached snapshot with GetProcessSnapshot while subscribing to
+// a lightweight StreamRevisions broadcast (revision id + timestamp only) to
+// learn when a newer snapshot exists. Actions stay unary because each has an
+// explicit user target validated in main. As of I10 the service returns an
+// explicit empty/unavailable snapshot and disabled action states; native
+// collection and real actions land in later iterations.
+
+// Availability of a single value or group inside a process snapshot. UNKNOWN is
+// the proto3 default and means "not yet determined"; the other states are
+// explicit so the UI can distinguish missing data from a real zero.
+enum FieldStatus {
+  FIELD_STATUS_UNKNOWN = 0;
+  // Value is present and should be read from the matching field.
+  FIELD_STATUS_OK = 1;
+  // Source was tried and could not be read for an unspecified reason.
+  FIELD_STATUS_UNAVAILABLE = 2;
+  // macOS denied access to this value for this process.
+  FIELD_STATUS_PERMISSION_DENIED = 3;
+  // The process exited before the value could be read.
+  FIELD_STATUS_PROCESS_EXITED = 4;
+  // The current platform/source does not support this value (e.g. per-process
+  // network counters, which have no reliable non-brittle macOS source yet).
+  FIELD_STATUS_UNSUPPORTED = 5;
+}
+
+// Overall state of a process snapshot, so the list view can render loading,
+// empty, unavailable, and permission-limited states without faking rows.
+enum SnapshotStatus {
+  SNAPSHOT_STATUS_UNKNOWN = 0;
+  // Collection has not produced a first snapshot yet.
+  SNAPSHOT_STATUS_LOADING = 1;
+  // Snapshot is populated (it may still carry per-row unavailable fields).
+  SNAPSHOT_STATUS_OK = 2;
+  // Collection failed entirely; no usable rows are present.
+  SNAPSHOT_STATUS_UNAVAILABLE = 3;
+  // Collection succeeded but macOS withheld some processes/fields, so the list
+  // is known to be partial.
+  SNAPSHOT_STATUS_PERMISSION_LIMITED = 4;
+}
+
+// A string value with explicit availability; an empty string is only a real
+// value when status is OK.
+message StringValue {
+  FieldStatus status = 1;
+  string value = 2;
+}
+
+// A 64-bit unsigned value with explicit availability; zero is only a real value
+// when status is OK. Used for memory byte counts.
+message UInt64Value {
+  FieldStatus status = 1;
+  uint64 value = 2;
+}
+
+// A per-process CPU usage reading, derived in main from cumulative CPU-time
+// deltas across snapshots and normalized to a percentage. Carries its own
+// status so a first sample, a restarted process, or an invalid delta renders as
+// unknown/unavailable rather than a fake value.
+message CpuUsage {
+  FieldStatus status = 1;
+  double usage_percent = 2; // 0-100, normalized across logical cores.
+}
+
+// Per-process network usage. There is no reliable, non-brittle macOS source for
+// per-process network counters today, so this is modeled only as an explicit
+// unsupported/unavailable state; values must never be faked. Kept in the
+// contract so the list/detail UI can show an honest unsupported state and so a
+// future verified source can populate it without a breaking change.
+message NetworkUsage {
+  FieldStatus status = 1; // Expected to be UNSUPPORTED until a source is proven.
+  uint64 rx_bytes_per_sec = 2;
+  uint64 tx_bytes_per_sec = 3;
+}
+
+// Per-process memory. Physical footprint is the primary display value when
+// macOS permits reading it; resident size is a fallback display metric.
+message ProcessMemory {
+  // macOS physical footprint in bytes (proc_pid_rusage) when available.
+  UInt64Value physical_footprint_bytes = 1;
+  // Resident set size in bytes (PROC_PIDTASKALLINFO) as a display fallback.
+  UInt64Value resident_bytes = 2;
+}
+
+// Optional GUI application metadata discovered through NSWorkspace. The icon is
+// volatile display-only data: it must not be logged or persisted.
+message AppMetadata {
+  // Application bundle identifier (e.g. com.apple.dt.Xcode) when found.
+  StringValue bundle_identifier = 1;
+  // User-facing localized application name when found.
+  StringValue localized_name = 2;
+  // Volatile display-only base64 PNG icon payload when available.
+  StringValue icon_png_base64 = 3;
+}
+
+// Sensitive command-line arguments for one process. Display/search data only:
+// never logged, persisted, exported, auto-copied, or sent over a network.
+message CommandLine {
+  // Availability for the argument vector (UNAVAILABLE / PERMISSION_DENIED /
+  // PROCESS_EXITED when it cannot be read).
+  FieldStatus status = 1;
+  // Parsed argument vector when status is OK. Sensitive; see message comment.
+  repeated string arguments = 2;
+}
+
+// Stable identity for one process: PID plus an optional start time. Start time
+// disambiguates a reused PID, which is why actions validate against it; main
+// uses (pid, started_at) as the snapshot-stable identity for action targeting.
+message ProcessIdentity {
+  // OS PID observed during collection.
+  int32 pid = 1;
+  // Availability for started_at_unix_ms.
+  FieldStatus started_at_status = 2;
+  // Process start time in Unix milliseconds when available.
+  int64 started_at_unix_ms = 3;
+}
+
+// One process row in a snapshot. Most fields carry their own availability so a
+// single unreadable field degrades that field, not the whole row or snapshot.
+message ProcessRow {
+  // PID + start-time identity used for selection and action targeting.
+  ProcessIdentity identity = 1;
+  // Parent PID for shallow hierarchy context; status NOT readable -> UNAVAILABLE.
+  FieldStatus parent_status = 2;
+  int32 parent_pid = 3;
+  // Short process command name from macOS.
+  StringValue command_name = 4;
+  // Executable file name (basename of the path or command name).
+  StringValue executable_name = 5;
+  // Absolute executable path when macOS permits access; also drives reveal.
+  StringValue executable_path = 6;
+  // Optional GUI app metadata (bundle id, localized name, icon).
+  AppMetadata app = 7;
+  // Sensitive command-line arguments for display/search/manual copy only.
+  CommandLine command_line = 8;
+  // Per-process memory (physical footprint, resident fallback).
+  ProcessMemory memory = 9;
+  // Per-process CPU usage percent, computed in main from CPU-time deltas.
+  CpuUsage cpu = 10;
+  // Per-process network usage; explicit unsupported/unavailable, never faked.
+  NetworkUsage network = 11;
+}
+
+// A safe, non-sensitive warning about a snapshot. Counts only - it must never
+// include command-line arguments, paths, or process names.
+message SnapshotWarning {
+  // Stable code for the UI to message a partial/limited collection.
+  enum Code {
+    CODE_UNSPECIFIED = 0;
+    // Some per-process fields were unavailable.
+    CODE_PARTIAL_FIELDS = 1;
+    // macOS denied access to one or more processes/fields.
+    CODE_PERMISSION_DENIED = 2;
+    // Command-line arguments were partially unavailable/unparsable.
+    CODE_COMMAND_LINE_PARTIAL = 3;
+  }
+  Code code = 1;
+  // Number of processes affected, or 0 when untracked. No sensitive text.
+  int32 affected_count = 2;
+}
+
+// A point-in-time list of processes. The renderer pulls this with
+// GetProcessSnapshot; the revision increments whenever main produces a newer
+// snapshot so the renderer can pull only when something changed.
+message ProcessSnapshot {
+  // Overall snapshot state (loading/ok/unavailable/permission-limited).
+  SnapshotStatus status = 1;
+  // Monotonic revision id; 0 before the first snapshot. Action requests carry
+  // the revision they were issued against so main can reject stale targets.
+  uint64 revision = 2;
+  // Epoch milliseconds when this snapshot was produced in main.
+  int64 timestamp_ms = 3;
+  // Process rows. Empty for loading/unavailable states.
+  repeated ProcessRow processes = 4;
+  // Safe, count-only warnings (no sensitive text).
+  repeated SnapshotWarning warnings = 5;
+}
+
+// Reserved for future read parameters (e.g. a field-detail level). Empty for
+// now so the contract can grow without a breaking client change.
+message GetProcessSnapshotRequest {}
+
+// A lightweight notification that a new snapshot revision exists. Deliberately
+// tiny (no rows) so it is cheap to broadcast on the collection cadence; the
+// renderer pulls the full snapshot with GetProcessSnapshot when the revision
+// advances.
+message ProcessSnapshotRevision {
+  uint64 revision = 1;
+  int64 timestamp_ms = 2;
+  // Mirrors ProcessSnapshot.status so the UI can show loading/unavailable
+  // without an extra pull.
+  SnapshotStatus status = 3;
+}
+
+// Request for the current revision stream. Empty for now.
+message StreamRevisionsRequest {}
+
+// The destructive/navigational actions the detail view exposes. Reveal opens
+// the executable in Finder; Quit sends SIGTERM; Force Quit sends SIGKILL. All
+// are validated and executed in main (I14); never run directly from renderer
+// state.
+enum ProcessActionKind {
+  PROCESS_ACTION_KIND_UNSPECIFIED = 0;
+  PROCESS_ACTION_KIND_REVEAL = 1;
+  PROCESS_ACTION_KIND_QUIT = 2;
+  PROCESS_ACTION_KIND_FORCE_QUIT = 3;
+}
+
+// Why an action is unavailable for a target, so the UI can disable a control
+// with an honest reason instead of letting an invalid action be attempted.
+enum ActionDisabledReason {
+  ACTION_DISABLED_REASON_UNSPECIFIED = 0;
+  // The action is currently allowed.
+  ACTION_DISABLED_REASON_NONE = 1;
+  // Reveal requires an executable path that is not available for this target.
+  ACTION_DISABLED_REASON_NO_PATH = 2;
+  // The target is MoStats itself; self-termination is not allowed.
+  ACTION_DISABLED_REASON_SELF = 3;
+  // The target is a protected/system-critical process (e.g. PID 0/1, kernel).
+  ACTION_DISABLED_REASON_PROTECTED = 4;
+  // The target no longer matches the latest snapshot (exited / reused PID).
+  ACTION_DISABLED_REASON_STALE = 5;
+  // Actions are not implemented yet for this build (I10 placeholder state).
+  ACTION_DISABLED_REASON_NOT_IMPLEMENTED = 6;
+}
+
+// Whether one action kind is currently available for a target.
+message ActionState {
+  ProcessActionKind kind = 1;
+  bool enabled = 2;
+  // Why it is disabled when enabled is false; NONE when enabled.
+  ActionDisabledReason disabled_reason = 3;
+}
+
+// Request the current per-action availability for one target, validated against
+// the latest snapshot in main.
+message GetProcessActionStatesRequest {
+  // Target process identity (pid + start time).
+  ProcessIdentity target = 1;
+  // Snapshot revision the renderer is showing; lets main detect a stale target.
+  uint64 revision = 2;
+}
+
+// Per-action availability for one target.
+message GetProcessActionStatesResponse {
+  // True when the target still matches the latest snapshot.
+  bool target_valid = 1;
+  repeated ActionState actions = 2;
+}
+
+// Run one action against one target. Main re-validates against the latest
+// snapshot and applies self/system/stale protections before acting (I14).
+message RunProcessActionRequest {
+  ProcessActionKind action = 1;
+  // Target process identity (pid + start time).
+  ProcessIdentity target = 2;
+  // Snapshot revision the action was issued against, for stale-target rejection.
+  uint64 revision = 3;
+}
+
+// Result of an attempted action. Outcome is a coarse status with no sensitive
+// detail; results are count-only and never include OS diagnostics, command
+// lines, executable paths, process names, or bundle identifiers.
+message RunProcessActionResponse {
+  enum Outcome {
+    OUTCOME_UNSPECIFIED = 0;
+    OUTCOME_SUCCEEDED = 1;
+    // The target did not match the latest snapshot (exited / reused PID).
+    OUTCOME_STALE_TARGET = 2;
+    // The action is not allowed for this target (self/system/protected).
+    OUTCOME_NOT_ALLOWED = 3;
+    // The action is not implemented yet for this build (I10 placeholder).
+    OUTCOME_NOT_IMPLEMENTED = 4;
+    // The action failed for an unspecified, non-sensitive reason.
+    OUTCOME_FAILED = 5;
+  }
+  Outcome outcome = 1;
+  // Number of processes the action affected (e.g. 1 for a single target, or a
+  // group count later). No sensitive text.
+  int32 affected_count = 2;
+}
+
+// Renderer-to-main process explorer service. Snapshot reads are a cached unary
+// pull plus a lightweight revision broadcast; actions are unary with explicit
+// per-target validation.
+service ProcessExplorerService {
+  // Returns the latest cached process snapshot, or an explicit
+  // loading/unavailable state. Main owns the collection cadence and cache.
+  rpc GetProcessSnapshot(GetProcessSnapshotRequest) returns (ProcessSnapshot);
+
+  // Broadcasts a lightweight revision ping whenever a newer snapshot exists, so
+  // the renderer can pull only on change instead of polling.
+  rpc StreamRevisions(StreamRevisionsRequest) returns (stream ProcessSnapshotRevision);
+
+  // Returns per-action availability for one target, validated against the
+  // latest snapshot. Disabled until the action iteration.
+  rpc GetProcessActionStates(GetProcessActionStatesRequest) returns (GetProcessActionStatesResponse);
+
+  // Runs one validated action against one target. Returns NOT_IMPLEMENTED until
+  // the action iteration.
+  rpc RunProcessAction(RunProcessActionRequest) returns (RunProcessActionResponse);
+}

@@ -1,0 +1,167 @@
+syntax = "proto3";
+
+// Native process collector contract (main <- native C++).
+//
+// Modeled for MoStats, not copied from any reference app. The native collector
+// is inspection-only: it enumerates processes and reports raw per-field values
+// with explicit availability, and it never sends signals or performs actions
+// (process actions are main-owned, validated against the latest snapshot, and
+// land in a later iteration). Host-level CPU ticks and system memory totals are
+// deliberately omitted because MoStats already samples those through its own
+// metrics probes; this collector reports only per-process records.
+//
+// Privacy: command-line arguments are sensitive display/search data. The
+// collector returns them for local display and search only - main must never
+// log, persist, export, auto-copy, or transmit them, and warnings must never
+// echo argument values, paths, or process names.
+//
+// As of I10 this contract exists and compiles; the native implementation and
+// the main snapshot service that calls it are added in a later iteration.
+
+// Availability of a native per-process value. UNSPECIFIED is the proto3 default;
+// the other states let main map each field to an explicit renderer status
+// instead of guessing from a zero value.
+enum NativeFieldStatus {
+  NATIVE_FIELD_STATUS_UNSPECIFIED = 0;
+  // Value is present in the matching field.
+  NATIVE_FIELD_STATUS_AVAILABLE = 1;
+  // Value could not be read for an unspecified reason.
+  NATIVE_FIELD_STATUS_UNAVAILABLE = 2;
+  // macOS denied access to this value for this process.
+  NATIVE_FIELD_STATUS_PERMISSION_DENIED = 3;
+  // The process exited before the value could be read.
+  NATIVE_FIELD_STATUS_PROCESS_EXITED = 4;
+  // The current platform/API path does not support this value.
+  NATIVE_FIELD_STATUS_UNSUPPORTED = 5;
+  // Source data was read but could not be parsed safely.
+  NATIVE_FIELD_STATUS_PARSE_FAILED = 6;
+}
+
+// A native string with explicit availability; empty is only real when AVAILABLE.
+message NativeString {
+  NativeFieldStatus status = 1;
+  string value = 2;
+}
+
+// A native signed 64-bit value with explicit availability; zero is only real
+// when AVAILABLE.
+message NativeInt64 {
+  NativeFieldStatus status = 1;
+  int64 value = 2;
+}
+
+// A native PNG image payload with explicit availability. Volatile display-only
+// app icon data: it must not be logged or persisted.
+message NativeImage {
+  NativeFieldStatus status = 1;
+  // Base64-encoded PNG bytes when AVAILABLE.
+  string png_base64 = 2;
+}
+
+// Process identity inputs: PID plus optional start time used by main to build a
+// snapshot-stable identity (a reused PID is disambiguated by start time).
+message NativeProcessIdentity {
+  int32 pid = 1;
+  NativeFieldStatus started_at_status = 2;
+  int64 started_at_unix_ms = 3;
+}
+
+// Sensitive command-line argument data; display/search only (see file comment).
+message NativeCommandLine {
+  // Availability for the argument vector.
+  NativeFieldStatus status = 1;
+  // Parsed argument vector when AVAILABLE. Sensitive: never log/persist/export.
+  repeated string arguments = 2;
+}
+
+// Per-process memory metrics in bytes. Physical footprint is preferred for
+// display; resident is a fallback.
+message NativeProcessMemory {
+  // macOS physical footprint in bytes from proc_pid_rusage.
+  NativeInt64 physical_footprint_bytes = 1;
+  // Resident set size in bytes from PROC_PIDTASKALLINFO (display fallback).
+  NativeInt64 resident_bytes = 2;
+}
+
+// Cumulative per-process CPU time. This is a raw counter that must be diffed
+// across snapshots in main to produce a CPU usage percentage; the collector
+// never computes rates.
+message NativeProcessCpu {
+  // Total user + system CPU time in nanoseconds (PROC_PIDTASKALLINFO).
+  NativeInt64 cumulative_cpu_time_ns = 1;
+}
+
+// Optional GUI app metadata discovered through NSWorkspace enrichment.
+message NativeAppMetadata {
+  NativeString bundle_identifier = 1;
+  NativeString localized_name = 2;
+  // Volatile display-only app icon PNG (see NativeImage).
+  NativeImage icon_png = 3;
+}
+
+// One raw native process record. Most fields carry their own availability so a
+// single unreadable field degrades that field rather than the whole record.
+message NativeProcessRecord {
+  // PID + start-time identity inputs.
+  NativeProcessIdentity identity = 1;
+  // Parent PID input for shallow main-side hierarchy context.
+  NativeFieldStatus parent_status = 2;
+  int32 parent_pid = 3;
+  // Short process command name.
+  NativeString command_name = 4;
+  // Executable file name (basename) when derivable.
+  NativeString executable_name = 5;
+  // Absolute executable path when macOS permits access.
+  NativeString executable_path = 6;
+  // Optional GUI app metadata.
+  NativeAppMetadata app = 7;
+  // Sensitive command-line arguments for local display/search only.
+  NativeCommandLine command_line = 8;
+  // Per-process memory metrics.
+  NativeProcessMemory memory = 9;
+  // Cumulative per-process CPU time counter (diffed in main).
+  NativeProcessCpu cpu = 10;
+  // Per-process network is intentionally absent: there is no reliable,
+  // non-brittle macOS source, so MoStats models it as unsupported at the
+  // renderer contract level and the collector does not fake it here.
+}
+
+// A safe, count-only warning about a collection pass. Must never include
+// command-line arguments, executable paths, or process names.
+message NativeCollectorWarning {
+  enum Code {
+    CODE_UNSPECIFIED = 0;
+    // Collection completed with some per-process fields unavailable.
+    CODE_PARTIAL_FIELDS = 1;
+    // macOS denied access to one or more processes/fields.
+    CODE_PERMISSION_DENIED = 2;
+    // Command-line arguments were partially unavailable/unparsable.
+    CODE_COMMAND_LINE_PARTIAL = 3;
+  }
+  Code code = 1;
+  // Number of processes affected, or 0 when untracked. No sensitive text.
+  int32 affected_count = 2;
+}
+
+// Request to collect the current macOS process list. Empty for now.
+message CollectProcessesRequest {}
+
+// Result of one native collection pass. Main maps these raw records into the
+// renderer ProcessSnapshot, computing per-process CPU deltas and applying
+// availability/privacy rules.
+message CollectProcessesResponse {
+  // Whether collection produced a usable process list at all.
+  bool available = 1;
+  // Unix milliseconds when native collection completed.
+  int64 collected_at_unix_ms = 2;
+  // Raw per-process records for main-side mapping.
+  repeated NativeProcessRecord records = 3;
+  // Safe, count-only warnings (no sensitive text).
+  repeated NativeCollectorWarning warnings = 4;
+}
+
+// Main-to-native process collection API. Inspection-only: no actions here.
+service ProcessCollectorService {
+  // Collects current macOS process records with per-field availability.
+  rpc CollectProcesses(CollectProcessesRequest) returns (CollectProcessesResponse);
+}

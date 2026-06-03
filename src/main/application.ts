@@ -2,6 +2,7 @@ import { app, ipc } from '@mobrowser/api';
 import { ApplicationWindow } from './application-window';
 import { TrayController } from './tray-controller';
 import { MetricsService } from './metrics/metrics-service';
+import { ProcessExplorerService } from './processes/process-explorer-service';
 import { SetAlwaysOnTopRequest } from './gen/app';
 import { AppServiceDescriptor } from './gen/ipc_service';
 
@@ -11,14 +12,16 @@ import { AppServiceDescriptor } from './gen/ipc_service';
  * Owns the single compact window, the menu-bar tray, app lifecycle wiring, and
  * registration of renderer-facing IPC services, including the metrics stream.
  * The metrics service samples CPU, memory, disk, network, uptime/load, and
- * optional CPU temperature in main and streams them to the renderer.
+ * optional CPU temperature in main and streams them to the renderer. The process
+ * explorer service exposes the (currently not-yet-implemented) process snapshot
+ * and action contract on its own IPC service.
  *
  * Lifecycle (I09): the window hides instead of closing, so the app keeps running
  * in the background with only the tray present. The metrics cadence follows
  * window visibility - it samples while the window is shown and pauses while it is
  * hidden, since a hidden compact monitor has nothing to display. Quit is routed
- * through {@link quit} so the metrics interval/stream and the tray are torn down
- * before the process exits.
+ * through {@link quit} so the metrics interval/stream, the process explorer
+ * service, and the tray are torn down before the process exits.
  */
 export class Application {
   private readonly window = new ApplicationWindow(() => {
@@ -30,6 +33,8 @@ export class Application {
   });
 
   private readonly metrics = new MetricsService();
+
+  private readonly processExplorer = new ProcessExplorerService();
 
   /**
    * Wires lifecycle handlers, registers IPC services, and shows the window.
@@ -56,15 +61,17 @@ export class Application {
   }
 
   /**
-   * Tears down runtime services and quits. Disposing the metrics service stops
-   * the sampling interval and closes the broadcast stream, and destroying the
-   * tray releases the native status item, so no timer, stream subscriber, or
-   * native resource is left dangling when the process exits. This MoBrowser
-   * version has no before-quit/will-quit app event, so quit is funneled here
-   * (from the tray Quit action) rather than hooked after the fact.
+   * Tears down runtime services and quits. Disposing the metrics and process
+   * explorer services stops the sampling interval and closes their broadcast
+   * streams/handlers, and destroying the tray releases the native status item, so
+   * no timer, stream subscriber, or native resource is left dangling when the
+   * process exits. This MoBrowser version has no before-quit/will-quit app event,
+   * so quit is funneled here (from the tray Quit action) rather than hooked after
+   * the fact.
    */
   quit(): void {
     this.metrics.dispose();
+    this.processExplorer.dispose();
     this.tray.destroy();
     app.quit();
   }
