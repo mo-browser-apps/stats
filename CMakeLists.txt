@@ -17,7 +17,9 @@ include(${PROJECT_ROOT_DIR}/node_modules/@mobrowser/native/cmake/MoBrowser.cmake
 set(APP_SOURCES
         src/native/main.cc
         src/native/temperature_probe.h
-        src/native/temperature_probe.cc)
+        src/native/temperature_probe.cc
+        src/native/processes/process_collector.h
+        src/native/processes/process_collector.cc)
 
 # Defines the main target of the application.
 add_library(mobrowser_lib STATIC ${APP_SOURCES} ${GENERATED_SOURCES})

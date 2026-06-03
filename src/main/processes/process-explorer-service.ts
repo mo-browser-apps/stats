@@ -8,12 +8,12 @@ import {
   RunProcessActionRequest,
   RunProcessActionResponse,
   RunProcessActionResponse_Outcome,
-  SnapshotStatus,
 } from '../gen/process_explorer';
 import {
   ProcessExplorerService as ProcessExplorerServiceImpl,
   ProcessExplorerServiceDescriptor,
 } from '../gen/ipc_service';
+import { ProcessSnapshotService } from './process-snapshot-service';
 
 /** Action kinds the detail view exposes; all disabled until the action iteration. */
 const ACTION_KINDS: readonly ProcessActionKind[] = [
@@ -25,34 +25,31 @@ const ACTION_KINDS: readonly ProcessActionKind[] = [
 /**
  * Owns the renderer-facing process explorer service.
  *
- * This is the I10 contract skeleton: it registers `ProcessExplorerService` and
- * answers every call with an explicit not-yet-implemented state so the renderer
- * can subscribe and call without throwing. Native process collection, the
- * snapshot cadence/cache, per-process CPU deltas, and real reveal/quit/force-quit
- * actions are added in later iterations.
+ * Composes the small process explorer pieces, consistent with
+ * {@link import('../metrics/metrics-service').MetricsService}: the
+ * {@link ProcessSnapshotService} owns native collection, the cached snapshot, and
+ * the streaming `StreamRevisions` broadcast, while this class registers the unary
+ * methods. `GetProcessSnapshot` is delegated to the snapshot service;
+ * `GetProcessActionStates`/`RunProcessAction` stay not-yet-implemented because
+ * main-authoritative reveal/quit/force-quit land in the action iteration (I14).
  *
- * Shape mirrors {@link import('../metrics/metrics-service').MetricsService}: the
- * server-streaming `StreamRevisions` method is owned by the no-implementation
- * broadcast handle (so a later cadence can publish revision pings), while the
- * three unary methods are registered with a small implementation object. Both
- * registrations are torn down in {@link dispose}, which the app quit path calls.
+ * Lifecycle mirrors the metrics service: {@link setActive} gates the collection
+ * cadence on process-view visibility, and {@link dispose} (called from the app
+ * quit path) tears down the cadence, the broadcast stream, and the unary
+ * handlers so nothing is left dangling.
  *
  * Privacy: command-line arguments are sensitive. This service never logs request
  * targets or any process data, and action results stay count-only with no OS
  * diagnostics, paths, names, or arguments.
  */
 export class ProcessExplorerService {
-  /**
-   * Broadcast handle for the streaming `StreamRevisions` method. It is held so a
-   * later collection cadence can publish revision pings; in I10 nothing is
-   * published yet because there is no snapshot to announce.
-   */
-  private readonly handle = ipc.registerService(ProcessExplorerServiceDescriptor);
+  private readonly snapshots = new ProcessSnapshotService();
 
   /**
    * The unary handlers. Held as one object so {@link dispose} unregisters the
-   * exact implementation that was registered (the streaming method is omitted
-   * because the broadcast handle owns it).
+   * exact implementation that was registered. The streaming `StreamRevisions`
+   * method is owned by the snapshot service's broadcast handle, so it is omitted
+   * here.
    */
   private readonly unaryHandlers: Pick<
     ProcessExplorerServiceImpl,
@@ -66,15 +63,25 @@ export class ProcessExplorerService {
   private disposed = false;
 
   constructor() {
-    // Register only the unary handlers here; the streaming method is owned by
-    // the broadcast handle above (mixed-service pattern from the IPC docs).
     ipc.registerService(ProcessExplorerServiceDescriptor, this.unaryHandlers);
   }
 
   /**
-   * Stops the service. Disposes the broadcast stream (closing any subscribers)
-   * and unregisters the unary handlers. Idempotent; called from the app quit
-   * path so no IPC handler or stream subscriber is left dangling.
+   * Activates or pauses process collection based on whether the process explorer
+   * view is on screen. Collection (and the sensitive command-line reads it does)
+   * runs only while the Processes view is selected, not merely while the window
+   * is visible - showing the Stats overview must not collect. The view switch
+   * that drives this is wired in the list-view iteration (I12); until then the
+   * collector stays idle.
+   */
+  setProcessViewActive(active: boolean): void {
+    this.snapshots.setProcessViewActive(active);
+  }
+
+  /**
+   * Stops the service. Disposes the snapshot service (cadence + broadcast stream)
+   * and unregisters the unary handlers. Idempotent; called from the app quit path
+   * so no IPC handler or stream subscriber is left dangling.
    */
   dispose(): void {
     if (this.disposed) {
@@ -82,23 +89,17 @@ export class ProcessExplorerService {
     }
 
     this.disposed = true;
-    this.handle.dispose();
+    this.snapshots.dispose();
     ipc.unregisterService(ProcessExplorerServiceDescriptor, this.unaryHandlers);
   }
 
   /**
-   * Returns the current snapshot. Until native collection lands this is an
-   * explicit LOADING snapshot with revision 0 and no rows, so the list view
-   * renders a loading/empty state rather than a fabricated process list.
+   * Returns the latest cached process snapshot from the snapshot service. Before
+   * the first collection (or while the view is idle) this is an explicit
+   * loading/unavailable snapshot, so the list view never renders fabricated rows.
    */
   private async getProcessSnapshot(): Promise<ProcessSnapshot> {
-    return {
-      status: SnapshotStatus.SNAPSHOT_STATUS_LOADING,
-      revision: 0,
-      timestampMs: Date.now(),
-      processes: [],
-      warnings: [],
-    };
+    return this.snapshots.getSnapshot();
   }
 
   /**

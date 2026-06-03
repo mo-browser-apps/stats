@@ -17,7 +17,9 @@
 #include "rpc.h"
 #include "gen/memory.rpc.h"
 #include "gen/network.rpc.h"
+#include "gen/process_collector.rpc.h"
 #include "gen/temperature.rpc.h"
+#include "processes/process_collector.h"
 #include "temperature_probe.h"
 
 using google::protobuf::Empty;
@@ -294,8 +296,31 @@ class TemperatureServiceImpl : public TemperatureService {
   }
 };
 
+/**
+ * Narrow macOS process collector.
+ *
+ * Delegates to mostats::CollectProcesses(), which enumerates the current
+ * process list with libproc and reports per-process identity, command line,
+ * memory, and cumulative CPU time with explicit per-field availability. It is
+ * inspection-only and read-only - it never signals processes (actions are
+ * main-owned) and computes no rates (main diffs the CPU counter across
+ * snapshots). Command-line arguments are sensitive: they are returned for local
+ * display/search only and are never logged here. See process_collector.cc for
+ * the collection and availability rules.
+ */
+class ProcessCollectorServiceImpl : public ProcessCollectorService {
+ public:
+  void CollectProcesses(const CollectProcessesRequest* /*request*/,
+                        Callback<CollectProcessesResponse> done) override {
+    CollectProcessesResponse response;
+    mostats::CollectProcesses(&response);
+    std::move(done).Complete(response);
+  }
+};
+
 void launch() {
   mo::rpc::RegisterService(new MemoryServiceImpl());
   mo::rpc::RegisterService(new NetworkServiceImpl());
   mo::rpc::RegisterService(new TemperatureServiceImpl());
+  mo::rpc::RegisterService(new ProcessCollectorServiceImpl());
 }
