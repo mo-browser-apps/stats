@@ -3,11 +3,13 @@ import { app, BrowserWindow } from '@mobrowser/api';
 import type { CloseBrowserWindowAction, CloseBrowserWindowParams } from '@mobrowser/api';
 
 /**
- * Compact window dimensions aligned with DESIGN.md. The minimum size still
- * preserves every primary metric slot without overlap once the overview lands.
+ * Compact window dimensions aligned with DESIGN.md. Sized to fit both views in
+ * one fixed window: the Stats overview's full-width rows and the Processes
+ * explorer's sort control, search field, and a scrollable ranked list. Kept
+ * closer to a menu-bar popover than a dashboard. Fixed size, so min == size.
  */
-const WINDOW_SIZE = { width: 320, height: 440 } as const;
-const MIN_WINDOW_SIZE = { width: 300, height: 440 } as const;
+const WINDOW_SIZE = { width: 360, height: 600 } as const;
+const MIN_WINDOW_SIZE = { width: 360, height: 600 } as const;
 
 /**
  * Position of the macOS traffic-light buttons so they clear the custom

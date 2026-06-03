@@ -6,7 +6,26 @@ message SetAlwaysOnTopRequest {
   bool always_on_top = 1;
 }
 
+// Which top-level view is currently on screen in the single window. Main uses
+// this, combined with window visibility, to activate exactly the one service
+// whose view is visible: metrics sampling for Stats, process collection for
+// Processes. UNKNOWN is the proto3 default and activates neither.
+enum ActiveView {
+  ACTIVE_VIEW_UNKNOWN = 0;
+  ACTIVE_VIEW_STATS = 1;
+  ACTIVE_VIEW_PROCESSES = 2;
+}
+
+message SetActiveViewRequest {
+  ActiveView view = 1;
+}
+
 // App-level renderer-to-main commands.
 service AppService {
   rpc SetAlwaysOnTop(SetAlwaysOnTopRequest) returns (google.protobuf.Empty);
+
+  // Reports the selected top-level view so main can gate per-view background
+  // work: only the visible view's service runs, and nothing runs while the
+  // window is hidden.
+  rpc SetActiveView(SetActiveViewRequest) returns (google.protobuf.Empty);
 }

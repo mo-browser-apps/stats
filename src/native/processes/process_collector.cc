@@ -13,7 +13,11 @@
 #include <ctime>
 #include <limits>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
+
+#include "processes/app_metadata.h"
 
 namespace mostats {
 namespace {
@@ -314,7 +318,11 @@ void FillCpu(const proc_taskallinfo& task, bool task_ok,
 
 // Builds one process record from all sources. Each field carries its own
 // availability so a single denied/exited read degrades that field, not the row.
-void FillRecord(pid_t pid, NativeProcessRecord* record) {
+// app_metadata holds GUI-app metadata keyed by PID (from NSWorkspace); a record
+// with no entry keeps its app fields unset and falls back to a generic icon.
+void FillRecord(
+    pid_t pid, NativeProcessRecord* record,
+    const std::unordered_map<int32_t, NativeAppMetadata>& app_metadata) {
   NativeProcessIdentity* identity = record->mutable_identity();
   identity->set_pid(pid);
 
@@ -338,8 +346,13 @@ void FillRecord(pid_t pid, NativeProcessRecord* record) {
   FillMemory(pid, task, task_ok, task_status, record->mutable_memory());
   FillCpu(task, task_ok, task_status, record->mutable_cpu());
 
-  // App metadata/icon enrichment (NSWorkspace) is deferred to the list-UI
-  // iteration; leave record->app() unset so its fields stay unspecified.
+  // GUI app metadata/icon enrichment (NSWorkspace): copy the entry for this PID
+  // when one exists. Non-GUI processes (daemons, helpers) have no entry and keep
+  // their app fields unset, so the UI shows a generic fallback icon for them.
+  const auto match = app_metadata.find(static_cast<int32_t>(pid));
+  if (match != app_metadata.end()) {
+    *record->mutable_app() = match->second;
+  }
 }
 
 }  // namespace
@@ -364,8 +377,13 @@ void CollectProcesses(CollectProcessesResponse* response) {
       static_cast<int64_t>(std::time(nullptr)) * 1000;
   response->set_collected_at_unix_ms(now_ms);
 
+  // Snapshot GUI app metadata once for the whole pass (one NSWorkspace query),
+  // then merge the matching entry onto each record by PID.
+  const std::unordered_map<int32_t, NativeAppMetadata> app_metadata =
+      SnapshotRunningAppMetadata();
+
   for (const pid_t pid : pids) {
-    FillRecord(pid, response->add_records());
+    FillRecord(pid, response->add_records(), app_metadata);
   }
 }
 

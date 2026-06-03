@@ -3,7 +3,7 @@ import { ApplicationWindow } from './application-window';
 import { TrayController } from './tray-controller';
 import { MetricsService } from './metrics/metrics-service';
 import { ProcessExplorerService } from './processes/process-explorer-service';
-import { SetAlwaysOnTopRequest } from './gen/app';
+import { ActiveView, SetActiveViewRequest, SetAlwaysOnTopRequest } from './gen/app';
 import { AppServiceDescriptor } from './gen/ipc_service';
 
 /**
@@ -17,16 +17,16 @@ import { AppServiceDescriptor } from './gen/ipc_service';
  * own IPC service; its reveal/quit/force-quit actions remain not-yet-implemented
  * until the action iteration.
  *
- * Lifecycle (I09): the window hides instead of closing, so the app keeps running
- * in the background with only the tray present. The metrics cadence follows
- * window visibility - it runs while the window is shown and pauses while it is
- * hidden, since a hidden compact monitor has nothing to display. The process
- * collector instead follows process-view selection (it reads sensitive
- * command-line data, so it must run only while the Processes view is on screen,
- * not whenever the window is visible); the view switch wires it in I12, so it
- * stays idle until then. Quit is routed through {@link quit} so the metrics
- * interval/stream, the process explorer cadence/stream, and the tray are torn
- * down before the process exits.
+ * Lifecycle: the window hides instead of closing, so the app keeps running in the
+ * background with only the tray present. Per-view background work is gated on two
+ * signals this class owns: window visibility (from the window callback) and the
+ * active view (reported by the renderer via {@link ActiveView}). Exactly the one
+ * service whose view is on screen runs, and neither runs while the window is
+ * hidden - so metrics sample only on the visible Stats view, and the process
+ * collector (which reads sensitive command-line data) collects only on the
+ * visible Processes view. Both gates are combined in {@link updateServiceActivation}.
+ * Quit is routed through {@link quit} so the metrics interval/stream, the process
+ * explorer cadence/stream, and the tray are torn down before the process exits.
  */
 export class Application {
   private readonly window = new ApplicationWindow(() => {
@@ -40,6 +40,13 @@ export class Application {
   private readonly metrics = new MetricsService();
 
   private readonly processExplorer = new ProcessExplorerService();
+
+  /**
+   * The view the renderer reports as on screen. Defaults to Stats, the launch
+   * view, so the metrics gate is correct even before the renderer's first
+   * {@link ActiveView} report arrives.
+   */
+  private activeView: ActiveView = ActiveView.ACTIVE_VIEW_STATS;
 
   /**
    * Wires lifecycle handlers, registers IPC services, and shows the window.
@@ -59,14 +66,12 @@ export class Application {
     });
 
     this.window.show();
-    // Showing the window normally emits the visibility change that starts the
-    // metrics cadence; sync explicitly too so startup never depends on event
-    // ordering. setActive is idempotent, so this is a no-op if the event already
-    // fired. The process collector is intentionally NOT started here: it is gated
-    // on the process explorer view being selected (the app opens on the Stats
-    // overview), so it must stay idle - and not read sensitive command-line data -
-    // until the Processes view exists. The view switch wires it in I12.
-    this.metrics.setActive(this.window.isVisible);
+    // Showing the window normally emits the visibility change that drives
+    // activation; sync explicitly too so startup never depends on event ordering
+    // (activation is idempotent). With the default active view (Stats), this
+    // starts metrics and leaves the process collector idle until the renderer
+    // reports the Processes view.
+    this.updateServiceActivation();
   }
 
   /**
@@ -87,25 +92,44 @@ export class Application {
 
   /**
    * Reacts to the window being shown, hidden, or destroyed: keeps the tray menu
-   * label in sync and gates the metrics cadence on visibility so the native
-   * probes only run while there is a visible window to display them. The process
-   * collector is not gated here - it follows process-view selection, not window
-   * visibility (see {@link initialize}), and stays idle until the Processes view
-   * is wired in I12.
+   * label in sync and re-evaluates which service should be active, since window
+   * visibility is one of the two activation gates.
    */
   private handleWindowVisibilityChange(): void {
     this.tray.refresh();
-    this.metrics.setActive(this.window.isVisible);
+    this.updateServiceActivation();
   }
 
   /**
-   * Registers the app-level IPC service.
+   * Activates exactly the service whose view is on screen, and neither while the
+   * window is hidden. This is the single place the two gates - window visibility
+   * and the active view - are combined, so both services follow the same rule:
+   * run iff the window is visible and this service's view is the active one.
+   * Both setActive calls are idempotent, so re-evaluating on every signal change
+   * is cheap.
+   */
+  private updateServiceActivation(): void {
+    const visible = this.window.isVisible;
+    this.metrics.setActive(visible && this.activeView === ActiveView.ACTIVE_VIEW_STATS);
+    this.processExplorer.setActive(
+      visible && this.activeView === ActiveView.ACTIVE_VIEW_PROCESSES,
+    );
+  }
+
+  /**
+   * Registers the app-level IPC service: the always-on-top pin toggle and the
+   * active-view report that drives per-view activation.
    */
   private registerAppService(): void {
     const window = this.window;
     ipc.registerService(AppServiceDescriptor, {
       async SetAlwaysOnTop(request: SetAlwaysOnTopRequest) {
         window.setAlwaysOnTop(request.alwaysOnTop);
+        return {};
+      },
+      SetActiveView: async (request: SetActiveViewRequest) => {
+        this.activeView = request.view;
+        this.updateServiceActivation();
         return {};
       },
     });

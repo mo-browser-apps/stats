@@ -2,14 +2,17 @@ import * as os from 'node:os';
 import { ipc } from '@mobrowser/api';
 import { native } from '../gen/native';
 import {
+  NativeAppMetadata,
   NativeCommandLine,
   NativeFieldStatus,
+  NativeImage,
   NativeProcessCpu,
   NativeProcessMemory,
   NativeProcessRecord,
   NativeString,
 } from '../gen/native/process_collector';
 import {
+  AppMetadata,
   CommandLine,
   CpuUsage,
   FieldStatus,
@@ -79,6 +82,44 @@ function toStringValue(value: NativeString | undefined): StringValue {
     return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, value: '' };
   }
   return { status: toFieldStatus(value.status), value: value.value };
+}
+
+/**
+ * Maps the optional GUI app icon (a native PNG payload) onto the renderer's
+ * base64 string value, preserving availability. The base64 payload is volatile
+ * display data forwarded for rendering only; it is never logged or persisted.
+ */
+function toIconValue(icon: NativeImage | undefined): StringValue {
+  if (icon === undefined) {
+    return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, value: '' };
+  }
+  const status = toFieldStatus(icon.status);
+  return {
+    status,
+    value: status === FieldStatus.FIELD_STATUS_OK ? icon.pngBase64 : '',
+  };
+}
+
+/**
+ * Maps the optional GUI app metadata (bundle id, localized name, icon). Only
+ * NSWorkspace-known GUI apps carry this; a record without it (most daemons and
+ * helpers) maps every field to UNKNOWN so the UI falls back to a generic icon
+ * and the command/executable name. Icons are volatile display data, never logged.
+ */
+function toAppMetadata(app: NativeAppMetadata | undefined): AppMetadata {
+  if (app === undefined) {
+    const unknown = { status: FieldStatus.FIELD_STATUS_UNKNOWN, value: '' };
+    return {
+      bundleIdentifier: { ...unknown },
+      localizedName: { ...unknown },
+      iconPngBase64: { ...unknown },
+    };
+  }
+  return {
+    bundleIdentifier: toStringValue(app.bundleIdentifier),
+    localizedName: toStringValue(app.localizedName),
+    iconPngBase64: toIconValue(app.iconPng),
+  };
 }
 
 /**
@@ -186,15 +227,13 @@ export class ProcessSnapshotService {
   private disposed = false;
 
   /**
-   * Activates or pauses collection based on whether the process explorer view is
-   * the one on screen. Collection runs only while the process view is selected:
-   * the per-PID syscalls (and the sensitive command-line reads they perform) must
-   * not run when the user is looking at another view, since nothing consumes
-   * process data then. This is gated on process-view visibility, not window
-   * visibility - a visible window showing the Stats overview must not collect.
-   * Idempotent for repeated calls with the same state.
+   * Activates or pauses collection. The caller (main) activates this service only
+   * when the Processes view is the one on screen and the window is visible, so the
+   * per-PID syscalls - and the sensitive command-line reads they perform - run
+   * only while the user is actually looking at the process list. Idempotent for
+   * repeated calls with the same state.
    */
-  setProcessViewActive(active: boolean): void {
+  setActive(active: boolean): void {
     if (this.disposed || active === this.active) {
       return;
     }
@@ -380,13 +419,9 @@ export class ProcessSnapshotService {
       commandName: toStringValue(record.commandName),
       executableName: toStringValue(record.executableName),
       executablePath: toStringValue(record.executablePath),
-      // App metadata/icon enrichment is deferred to the list-UI iteration, so
-      // every app field is reported as unknown rather than fabricated.
-      app: {
-        bundleIdentifier: { status: FieldStatus.FIELD_STATUS_UNKNOWN, value: '' },
-        localizedName: { status: FieldStatus.FIELD_STATUS_UNKNOWN, value: '' },
-        iconPngBase64: { status: FieldStatus.FIELD_STATUS_UNKNOWN, value: '' },
-      },
+      // GUI app metadata/icon from NSWorkspace when the process is a known app;
+      // otherwise every app field is UNKNOWN and the UI uses a fallback icon.
+      app: toAppMetadata(record.app),
       commandLine,
       memory: toProcessMemory(record.memory),
       cpu,

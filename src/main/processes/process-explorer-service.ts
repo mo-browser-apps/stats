@@ -34,9 +34,10 @@ const ACTION_KINDS: readonly ProcessActionKind[] = [
  * main-authoritative reveal/quit/force-quit land in the action iteration (I14).
  *
  * Lifecycle mirrors the metrics service: {@link setActive} gates the collection
- * cadence on process-view visibility, and {@link dispose} (called from the app
- * quit path) tears down the cadence, the broadcast stream, and the unary
- * handlers so nothing is left dangling.
+ * cadence (driven by {@link import('../application').Application} when the
+ * Processes view is the visible one), and {@link dispose} (called from the app
+ * quit path) tears down the cadence, the broadcast stream, and the unary handlers
+ * so nothing is left dangling.
  *
  * Privacy: command-line arguments are sensitive. This service never logs request
  * targets or any process data, and action results stay count-only with no OS
@@ -67,15 +68,13 @@ export class ProcessExplorerService {
   }
 
   /**
-   * Activates or pauses process collection based on whether the process explorer
-   * view is on screen. Collection (and the sensitive command-line reads it does)
-   * runs only while the Processes view is selected, not merely while the window
-   * is visible - showing the Stats overview must not collect. The view switch
-   * that drives this is wired in the list-view iteration (I12); until then the
-   * collector stays idle.
+   * Activates or pauses process collection. Main calls this with `true` only when
+   * the Processes view is the visible one (the window is shown and Processes is
+   * the selected tab) and `false` otherwise, so the sensitive command-line reads
+   * run only while the user is looking at the process list.
    */
-  setProcessViewActive(active: boolean): void {
-    this.snapshots.setProcessViewActive(active);
+  setActive(active: boolean): void {
+    this.snapshots.setActive(active);
   }
 
   /**

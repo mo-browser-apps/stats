@@ -19,7 +19,9 @@ set(APP_SOURCES
         src/native/temperature_probe.h
         src/native/temperature_probe.cc
         src/native/processes/process_collector.h
-        src/native/processes/process_collector.cc)
+        src/native/processes/process_collector.cc
+        src/native/processes/app_metadata.h
+        src/native/processes/app_metadata.mm)
 
 # Defines the main target of the application.
 add_library(mobrowser_lib STATIC ${APP_SOURCES} ${GENERATED_SOURCES})
@@ -32,9 +34,10 @@ target_include_directories(mobrowser_lib PUBLIC
         ${protobuf_SOURCE_DIR}/third_party/utf8_range
         ${absl_SOURCE_DIR})
 
-# The CPU-temperature probe reads the private IOKit HID temperature sensors, so
-# the native module links IOKit and CoreFoundation. The network probe uses only
-# libSystem (POSIX) and needs no framework.
+# Framework links: IOKit + CoreFoundation for the CPU-temperature HID sensor
+# probe, and AppKit for the NSWorkspace GUI-app icon/metadata enrichment in the
+# process collector. The network probe uses only libSystem (POSIX).
 target_link_libraries(mobrowser_lib PRIVATE
         "-framework IOKit"
-        "-framework CoreFoundation")
+        "-framework CoreFoundation"
+        "-framework AppKit")
