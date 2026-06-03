@@ -1,5 +1,4 @@
 import { ipc, type RequestContext } from '@mobrowser/api';
-import { native } from '../gen/native';
 import {
   ProcessExplorerServiceDescriptor,
   type ProcessExplorerService as GeneratedProcessExplorerService,
@@ -17,7 +16,6 @@ import type {
   RunProcessActionResponse,
 } from '../gen/process_explorer';
 import { ProcessActionService } from './process-action-service';
-import { ProcessCollectorClient } from './process-collector-client';
 import { ProcessSnapshotService } from './process-snapshot-service';
 
 /**
@@ -37,9 +35,7 @@ import { ProcessSnapshotService } from './process-snapshot-service';
  * inert until I14.
  */
 export class ProcessExplorerService implements GeneratedProcessExplorerService {
-  private readonly snapshotService = new ProcessSnapshotService(
-    new ProcessCollectorClient(native.processCollector),
-  );
+  private readonly snapshotService = new ProcessSnapshotService();
 
   private readonly actionService = new ProcessActionService(this.snapshotService);
 

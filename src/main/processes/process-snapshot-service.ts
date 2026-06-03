@@ -1,4 +1,5 @@
 import * as os from 'node:os';
+import { native } from '../gen/native';
 import {
   AvailabilityReason,
   CollectorWarningCode,
@@ -15,7 +16,6 @@ import {
   type ProcessSnapshot,
   type SelectionMemoryTotal,
 } from '../gen/process_explorer';
-import type { ProcessCollector } from './process-collector-client';
 import { identityKeyFromRenderer } from './process-identity';
 import {
   PROCESS_SNAPSHOT_ID_PREFIX,
@@ -44,6 +44,10 @@ export interface ProcessSnapshotServiceOptions {
 /**
  * Owns the latest main-side process snapshot, the native refresh loop, and the
  * renderer read APIs (snapshot, revision, selection memory total).
+ *
+ * Reads the native process collector directly (`native.processCollector`), the
+ * same way the metrics sampler reads its native probes; per-refresh failures are
+ * caught and degraded to a safe warning rather than wrapped behind an adapter.
  *
  * Collection runs only while the process view is active: the renderer is the
  * sole consumer, so the refresh loop (and the native collection it drives) is
@@ -74,10 +78,7 @@ export class ProcessSnapshotService {
   /** Set once disposed; blocks any further activation or collection. */
   private disposed = false;
 
-  constructor(
-    private readonly collector: ProcessCollector,
-    options: ProcessSnapshotServiceOptions = {},
-  ) {
+  constructor(options: ProcessSnapshotServiceOptions = {}) {
     this.mapper = options.mapper ?? new ProcessSnapshotMapper();
     this.clock = options.clock ?? SYSTEM_CLOCK;
     this.refreshLoop = new SnapshotRefreshLoop({
@@ -206,7 +207,7 @@ export class ProcessSnapshotService {
     const startedAt = this.clock.now();
 
     try {
-      const nativeResponse = await this.collector.collectProcesses();
+      const nativeResponse = await native.processCollector.CollectProcesses({});
       // The view may have been hidden or disposed while collection was in
       // flight; dropping the result keeps a stale baseline from arming the CPU
       // calculator after a pause and avoids storing post-dispose.
