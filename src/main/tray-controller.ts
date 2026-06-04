@@ -13,6 +13,8 @@ import type { ApplicationWindow } from './application-window';
  */
 export class TrayController {
   private readonly tray: Tray;
+  private readonly toggleWindowItem: MenuItem;
+  private readonly quitItem: MenuItem;
 
   /**
    * @param window The compact window the tray shows, hides, and toggles.
@@ -23,6 +25,22 @@ export class TrayController {
     private readonly window: ApplicationWindow,
     private readonly onQuit: () => void,
   ) {
+    this.toggleWindowItem = new MenuItem({
+      id: 'toggleWindow',
+      label: this.getToggleLabel(),
+      action: () => {
+        this.window.toggle();
+      },
+    });
+    this.quitItem = new MenuItem({
+      id: 'quit',
+      label: 'Quit MoStats',
+      shortcut: 'CommandOrControl+Q',
+      action: () => {
+        this.onQuit();
+      },
+    });
+
     this.tray = new Tray({
       tooltip: app.name,
       imagePath: `${app.getPath('appResources')}/imageTemplate.png`,
@@ -39,16 +57,16 @@ export class TrayController {
   }
 
   /**
-   * Rebuilds the tray menu. Called when window visibility changes so the
-   * Show/Hide label matches the current state. A no-op once the tray is
-   * destroyed, since a window visibility event can still fire during quit
-   * (after `destroy()`) when the window is closed.
+   * Refreshes the stateful tray menu label. Called when window visibility
+   * changes so the Show/Hide label matches the current state. A no-op once the
+   * tray is destroyed, since a window visibility event can still fire during
+   * quit (after `destroy()`) when the window is closed.
    */
   refresh(): void {
     if (this.tray.destroyed) {
       return;
     }
-    this.tray.setMenu(this.buildMenu());
+    this.toggleWindowItem.setLabel(this.getToggleLabel());
   }
 
   /**
@@ -64,23 +82,14 @@ export class TrayController {
   private buildMenu(): Menu {
     return new Menu({
       items: [
-        new MenuItem({
-          id: 'toggleWindow',
-          label: this.window.isVisible ? 'Hide MoStats' : 'Show MoStats',
-          action: () => {
-            this.window.toggle();
-          },
-        }),
+        this.toggleWindowItem,
         'separator',
-        new MenuItem({
-          id: 'quit',
-          label: 'Quit MoStats',
-          shortcut: 'CommandOrControl+Q',
-          action: () => {
-            this.onQuit();
-          },
-        }),
+        this.quitItem,
       ],
     });
+  }
+
+  private getToggleLabel(): string {
+    return this.window.isVisible ? 'Hide MoStats' : 'Show MoStats';
   }
 }

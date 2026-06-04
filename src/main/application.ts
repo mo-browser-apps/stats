@@ -1,3 +1,4 @@
+import process from 'node:process';
 import { app, ipc } from '@mobrowser/api';
 import { ApplicationWindow } from './application-window';
 import { TrayController } from './tray-controller';
@@ -41,6 +42,8 @@ export class Application {
 
   private readonly processExplorer = new ProcessExplorerService();
 
+  private quitting = false;
+
   /**
    * The view the renderer reports as on screen. Defaults to Stats, the launch
    * view, so the metrics gate is correct even before the renderer's first
@@ -62,16 +65,24 @@ export class Application {
     // On macOS, reopen the window when the app is activated (Dock click or
     // Cmd+Tab) after all windows were hidden or closed.
     app.on('activated', () => {
+      if (this.quitting) {
+        return;
+      }
       this.window.show();
+    });
+    app.on('allWindowsClosed', () => {
+      if (process.platform !== 'darwin') {
+        this.quit();
+      }
     });
 
     this.window.show();
     // Showing the window normally emits the visibility change that drives
-    // activation; sync explicitly too so startup never depends on event ordering
-    // (activation is idempotent). With the default active view (Stats), this
+    // activation and the tray label; sync explicitly too so startup never
+    // depends on event ordering. With the default active view (Stats), this
     // starts metrics and leaves the process collector idle until the renderer
     // reports the Processes view.
-    this.updateServiceActivation();
+    this.handleWindowVisibilityChange();
   }
 
   /**
@@ -84,6 +95,11 @@ export class Application {
    * the fact.
    */
   quit(): void {
+    if (this.quitting) {
+      return;
+    }
+
+    this.quitting = true;
     this.metrics.dispose();
     this.processExplorer.dispose();
     this.tray.destroy();
