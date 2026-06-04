@@ -60,96 +60,6 @@ export class ApplicationWindow {
   constructor(private readonly onVisibilityChange?: () => void) {}
 
   /**
-   * Resizes the window to the active view's height, animating the change with a
-   * short eased setBounds loop so the grow/shrink reads as smooth. The top-left
-   * corner stays fixed by preserving the current bounds origin, like a menu-bar
-   * popover. If no live window exists, it just records the target height so the
-   * next create() opens at the right size.
-   */
-  resizeForView(view: WindowView): void {
-    const target = VIEW_HEIGHT[view];
-    const window = this.window;
-    if (window === null || window.isClosed) {
-      // No window to animate; remember the target for the next create().
-      this.targetHeight = target;
-      return;
-    }
-
-    if (target === this.targetHeight && this.resizeTimer !== null) {
-      return;
-    }
-
-    this.targetHeight = target;
-
-    const from = Math.round(window.size.height);
-    if (from === target) {
-      this.stopResize();
-      return;
-    }
-
-    this.animateHeight(window, from, target);
-  }
-
-  /**
-   * Steps the window height from `from` to `to` over RESIZE_DURATION_MS using an
-   * ease-out curve. A new call cancels any in-flight animation so rapid view
-   * switches always settle on the latest target rather than fighting each other.
-   */
-  private animateHeight(window: BrowserWindow, from: number, to: number): void {
-    this.stopResize();
-
-    const steps = Math.max(1, Math.round(RESIZE_DURATION_MS / RESIZE_STEP_MS));
-    const origin = { ...window.bounds.origin };
-    let step = 0;
-
-    this.resizeTimer = setInterval(() => {
-      step += 1;
-      const t = Math.min(1, step / steps);
-      // Ease-out cubic for a natural deceleration.
-      const eased = 1 - Math.pow(1 - t, 3);
-      const height = Math.round(from + (to - from) * eased);
-
-      if (this.window !== window || window.isClosed) {
-        this.stopResize();
-        return;
-      }
-      this.setWindowHeight(window, height, origin);
-
-      if (t >= 1) {
-        this.stopResize();
-      }
-    }, RESIZE_STEP_MS);
-  }
-
-  /** Applies a bounded per-view height while preserving the chosen frame origin. */
-  private setWindowHeight(
-    window: BrowserWindow,
-    height: number,
-    origin = window.bounds.origin,
-  ): void {
-    window.setBounds({
-      origin: { x: origin.x, y: origin.y },
-      size: { width: WINDOW_WIDTH, height },
-    });
-  }
-
-  /** Finishes any in-flight resize at the latest target while the frame is hidden. */
-  private settleResize(window: BrowserWindow): void {
-    this.stopResize();
-    if (!window.isClosed && Math.round(window.size.height) !== this.targetHeight) {
-      this.setWindowHeight(window, this.targetHeight);
-    }
-  }
-
-  /** Clears the resize animation timer if one is running. */
-  private stopResize(): void {
-    if (this.resizeTimer !== null) {
-      clearInterval(this.resizeTimer);
-      this.resizeTimer = null;
-    }
-  }
-
-  /**
    * Shows the window, creating it if needed, and brings it to the front.
    */
   show(): void {
@@ -195,6 +105,37 @@ export class ApplicationWindow {
    */
   setAlwaysOnTop(alwaysOnTop: boolean): void {
     this.getOrCreateWindow().setAlwaysOnTop(alwaysOnTop);
+  }
+
+  /**
+   * Resizes the window to the active view's height, animating the change with a
+   * short eased setBounds loop so the grow/shrink reads as smooth. The top-left
+   * corner stays fixed by preserving the current bounds origin, like a menu-bar
+   * popover. If no live window exists, it just records the target height so the
+   * next create() opens at the right size.
+   */
+  resizeForView(view: WindowView): void {
+    const target = VIEW_HEIGHT[view];
+    const window = this.window;
+    if (window === null || window.isClosed) {
+      // No window to animate; remember the target for the next create().
+      this.targetHeight = target;
+      return;
+    }
+
+    if (target === this.targetHeight && this.resizeTimer !== null) {
+      return;
+    }
+
+    this.targetHeight = target;
+
+    const from = Math.round(window.size.height);
+    if (from === target) {
+      this.stopResize();
+      return;
+    }
+
+    this.animateHeight(window, from, target);
   }
 
   private getOrCreateWindow(): BrowserWindow {
@@ -255,5 +196,64 @@ export class ApplicationWindow {
     });
 
     return window;
+  }
+
+  /**
+   * Steps the window height from `from` to `to` over RESIZE_DURATION_MS using an
+   * ease-out curve. A new call cancels any in-flight animation so rapid view
+   * switches always settle on the latest target rather than fighting each other.
+   */
+  private animateHeight(window: BrowserWindow, from: number, to: number): void {
+    this.stopResize();
+
+    const steps = Math.max(1, Math.round(RESIZE_DURATION_MS / RESIZE_STEP_MS));
+    const origin = { ...window.bounds.origin };
+    let step = 0;
+
+    this.resizeTimer = setInterval(() => {
+      step += 1;
+      const t = Math.min(1, step / steps);
+      // Ease-out cubic for a natural deceleration.
+      const eased = 1 - Math.pow(1 - t, 3);
+      const height = Math.round(from + (to - from) * eased);
+
+      if (this.window !== window || window.isClosed) {
+        this.stopResize();
+        return;
+      }
+      this.setWindowHeight(window, height, origin);
+
+      if (t >= 1) {
+        this.stopResize();
+      }
+    }, RESIZE_STEP_MS);
+  }
+
+  /** Applies a bounded per-view height while preserving the chosen frame origin. */
+  private setWindowHeight(
+      window: BrowserWindow,
+      height: number,
+      origin = window.bounds.origin,
+  ): void {
+    window.setBounds({
+      origin: { x: origin.x, y: origin.y },
+      size: { width: WINDOW_WIDTH, height },
+    });
+  }
+
+  /** Finishes any in-flight resize at the latest target while the frame is hidden. */
+  private settleResize(window: BrowserWindow): void {
+    this.stopResize();
+    if (!window.isClosed && Math.round(window.size.height) !== this.targetHeight) {
+      this.setWindowHeight(window, this.targetHeight);
+    }
+  }
+
+  /** Clears the resize animation timer if one is running. */
+  private stopResize(): void {
+    if (this.resizeTimer !== null) {
+      clearInterval(this.resizeTimer);
+      this.resizeTimer = null;
+    }
   }
 }
