@@ -1,6 +1,6 @@
 import process from 'node:process';
 import { app, BrowserWindow } from '@mobrowser/api';
-import type { CloseWindowAction, CloseWindowParams } from '@mobrowser/api';
+import type { CloseBrowserWindowAction, CloseBrowserWindowParams } from '@mobrowser/api';
 
 /** The two top-level views; the window picks its height per view. */
 export type WindowView = 'stats' | 'processes';
@@ -181,7 +181,7 @@ export class ApplicationWindow {
 
     // Hide instead of close so the app keeps running in the background. When
     // the app is quitting, allow the window to close so the process can exit.
-    window.handle('close', async (params: CloseWindowParams): Promise<CloseWindowAction> => {
+    window.handle('close', async (params: CloseBrowserWindowParams): Promise<CloseBrowserWindowAction> => {
       if (params.isQuitting) {
         return 'close';
       }
