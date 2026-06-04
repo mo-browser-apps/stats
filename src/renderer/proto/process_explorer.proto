@@ -85,8 +85,21 @@ message ProcessMemory {
   UInt64Value resident_bytes = 2;
 }
 
-// Optional GUI application metadata discovered through NSWorkspace. The icon is
-// volatile display-only data: it must not be logged or persisted.
+// The application bundle a process belongs to, used by the list to group a
+// multi-process app's members (a browser and its helpers) into one row. It is
+// the outermost `.app` in the executable path, so helpers - which carry no
+// bundle id of their own - group with the main app process. Present for any
+// process inside a `.app`; absent for daemons/CLIs.
+message AppBundle {
+  // Absolute path to the owning `.app` bundle (the stable grouping key).
+  StringValue path = 1;
+  // Display name of the bundle (its basename without the `.app` suffix).
+  StringValue name = 2;
+}
+
+// Optional GUI application metadata discovered through NSWorkspace, plus the
+// owning app bundle for grouping. The icon is volatile display-only data: it
+// must not be logged or persisted.
 message AppMetadata {
   // Application bundle identifier (e.g. com.apple.dt.Xcode) when found.
   StringValue bundle_identifier = 1;
@@ -94,6 +107,8 @@ message AppMetadata {
   StringValue localized_name = 2;
   // Volatile display-only base64 PNG icon payload when available.
   StringValue icon_png_base64 = 3;
+  // Owning `.app` bundle for grouping; absent for non-bundled processes.
+  AppBundle bundle = 4;
 }
 
 // Sensitive command-line arguments for one process. Display/search data only:

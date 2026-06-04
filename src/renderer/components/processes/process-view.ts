@@ -24,16 +24,20 @@ export type SortMode = "cpu" | "memory"
 export type MetricState = "ok" | "pending" | "unavailable"
 
 /**
- * One display row in the list. A group collapses an app's sibling processes (by
- * bundle id, else executable/command name) into a single row with a summed
- * metric and a child count, mirroring the compact OneMenu list.
+ * One display row in the list. A group collapses an app's processes (by owning
+ * `.app` bundle path, else bundle id, else executable/command name) into a
+ * single row with a summed metric and a child count, mirroring the compact
+ * OneMenu list.
  */
 export interface ProcessGroup {
   /** Stable key for React lists and selection. */
   key: string
-  /** Best human-facing name for the group (localized app name when available). */
+  /**
+   * Display name for the group: the owning `.app` bundle's name for an app,
+   * else the representative member's name (localized/executable/command/PID).
+   */
   name: string
-  /** Representative PID (the highest-usage member); used for stable identity. */
+  /** Representative PID (the highest-usage member of the group). */
   pid: number
   /** Base64 PNG app icon when a GUI app supplied one; absent -> fallback icon. */
   iconPngBase64?: string
@@ -132,15 +136,19 @@ function rowMetric(row: ProcessRow, sort: SortMode): MetricCell {
 }
 
 /**
- * Group key: the bundle identifier for a GUI app (so a multi-process app like a
- * browser collapses into one row), else the executable/command name, else a
- * per-PID key so an unnamed process stays its own singleton rather than merging
- * with other unnamed ones.
+ * Group key. The owning `.app` bundle path (resolved natively, so an app's helper
+ * processes collapse into one row with the main app process) comes first, then
+ * the bundle identifier, then the executable/command name, then a per-PID key so
+ * an unnamed process stays its own singleton rather than merging with others.
  */
 function rowGroupKey(row: ProcessRow): string {
-  const bundle = okString(row.app?.bundleIdentifier)
-  if (bundle) {
-    return `bundle:${bundle}`
+  const bundlePath = okString(row.app?.bundle?.path)
+  if (bundlePath) {
+    return `app:${bundlePath}`
+  }
+  const bundleId = okString(row.app?.bundleIdentifier)
+  if (bundleId) {
+    return `bundle:${bundleId}`
   }
   const name = okString(row.executableName) ?? okString(row.commandName)
   if (name) {
@@ -174,17 +182,26 @@ function rowHaystack(row: ProcessRow): string {
 /** Accumulator while folding member rows into one group. */
 interface GroupAccumulator {
   key: string
-  name: string
-  pid: number
-  iconPngBase64?: string
   memberCount: number
   sortValueSum: number
   /** True once any member contributed a real (OK) metric value. */
   hasMetric: boolean
   /** True if any member's metric is pending (UNKNOWN); used when none is OK. */
   anyPending: boolean
-  /** Metric magnitude of the current representative member. */
+  /** Metric magnitude of the current representative (highest-usage) member. */
   bestMemberMetric: number
+  /** PID of the representative member (icon/identity when not an `.app` group). */
+  bestMemberPid: number
+  /** Display name of the representative member (used when not an `.app` group). */
+  bestMemberName: string
+  /**
+   * Icon of the representative member. For an `.app` group every member resolves
+   * to the same bundle icon natively, so any member's icon is the app's icon;
+   * for a daemon group it is the highest-usage member's path-resolved icon.
+   */
+  bestMemberIcon?: string
+  /** Owning `.app` bundle's display name (native), when the group is an app. */
+  appName?: string
 }
 
 /** Formats a group's summed metric for display under the active sort. */
@@ -195,8 +212,11 @@ function formatGroupMetric(sum: number, sort: SortMode): string {
 /**
  * Projects a snapshot into ranked, grouped, searched display rows.
  *
- * Grouping sums each app's member metric and keeps the highest-usage member as
- * the representative (icon, name, pid). Search matches a group when any member
+ * Grouping buckets rows by their native group key (the owning `.app` bundle, so a
+ * multi-process app collapses into one row), sums each group's metric, and names
+ * the group after its `.app` bundle, falling back to the highest-usage member for
+ * daemons. The icon comes from that member; within one `.app` every member shares
+ * the same bundle icon (resolved natively). Search matches a group when any member
  * matches. Sorting is by summed metric descending, with a stable name tiebreak.
  */
 export function projectProcessList(
@@ -217,19 +237,22 @@ export function projectProcessList(
     const metric = rowMetric(row, sort)
     const metricValue = metric.value ?? 0
     const pid = row.identity?.pid ?? 0
+    const name = rowDisplayName(row)
+    const icon = okString(row.app?.iconPngBase64)
     const existing = groups.get(key)
 
     if (existing === undefined) {
       groups.set(key, {
         key,
-        name: rowDisplayName(row),
-        pid,
-        iconPngBase64: okString(row.app?.iconPngBase64),
         memberCount: 1,
         sortValueSum: metricValue,
         hasMetric: metric.value !== undefined,
         anyPending: metric.pending,
         bestMemberMetric: metricValue,
+        bestMemberPid: pid,
+        bestMemberName: name,
+        bestMemberIcon: icon,
+        appName: okString(row.app?.bundle?.name),
       })
       continue
     }
@@ -238,14 +261,16 @@ export function projectProcessList(
     existing.sortValueSum += metricValue
     existing.hasMetric = existing.hasMetric || metric.value !== undefined
     existing.anyPending = existing.anyPending || metric.pending
-    // Keep the highest-usage member as the representative so the row's icon and
-    // name track the dominant process; ties break to the lower PID for stability.
-    if (metricValue > existing.bestMemberMetric || (metricValue === existing.bestMemberMetric && pid < existing.pid)) {
+    // Track the highest-usage member as the representative for the icon/identity.
+    // Ties break to the lower PID for stability.
+    if (
+      metricValue > existing.bestMemberMetric ||
+      (metricValue === existing.bestMemberMetric && pid < existing.bestMemberPid)
+    ) {
       existing.bestMemberMetric = metricValue
-      existing.name = rowDisplayName(row)
-      existing.pid = pid
-      const icon = okString(row.app?.iconPngBase64)
-      if (icon) existing.iconPngBase64 = icon
+      existing.bestMemberPid = pid
+      existing.bestMemberName = name
+      if (icon) existing.bestMemberIcon = icon
     }
   }
 
@@ -255,11 +280,14 @@ export function projectProcessList(
       : group.anyPending
         ? "pending"
         : "unavailable"
+    const name = group.appName ?? group.bestMemberName
+    const pid = group.bestMemberPid
+    const iconPngBase64 = group.bestMemberIcon
     return {
       key: group.key,
-      name: group.name,
-      pid: group.pid,
-      iconPngBase64: group.iconPngBase64,
+      name,
+      pid,
+      iconPngBase64,
       memberCount: group.memberCount,
       childCount: group.memberCount - 1,
       metricState,

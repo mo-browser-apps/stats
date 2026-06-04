@@ -2,6 +2,7 @@ import * as os from 'node:os';
 import { ipc } from '@mobrowser/api';
 import { native } from '../gen/native';
 import {
+  NativeAppBundle,
   NativeAppMetadata,
   NativeCommandLine,
   NativeFieldStatus,
@@ -12,6 +13,7 @@ import {
   NativeString,
 } from '../gen/native/process_collector';
 import {
+  AppBundle,
   AppMetadata,
   CommandLine,
   CpuUsage,
@@ -108,10 +110,26 @@ function toIconValue(icon: NativeImage | undefined): StringValue {
 }
 
 /**
- * Maps the optional GUI app metadata (bundle id, localized name, icon). Only
- * NSWorkspace-known GUI apps carry this; a record without it (most daemons and
- * helpers) maps every field to UNKNOWN so the UI falls back to a generic icon
- * and the command/executable name. Icons are volatile display data, never logged.
+ * Maps the owning `.app` bundle (path + name) the list groups by. Absent (the
+ * native bundle, or its path, not AVAILABLE) maps to undefined so a non-bundled
+ * process falls back to bundle-id/name grouping in the renderer.
+ */
+function toAppBundle(bundle: NativeAppBundle | undefined): AppBundle | undefined {
+  if (
+    bundle?.path === undefined ||
+    bundle.path.status !== NativeFieldStatus.NATIVE_FIELD_STATUS_AVAILABLE
+  ) {
+    return undefined;
+  }
+  return { path: toStringValue(bundle.path), name: toStringValue(bundle.name) };
+}
+
+/**
+ * Maps the optional GUI app metadata (bundle id, localized name, icon) plus the
+ * owning app bundle. NSWorkspace-known GUI apps carry bundle id / localized name;
+ * the bundle and icon are set for any process inside a `.app`. A record with no
+ * app data maps every field to UNKNOWN so the UI falls back to a generic icon and
+ * the command/executable name. Icons are volatile display data, never logged.
  */
 function toAppMetadata(app: NativeAppMetadata | undefined): AppMetadata {
   if (app === undefined) {
@@ -120,12 +138,14 @@ function toAppMetadata(app: NativeAppMetadata | undefined): AppMetadata {
       bundleIdentifier: { ...unknown },
       localizedName: { ...unknown },
       iconPngBase64: { ...unknown },
+      bundle: undefined,
     };
   }
   return {
     bundleIdentifier: toStringValue(app.bundleIdentifier),
     localizedName: toStringValue(app.localizedName),
     iconPngBase64: toIconValue(app.iconPng),
+    bundle: toAppBundle(app.bundle),
   };
 }
 

@@ -393,21 +393,21 @@ void FillRecord(
     *record->mutable_app() = match->second;
   }
 
-  // Icon-only fallback: if no GUI icon was attached (a daemon/helper/CLI, or a
-  // GUI app whose icon failed to encode) and we resolved an executable path,
-  // fill just the icon from that path. iconForFile: yields a bundled app's real
-  // icon or the generic system executable icon, so most rows get an icon instead
-  // of the UI's placeholder - matching Activity Monitor - without touching the
-  // name, bundle id, or localized name (which stay UNSPECIFIED for a non-GUI
-  // process and map to UNKNOWN downstream, exactly as before). Encoded icons are
-  // cached per path, so a steady-state pass adds no measurable cost (see
-  // IconForExecutablePath). Guarded on an available path so a truly bare record
-  // is not given an empty app message needlessly.
-  const bool has_gui_icon =
-      record->has_app() &&
-      record->app().icon_png().status() == NATIVE_FIELD_STATUS_AVAILABLE;
-  if (!has_gui_icon &&
-      record->executable_path().status() == NATIVE_FIELD_STATUS_AVAILABLE) {
+  // From the executable path, fill the owning `.app` bundle (the grouping key,
+  // for any bundled process, not just GUI-enriched ones) and the icon. The icon
+  // resolves the `.app` bundle's real icon when the executable is inside one,
+  // else the generic system executable icon - so every member of a multi-process
+  // app (a browser's helpers/renderers) gets the parent app's real icon and a
+  // plain daemon gets the generic glyph, matching Activity Monitor. The icon
+  // overrides any NSWorkspace icon on purpose: macOS surfaces some apps only
+  // through a helper whose runningApplications icon is the generic glyph, whereas
+  // the bundle icon is the real app icon and identical across members. Bundle id
+  // / localized name stay NSWorkspace-owned. Both are cached per resolution path,
+  // so a steady-state pass adds no measurable cost. Guarded on an available path;
+  // if the path is unreadable, any NSWorkspace enrichment above is left in place.
+  if (record->executable_path().status() == NATIVE_FIELD_STATUS_AVAILABLE) {
+    FillAppBundle(record->executable_path().value(),
+                  record->mutable_app()->mutable_bundle());
     IconForExecutablePath(record->executable_path().value(),
                           record->mutable_app()->mutable_icon_png());
   }

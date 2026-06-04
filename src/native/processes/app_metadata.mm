@@ -14,34 +14,21 @@ namespace {
 // PNG keeps the payload light while staying crisp at typical row sizes.
 constexpr int kIconSizePx = 32;
 
-// Session cache of encoded icons, keyed by a stable per-app identity (bundle id,
-// else executable path). Rasterizing an NSImage and PNG/base64-encoding it is by
-// far the most expensive step of an enrichment pass, and an app's icon does not
-// change while it runs, so caching the encoded string lets a steady-state
-// collection skip the draw/encode entirely and only pay for the NSWorkspace
-// enumeration. Bounded by the number of distinct apps seen this session.
+// Session cache of encoded icons, keyed by the icon resolution path (the owning
+// `.app` bundle, else the executable). Rasterizing an NSImage and
+// PNG/base64-encoding it is by far the most expensive step, and an app's icon
+// does not change while it runs, so caching the encoded string lets a
+// steady-state collection skip the draw/encode entirely. Keying on the `.app`
+// bundle means all members of a multi-process app share one entry. Bounded by
+// the number of distinct bundles/executables seen this session.
 //
-// Threading: enrichment runs only from the process collector, which the RPC
+// Threading: the cache is touched only from the process collector, which the RPC
 // layer invokes serially on the native main thread (one collection at a time),
 // so this map needs no lock. The icon is volatile display data and is never
 // logged or persisted.
 std::unordered_map<std::string, std::string>& IconCache() {
   static std::unordered_map<std::string, std::string> cache;
   return cache;
-}
-
-// Stable cache key for an app's icon: the bundle identifier when present, else
-// the executable path, else empty (which disables caching for that app).
-std::string IconCacheKey(NSRunningApplication* application) {
-  NSString* bundle_id = application.bundleIdentifier;
-  if (bundle_id.length > 0) {
-    return bundle_id.UTF8String;
-  }
-  NSString* path = application.executableURL.path;
-  if (path.length > 0) {
-    return path.UTF8String;
-  }
-  return std::string();
 }
 
 // Fills a NativeString from an NSString, marking it unavailable when empty so an
@@ -126,7 +113,46 @@ void FillIcon(NativeImage* out, NSImage* icon, const std::string& cache_key) {
   out->set_png_base64(encoded);
 }
 
+// The owning `.app` bundle of an executable path: the outermost `.app` segment.
+// A multi-process app nests every member inside its `.app` (the main process at
+// `<App>.app/Contents/MacOS/<App>`, helpers at deeper `.../<Helper>.app/...`
+// paths), so matching the first `.app` groups all members under the parent app.
+// Returns empty strings for a path with no `.app` (a plain daemon).
+struct AppBundle {
+  std::string path;  // up to and including the outermost `.app`, or empty
+  std::string name;  // bundle basename without `.app`, or empty
+};
+
+AppBundle AppBundleForPath(const std::string& executable_path) {
+  constexpr char kAppSuffix[] = ".app/";
+  constexpr std::string::size_type kAppLen = sizeof(kAppSuffix) - 2;  // ".app"
+  const std::string::size_type slash = executable_path.find(kAppSuffix);
+  if (slash == std::string::npos) {
+    return {};
+  }
+  const std::string path = executable_path.substr(0, slash + kAppLen);
+  const std::string::size_type name_start = path.rfind('/');
+  const std::string base =
+      name_start == std::string::npos ? path : path.substr(name_start + 1);
+  const std::string name = base.substr(0, base.size() - kAppLen);  // drop ".app"
+  if (name.empty()) {
+    return {};  // A segment literally named ".app" is not a real bundle.
+  }
+  return {path, name};
+}
+
 }  // namespace
+
+void FillAppBundle(const std::string& executable_path, NativeAppBundle* out) {
+  const AppBundle bundle = AppBundleForPath(executable_path);
+  if (bundle.path.empty()) {
+    return;  // Not inside a `.app`; leave the bundle unset (UNKNOWN downstream).
+  }
+  out->mutable_path()->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
+  out->mutable_path()->set_value(bundle.path);
+  out->mutable_name()->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
+  out->mutable_name()->set_value(bundle.name);
+}
 
 void IconForExecutablePath(const std::string& executable_path,
                            NativeImage* out) {
@@ -135,27 +161,35 @@ void IconForExecutablePath(const std::string& executable_path,
     return;
   }
 
-  // Fast path: the encoded icon is cached per executable path, so a steady-state
-  // pass (every process already seen) is a hash lookup with no AppKit work at
-  // all. Only the first time a given executable is seen do we resolve+encode.
-  // Measured on a ~600-process machine: a fully warm pass is well under 1 ms,
-  // while a cold resolve+encode is the only real cost and happens once per path.
-  if (IconCache().count(executable_path) == 0) {
+  // Resolve from the owning `.app` bundle (real app icon) when there is one, else
+  // the executable itself (generic system icon). The cache is keyed on this
+  // resolution path, so all members of one app bundle share a single entry.
+  const AppBundle bundle = AppBundleForPath(executable_path);
+  const std::string& resolution_path =
+      bundle.path.empty() ? executable_path : bundle.path;
+
+  // Fast path: the encoded icon is cached per resolution path, so a steady-state
+  // pass (every bundle/executable already seen) is a hash lookup with no AppKit
+  // work at all. Only the first time a given bundle/executable is seen do we
+  // resolve+encode. Measured on a ~600-process machine: a fully warm pass is well
+  // under 1 ms, while a cold resolve+encode is the only real cost, once per path.
+  if (IconCache().count(resolution_path) == 0) {
     @autoreleasepool {
-      NSString* path = [NSString stringWithUTF8String:executable_path.c_str()];
-      // iconForFile: never returns nil: a bundled app yields its real icon, and
+      NSString* path =
+          [NSString stringWithUTF8String:resolution_path.c_str()];
+      // iconForFile: never returns nil: a `.app` bundle yields its real icon, and
       // a plain executable yields the generic Unix-executable icon (the same
       // thing Activity Monitor shows), so this raises icon coverage well beyond
       // the GUI-app-only NSWorkspace enrichment without any private API.
       NSImage* icon = path == nil
                           ? nil
                           : [[NSWorkspace sharedWorkspace] iconForFile:path];
-      FillIcon(out, icon, executable_path);
+      FillIcon(out, icon, resolution_path);
       return;
     }
   }
 
-  FillIcon(out, /*icon=*/nil, executable_path);
+  FillIcon(out, /*icon=*/nil, resolution_path);
 }
 
 std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata() {
@@ -167,12 +201,14 @@ std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata() {
     by_pid.reserve(applications.count);
 
     for (NSRunningApplication* application in applications) {
+      // Identity only (bundle id + localized name). The icon is NOT encoded here:
+      // the collector resolves it from the owning `.app` bundle via
+      // IconForExecutablePath, which is the authoritative source and would
+      // override anything set here, so encoding it now would be wasted work.
       NativeAppMetadata metadata;
       FillString(metadata.mutable_bundle_identifier(),
                  application.bundleIdentifier);
       FillString(metadata.mutable_localized_name(), application.localizedName);
-      FillIcon(metadata.mutable_icon_png(), application.icon,
-               IconCacheKey(application));
       by_pid.emplace(static_cast<int32_t>(application.processIdentifier),
                      std::move(metadata));
     }

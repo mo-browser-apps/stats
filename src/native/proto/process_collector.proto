@@ -91,12 +91,29 @@ message NativeProcessCpu {
   NativeInt64 cumulative_cpu_time_ns = 1;
 }
 
-// Optional GUI app metadata discovered through NSWorkspace enrichment.
+// The application bundle a process belongs to, used to group a multi-process
+// app's members (a browser and its helpers/renderers) into one row. It is the
+// outermost `.app` in the executable path, so the main app process and its
+// helpers - which carry no bundle id of their own - share one bundle. Set for
+// any process whose executable lives inside a `.app`, independent of GUI
+// enrichment; absent for daemons/CLIs with no `.app`.
+message NativeAppBundle {
+  // Absolute path to the owning `.app` bundle (the stable grouping key).
+  NativeString path = 1;
+  // Display name of the bundle (its basename without the `.app` suffix).
+  NativeString name = 2;
+}
+
+// Optional GUI app metadata discovered through NSWorkspace enrichment, plus the
+// owning app bundle (which is set from the executable path for any bundled
+// process, not only GUI-enriched ones).
 message NativeAppMetadata {
   NativeString bundle_identifier = 1;
   NativeString localized_name = 2;
   // Volatile display-only app icon PNG (see NativeImage).
   NativeImage icon_png = 3;
+  // Owning `.app` bundle for grouping; absent for non-bundled processes.
+  NativeAppBundle bundle = 4;
 }
 
 // One raw native process record. Most fields carry their own availability so a
