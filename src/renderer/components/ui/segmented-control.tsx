@@ -1,3 +1,5 @@
+import { cva } from "class-variance-authority"
+
 import { cn } from "@/lib/utils"
 
 /**
@@ -11,6 +13,32 @@ export interface SegmentedOption<T extends string> {
   /** Tooltip, used to explain a disabled option's reason. */
   title?: string
 }
+
+/**
+ * One segment's classes. The active segment gets a subtle elevated surface
+ * rather than a loud accent pill (DESIGN.md); `disabled` dims and freezes hover.
+ */
+const segment = cva("rounded-md font-medium transition-colors", {
+  variants: {
+    size: {
+      sm: "px-2.5 py-1 text-[11px]",
+      md: "px-3 py-1 text-[12px]",
+    },
+    selected: {
+      true: "bg-accent text-foreground shadow-sm",
+      false: "text-muted-foreground hover:text-foreground",
+    },
+    disabled: {
+      true: "cursor-not-allowed opacity-40 hover:text-muted-foreground",
+      false: "",
+    },
+  },
+  defaultVariants: {
+    size: "md",
+    selected: false,
+    disabled: false,
+  },
+})
 
 /**
  * Compact macOS-style segmented control: a quiet track with a subtle elevated
@@ -52,14 +80,7 @@ export function SegmentedControl<T extends string>({
             disabled={option.disabled}
             title={option.title}
             onClick={() => !option.disabled && onChange(option.value)}
-            className={cn(
-              "rounded-md font-medium transition-colors",
-              size === "sm" ? "px-2.5 py-1 text-[11px]" : "px-3 py-1 text-[12px]",
-              selected
-                ? "bg-accent text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-              option.disabled && "cursor-not-allowed opacity-40 hover:text-muted-foreground",
-            )}
+            className={segment({ size, selected, disabled: option.disabled ?? false })}
           >
             {option.label}
           </button>
