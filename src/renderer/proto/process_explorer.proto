@@ -32,8 +32,7 @@ enum FieldStatus {
   FIELD_STATUS_PERMISSION_DENIED = 3;
   // The process exited before the value could be read.
   FIELD_STATUS_PROCESS_EXITED = 4;
-  // The current platform/source does not support this value (e.g. per-process
-  // network counters, which have no reliable non-brittle macOS source yet).
+  // The current platform/source does not support this value.
   FIELD_STATUS_UNSUPPORTED = 5;
 }
 
@@ -73,17 +72,6 @@ message UInt64Value {
 message CpuUsage {
   FieldStatus status = 1;
   double usage_percent = 2; // 0-100, normalized across logical cores.
-}
-
-// Per-process network usage. There is no reliable, non-brittle macOS source for
-// per-process network counters today, so this is modeled only as an explicit
-// unsupported/unavailable state; values must never be faked. Kept in the
-// contract so the list/detail UI can show an honest unsupported state and so a
-// future verified source can populate it without a breaking change.
-message NetworkUsage {
-  FieldStatus status = 1; // Expected to be UNSUPPORTED until a source is proven.
-  uint64 rx_bytes_per_sec = 2;
-  uint64 tx_bytes_per_sec = 3;
 }
 
 // Per-process memory. Physical footprint is the primary display value when
@@ -150,8 +138,6 @@ message ProcessRow {
   ProcessMemory memory = 9;
   // Per-process CPU usage percent, computed in main from CPU-time deltas.
   CpuUsage cpu = 10;
-  // Per-process network usage; explicit unsupported/unavailable, never faked.
-  NetworkUsage network = 11;
 }
 
 // A safe, non-sensitive warning about a snapshot. Counts only - it must never

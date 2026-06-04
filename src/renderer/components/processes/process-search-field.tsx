@@ -14,7 +14,7 @@ export function ProcessSearchField({
   onChange: (value: string) => void
 }) {
   return (
-    <div className="no-drag relative flex h-9 items-center">
+    <div className="no-drag relative flex h-9 min-w-0 flex-1 items-center">
       <Search
         className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-muted-foreground"
         strokeWidth={1.75}

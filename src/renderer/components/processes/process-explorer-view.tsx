@@ -73,12 +73,10 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
   )
 
   return (
-    <div className="flex flex-1 flex-col gap-3 overflow-hidden px-4 pb-4">
-      <div className="flex flex-col gap-3">
-        <div className="flex justify-center">
-          <ProcessSortControl sort={sort} onChange={setSort} />
-        </div>
+    <div className="flex flex-1 flex-col gap-3 overflow-hidden px-4 pb-4 pt-3">
+      <div className="flex items-center gap-2">
         <ProcessSearchField value={query} onChange={setQuery} />
+        <ProcessSortControl sort={sort} onChange={setSort} />
       </div>
 
       <ProcessList

@@ -121,9 +121,8 @@ message NativeProcessRecord {
   NativeProcessMemory memory = 9;
   // Cumulative per-process CPU time counter (diffed in main).
   NativeProcessCpu cpu = 10;
-  // Per-process network is intentionally absent: there is no reliable,
-  // non-brittle macOS source, so MoStats models it as unsupported at the
-  // renderer contract level and the collector does not fake it here.
+  // Per-process network is intentionally absent: macOS has no reliable,
+  // non-brittle per-process source, so the collector does not gather it.
 }
 
 // A safe, count-only warning about a collection pass. Must never include

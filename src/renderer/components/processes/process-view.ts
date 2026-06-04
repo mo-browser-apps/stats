@@ -13,7 +13,7 @@ import { formatBytes, formatCpuPercent } from "@/lib/format"
  * or persisted.
  */
 
-/** The metrics the list can rank by. Network has no reliable per-process source. */
+/** The metrics the list can rank by. */
 export type SortMode = "cpu" | "memory"
 
 /**

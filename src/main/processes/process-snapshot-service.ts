@@ -439,13 +439,6 @@ export class ProcessSnapshotService {
       commandLine,
       memory: toProcessMemory(record.memory),
       cpu,
-      // Per-process network has no reliable non-brittle macOS source; report it
-      // as an explicit unsupported state, never a fabricated value.
-      network: {
-        status: FieldStatus.FIELD_STATUS_UNSUPPORTED,
-        rxBytesPerSec: 0,
-        txBytesPerSec: 0,
-      },
     };
   }
 

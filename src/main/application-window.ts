@@ -15,7 +15,7 @@ export type WindowView = 'stats' | 'processes';
 const WINDOW_WIDTH = 360;
 const VIEW_HEIGHT: Record<WindowView, number> = {
   stats: 440,
-  processes: 600,
+  processes: 560,
 };
 
 /** The view the window opens at (and re-shows at after a hide). */
