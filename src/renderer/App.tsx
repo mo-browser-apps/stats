@@ -28,9 +28,6 @@ function App() {
   const [view, setView] = useState<AppView>("stats");
 
   useEffect(() => {
-    // Report the on-screen view so main runs only the visible view's service
-    // (metrics on Stats, process collection on Processes) and neither while the
-    // window is hidden. Fire-and-forget; main re-evaluates on window visibility.
     void appGateway.setActiveView(ACTIVE_VIEW_BY_VIEW[view]);
   }, [view]);
 
@@ -46,13 +43,6 @@ function App() {
       </header>
 
       <main className="flex flex-1 flex-col overflow-hidden">
-        {/*
-          Both views stay mounted and visibility is toggled, rather than
-          mounting one at a time. Remounting the process list on every switch
-          made it flash from an empty list to populated rows; keeping it mounted
-          lets it retain its rows, sort, search, and scroll and switch with no
-          flicker. Each view consumes data only while active (idle when hidden).
-        */}
         <ViewPane active={view === "stats"}>
           <MetricsOverview active={view === "stats"} />
         </ViewPane>
