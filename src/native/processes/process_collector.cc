@@ -385,11 +385,31 @@ void FillRecord(
   FillCpu(task, task_ok, task_status, record->mutable_cpu());
 
   // GUI app metadata/icon enrichment (NSWorkspace): copy the entry for this PID
-  // when one exists. Non-GUI processes (daemons, helpers) have no entry and keep
-  // their app fields unset, so the UI shows a generic fallback icon for them.
+  // when one exists. This is the only source of bundle id / localized name, so
+  // it is left as the sole owner of those fields - non-GUI processes keep them
+  // unset (UNKNOWN downstream), which preserves naming and grouping.
   const auto match = app_metadata.find(static_cast<int32_t>(pid));
   if (match != app_metadata.end()) {
     *record->mutable_app() = match->second;
+  }
+
+  // Icon-only fallback: if no GUI icon was attached (a daemon/helper/CLI, or a
+  // GUI app whose icon failed to encode) and we resolved an executable path,
+  // fill just the icon from that path. iconForFile: yields a bundled app's real
+  // icon or the generic system executable icon, so most rows get an icon instead
+  // of the UI's placeholder - matching Activity Monitor - without touching the
+  // name, bundle id, or localized name (which stay UNSPECIFIED for a non-GUI
+  // process and map to UNKNOWN downstream, exactly as before). Encoded icons are
+  // cached per path, so a steady-state pass adds no measurable cost (see
+  // IconForExecutablePath). Guarded on an available path so a truly bare record
+  // is not given an empty app message needlessly.
+  const bool has_gui_icon =
+      record->has_app() &&
+      record->app().icon_png().status() == NATIVE_FIELD_STATUS_AVAILABLE;
+  if (!has_gui_icon &&
+      record->executable_path().status() == NATIVE_FIELD_STATUS_AVAILABLE) {
+    IconForExecutablePath(record->executable_path().value(),
+                          record->mutable_app()->mutable_icon_png());
   }
 }
 

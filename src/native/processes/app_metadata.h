@@ -2,6 +2,7 @@
 #define MOSTATS_PROCESSES_APP_METADATA_H_
 
 #include <cstdint>
+#include <string>
 #include <unordered_map>
 
 #include "gen/process_collector.pb.h"
@@ -25,6 +26,25 @@ namespace mostats {
  * persist it.
  */
 std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata();
+
+/**
+ * Resolves a small app icon for any process by its executable path, writing the
+ * base64 PNG (or an unavailable status) into `out`.
+ *
+ * Unlike {@link SnapshotRunningAppMetadata}, this is not limited to GUI apps: it
+ * uses NSWorkspace's standard iconForFile:, which returns a bundled app's real
+ * icon and a plain executable's generic system icon, matching what Activity
+ * Monitor shows. The collector uses it as an icon-only fallback for processes
+ * that the GUI-app enrichment did not cover, so naming, bundle id, and localized
+ * name are left untouched.
+ *
+ * Performance: the encoded icon is cached per executable path for the session
+ * (the same cache used by GUI-app icons), so a steady-state pass is a hash
+ * lookup with no AppKit drawing - an executable is rasterized and encoded at
+ * most once. The icon is volatile display-only data and is never logged or
+ * persisted.
+ */
+void IconForExecutablePath(const std::string& executable_path, NativeImage* out);
 
 }  // namespace mostats
 
