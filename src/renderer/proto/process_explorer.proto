@@ -66,12 +66,14 @@ message UInt64Value {
 }
 
 // A per-process CPU usage reading, derived in main from cumulative CPU-time
-// deltas across snapshots and normalized to a percentage. Carries its own
+// deltas across snapshots. Uses Activity Monitor semantics: CPU time over wall
+// time, NOT divided by core count, so one fully busy core reads ~100% and a
+// multi-threaded process can exceed 100% (capped at cores*100). Carries its own
 // status so a first sample, a restarted process, or an invalid delta renders as
 // unknown/unavailable rather than a fake value.
 message CpuUsage {
   FieldStatus status = 1;
-  double usage_percent = 2; // 0-100, normalized across logical cores.
+  double usage_percent = 2; // >= 0; not capped at 100 (see message comment).
 }
 
 // Per-process memory. Physical footprint is the primary display value when
