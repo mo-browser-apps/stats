@@ -159,8 +159,10 @@ function rowGroupKey(row: ProcessRow): string {
 
 /**
  * Lowercased search haystack for a row: display name, PID, executable path,
- * bundle id, and command-line arguments when available. Used only for in-memory
- * matching; the sensitive argument text never leaves this module.
+ * bundle id, owning `.app` name, and command-line arguments when available. The
+ * `.app` name is included so every member is searchable by its app's name even
+ * when the member's own name differs. Used only for in-memory matching; the
+ * sensitive argument text never leaves this module.
  */
 function rowHaystack(row: ProcessRow): string {
   const parts: string[] = [
@@ -171,6 +173,8 @@ function rowHaystack(row: ProcessRow): string {
   if (path) parts.push(path)
   const bundle = okString(row.app?.bundleIdentifier)
   if (bundle) parts.push(bundle)
+  const bundleName = okString(row.app?.bundle?.name)
+  if (bundleName) parts.push(bundleName)
   const command = okString(row.commandName)
   if (command) parts.push(command)
   if (row.commandLine && row.commandLine.status === FieldStatus.FIELD_STATUS_OK) {
