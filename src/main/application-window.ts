@@ -129,6 +129,11 @@ export class ApplicationWindow {
 
     this.targetHeight = target;
 
+    if (!window.isVisible) {
+      this.settleResize(window);
+      return;
+    }
+
     const from = Math.round(window.size.height);
     if (from === target) {
       this.stopResize();
