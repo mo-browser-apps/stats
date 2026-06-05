@@ -1,10 +1,10 @@
 import process from 'node:process';
-import { app, ipc } from '@mobrowser/api';
+import { app, clipboard, ipc } from '@mobrowser/api';
 import { ApplicationWindow } from './application-window';
 import { TrayController } from './tray-controller';
 import { MetricsService } from './metrics/metrics-service';
 import { ProcessExplorerService } from './processes/process-explorer-service';
-import { ActiveView, SetActiveViewRequest, SetAlwaysOnTopRequest } from './gen/app';
+import { ActiveView, CopyTextRequest, SetActiveViewRequest, SetAlwaysOnTopRequest } from './gen/app';
 import { AppServiceDescriptor } from './gen/ipc_service';
 
 /**
@@ -133,8 +133,9 @@ export class Application {
   }
 
   /**
-   * Registers the app-level IPC service: the always-on-top pin toggle and the
-   * active-view report that drives per-view activation.
+   * Registers the app-level IPC service: the always-on-top pin toggle, the
+   * active-view report that drives per-view activation, and the user-initiated
+   * clipboard copy.
    */
   private registerAppService(): void {
     const window = this.window;
@@ -149,6 +150,14 @@ export class Application {
         this.window.resizeForView(
           request.view === ActiveView.ACTIVE_VIEW_PROCESSES ? 'processes' : 'stats',
         );
+        return {};
+      },
+      async CopyText(request: CopyTextRequest) {
+        // The renderer is sandboxed and cannot reach the clipboard, so a manual
+        // copy of a path or command line is performed here. The text can be a
+        // sensitive command line, so it is written to the user's clipboard on
+        // request and never logged or persisted.
+        clipboard.write('text/plain', request.text);
         return {};
       },
     });

@@ -1,6 +1,7 @@
 import { ChevronDown } from "lucide-react"
 import { cva } from "class-variance-authority"
 
+import { cn } from "@/lib/utils"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,15 +32,17 @@ const SORT_LABELS: Record<SortMode, string> = {
 export function ProcessSortControl({
   sort,
   onChange,
+  className,
 }: {
   sort: SortMode
   onChange: (sort: SortMode) => void
+  className?: string
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={`Sort by ${SORT_LABELS[sort]}`}
-        className={sortTrigger()}
+        className={cn(sortTrigger(), className)}
       >
         <span className="min-w-[2.25rem] text-center font-medium">{SORT_LABELS[sort]}</span>
         <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />

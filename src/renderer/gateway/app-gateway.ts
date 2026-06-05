@@ -22,4 +22,14 @@ export const appGateway = {
   setActiveView(view: ActiveView): Promise<unknown> {
     return ipc.app.SetActiveView({ view });
   },
+
+  /**
+   * Copies user-selected text (an executable path or a process command line) to
+   * the system clipboard via main, which holds the privileged clipboard access.
+   * The text is sensitive and is passed here only on an explicit user action; it
+   * is never logged in the renderer or in main.
+   */
+  copyText(text: string): Promise<unknown> {
+    return ipc.app.CopyText({ text });
+  },
 };

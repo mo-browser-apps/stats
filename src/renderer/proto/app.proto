@@ -20,6 +20,16 @@ message SetActiveViewRequest {
   ActiveView view = 1;
 }
 
+// Writes user-selected text to the system clipboard. The renderer is sandboxed
+// and cannot reach the clipboard directly, so a manual copy (an executable path
+// or a process command line) is forwarded here and main performs the privileged
+// clipboard write. It is a generic, user-initiated copy: the text may be a
+// sensitive command line, so main must never log, persist, or echo it - writing
+// it to the user's own clipboard on request is the only permitted handling.
+message CopyTextRequest {
+  string text = 1;
+}
+
 // App-level renderer-to-main commands.
 service AppService {
   rpc SetAlwaysOnTop(SetAlwaysOnTopRequest) returns (google.protobuf.Empty);
@@ -28,4 +38,9 @@ service AppService {
   // work: only the visible view's service runs, and nothing runs while the
   // window is hidden.
   rpc SetActiveView(SetActiveViewRequest) returns (google.protobuf.Empty);
+
+  // Writes renderer-supplied text to the system clipboard (a user-initiated
+  // copy). Main performs the privileged write because the renderer is
+  // sandboxed; the text is never logged or persisted (see CopyTextRequest).
+  rpc CopyText(CopyTextRequest) returns (google.protobuf.Empty);
 }

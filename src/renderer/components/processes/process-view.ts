@@ -1,5 +1,5 @@
 import { FieldStatus, type ProcessRow, type ProcessSnapshot } from "@/gen/process_explorer"
-import { formatBytes, formatCpuPercent } from "@/lib/format"
+import { formatBytes, formatCpuPercent, formatCpuPercentPrecise } from "@/lib/format"
 
 /**
  * Pure presentation logic for the process explorer list.
@@ -36,7 +36,7 @@ export interface ProcessGroup {
    * else the representative member's name (localized/executable/command/PID).
    */
   name: string
-  /** Representative PID (the highest-usage member of the group). */
+  /** Representative PID (the lowest-PID member - the app's main process). */
   pid: number
   /** Base64 PNG app icon when a GUI app supplied one; absent -> fallback icon. */
   iconPngBase64?: string
@@ -50,6 +50,13 @@ export interface ProcessGroup {
   metricText?: string
   /** Numeric active-metric magnitude used for ranking (0 when not ok). */
   sortValue: number
+  /**
+   * The group's member rows, with the representative (the lowest-PID main
+   * process) first. Carried so the detail view can show identity, command line,
+   * path, hierarchy, and per-member totals without re-deriving them. Sensitive
+   * command-line text on these rows stays display/search-only.
+   */
+  members: ProcessRow[]
 }
 
 /**
@@ -191,41 +198,52 @@ interface GroupAccumulator {
   hasMetric: boolean
   /** True if any member's metric is pending (UNKNOWN); used when none is OK. */
   anyPending: boolean
-  /** Metric magnitude of the current representative (highest-usage) member. */
-  bestMemberMetric: number
-  /** PID of the representative member (icon/identity when not an `.app` group). */
-  bestMemberPid: number
+  /**
+   * PID of the representative member. The representative is the lowest-PID member
+   * - the app's main process, which starts before its helpers - NOT the busiest
+   * member. Using a stable identity keeps the detail header (PID/path/argv/
+   * started-at) from flipping between members as live usage shifts each tick.
+   */
+  repMemberPid: number
   /** Display name of the representative member (used when not an `.app` group). */
-  bestMemberName: string
+  repMemberName: string
   /**
    * Icon of the representative member. For an `.app` group every member resolves
    * to the same bundle icon natively, so any member's icon is the app's icon;
-   * for a daemon group it is the highest-usage member's path-resolved icon.
+   * for a daemon group it is the representative member's path-resolved icon.
    */
-  bestMemberIcon?: string
+  repMemberIcon?: string
   /** Owning `.app` bundle's display name (native), when the group is an app. */
   appName?: string
+  /** All member rows, in snapshot order; the representative is hoisted first later. */
+  members: ProcessRow[]
 }
 
-/** Formats a group's summed metric for display under the active sort. */
+/** Formats a group's summed metric for the compact list under the active sort. */
 function formatGroupMetric(sum: number, sort: SortMode): string {
   return sort === "cpu" ? formatCpuPercent(sum) : formatBytes(sum)
 }
 
 /**
- * Projects a snapshot into ranked, grouped, searched display rows.
- *
- * Grouping buckets rows by their native app key (the owning `.app` bundle or
- * bundle id), sums each app group's metric, and keeps non-app processes as
- * singleton rows. Search matches a group when any member matches. Sorting is by
- * summed metric descending, with a stable name tiebreak.
+ * Formats a metric for the detail panel with extra precision (CPU two decimals,
+ * memory one extra decimal), so a group's total and its member rows read more
+ * finely there than in the compact list.
  */
-export function projectProcessList(
-  snapshot: ProcessSnapshot,
-  sort: SortMode,
-  query: string,
-): ProcessListProjection {
-  const rows = snapshot.processes
+function formatDetailMetric(value: number, sort: SortMode): string {
+  return sort === "cpu" ? formatCpuPercentPrecise(value) : formatBytes(value, true)
+}
+
+/**
+ * Folds the snapshot rows into ranked display groups for the given sort and
+ * (optional) search query. Buckets rows by their native app key (the owning
+ * `.app` bundle or bundle id), sums each app group's metric, and keeps non-app
+ * processes as singleton rows; search matches a group when any member matches.
+ * Returns every matched group, ranked by summed metric descending with a stable
+ * name tiebreak, with no display cap applied - callers cap for the list, while
+ * the detail lookup needs the full set so a selected group stays findable even
+ * when it ranks past the list cap.
+ */
+function buildGroups(rows: ProcessRow[], sort: SortMode, query: string): ProcessGroup[] {
   const trimmed = query.trim().toLowerCase()
   const groups = new Map<string, GroupAccumulator>()
 
@@ -249,11 +267,11 @@ export function projectProcessList(
         sortValueSum: metricValue,
         hasMetric: metric.value !== undefined,
         anyPending: metric.pending,
-        bestMemberMetric: metricValue,
-        bestMemberPid: pid,
-        bestMemberName: name,
-        bestMemberIcon: icon,
+        repMemberPid: pid,
+        repMemberName: name,
+        repMemberIcon: icon,
         appName: okString(row.app?.bundle?.name),
+        members: [row],
       })
       continue
     }
@@ -262,16 +280,18 @@ export function projectProcessList(
     existing.sortValueSum += metricValue
     existing.hasMetric = existing.hasMetric || metric.value !== undefined
     existing.anyPending = existing.anyPending || metric.pending
-    // Track the highest-usage member as the representative for the icon/identity.
-    // Ties break to the lower PID for stability.
-    if (
-      metricValue > existing.bestMemberMetric ||
-      (metricValue === existing.bestMemberMetric && pid < existing.bestMemberPid)
-    ) {
-      existing.bestMemberMetric = metricValue
-      existing.bestMemberPid = pid
-      existing.bestMemberName = name
-      if (icon) existing.bestMemberIcon = icon
+    existing.members.push(row)
+    // The representative is the lowest-PID member - the app's main process, which
+    // starts before its helpers. This is a stable identity (it does not change as
+    // usage shifts), so the detail header stays put while the user reads it. An
+    // icon is taken from the representative; if it has none, keep any member icon
+    // already seen (for an `.app` group every member resolves to the same icon).
+    if (pid < existing.repMemberPid) {
+      existing.repMemberPid = pid
+      existing.repMemberName = name
+      if (icon) existing.repMemberIcon = icon
+    } else if (existing.repMemberIcon === undefined && icon) {
+      existing.repMemberIcon = icon
     }
   }
 
@@ -281,9 +301,9 @@ export function projectProcessList(
       : group.anyPending
         ? "pending"
         : "unavailable"
-    const name = group.appName ?? group.bestMemberName
-    const pid = group.bestMemberPid
-    const iconPngBase64 = group.bestMemberIcon
+    const name = group.appName ?? group.repMemberName
+    const pid = group.repMemberPid
+    const iconPngBase64 = group.repMemberIcon
     return {
       key: group.key,
       name,
@@ -294,6 +314,9 @@ export function projectProcessList(
       metricState,
       metricText: metricState === "ok" ? formatGroupMetric(group.sortValueSum, sort) : undefined,
       sortValue: group.sortValueSum,
+      // Representative (the lowest-PID main process) first, so the detail header
+      // and member list lead with the app's own process, not a transient helper.
+      members: representativeFirst(group.members, pid),
     }
   })
 
@@ -312,9 +335,383 @@ export function projectProcessList(
     return 0
   })
 
-  // Render only the top slice; search has already narrowed `projected` to
-  // matches, so any process beyond the cap is still reachable by typing.
+  return projected
+}
+
+/**
+ * Projects a snapshot into ranked, grouped, searched display rows for the list.
+ *
+ * Grouping and ranking live in {@link buildGroups}; this caps the result to
+ * {@link DISPLAY_LIMIT}. Search has already narrowed the groups to matches, so a
+ * process beyond the cap is still reachable by typing.
+ */
+export function projectProcessList(
+  snapshot: ProcessSnapshot,
+  sort: SortMode,
+  query: string,
+): ProcessListProjection {
   return {
-    groups: projected.slice(0, DISPLAY_LIMIT),
+    groups: buildGroups(snapshot.processes, sort, query).slice(0, DISPLAY_LIMIT),
   }
+}
+
+/**
+ * Finds one group by its {@link ProcessGroup.key} for the detail view, grouping
+ * the full snapshot with no search filter and no display cap. Returns undefined
+ * when the group is gone (its processes all exited), so the detail can fall back
+ * to the list. The active sort is passed so the representative and member order
+ * match the list the user opened from.
+ */
+export function findGroupByKey(
+  snapshot: ProcessSnapshot,
+  sort: SortMode,
+  key: string,
+): ProcessGroup | undefined {
+  return buildGroups(snapshot.processes, sort, "").find((group) => group.key === key)
+}
+
+/**
+ * Returns the group's members with the representative (the row whose PID is the
+ * group's representative PID) at index 0. The detail reads `members[0]` for its
+ * header identity (name/PID/path/argv), so the representative must be first; the
+ * order of the rest does not matter here because the detail re-ranks the
+ * displayed member list by the active metric in {@link buildProcessDetail}.
+ */
+function representativeFirst(members: ProcessRow[], representativePid: number): ProcessRow[] {
+  const index = members.findIndex((row) => (row.identity?.pid ?? 0) === representativePid)
+  if (index <= 0) {
+    return members
+  }
+  const ordered = members.slice()
+  const [representative] = ordered.splice(index, 1)
+  ordered.unshift(representative)
+  return ordered
+}
+
+// ---------------------------------------------------------------------------
+// Process detail model
+//
+// The detail view answers the debugging question for one selected group: what
+// is it, where does it live, what was it launched with, how is it nested, and
+// how much CPU/memory does the whole group use. Like the list projection this is
+// pure: it turns the already-collected member rows into explicit display fields
+// (with availability), so the detail component stays presentation-only and the
+// derivation is test-ready (I15). Command-line text is read only into the
+// display model on an explicit selection; it is never logged or persisted.
+// ---------------------------------------------------------------------------
+
+/**
+ * Availability of a detail field, mirroring the list's metric states: `ok` has a
+ * value, `pending` is not yet determined (proto UNKNOWN), `unavailable` was tried
+ * and could not be read (including permission-denied / process-exited, which the
+ * compact detail surfaces as a single "unavailable" line rather than separate
+ * copy).
+ */
+export type DetailState = "ok" | "pending" | "unavailable"
+
+/** A summed group metric with its display state. */
+export interface DetailMetric {
+  state: DetailState
+  /** Formatted value; set only when state is `ok`. */
+  text?: string
+}
+
+/** The command-line block's content with explicit availability. */
+export interface DetailCommandLine {
+  state: DetailState
+  /** Joined argument string for display/copy; set only when state is `ok`. */
+  text?: string
+}
+
+/**
+ * One member process of a group, shown in the expandable Members section and
+ * drillable into its own (single-process) detail. Carries the per-member value
+ * under the active sort so the member list reads like the main list.
+ */
+export interface DetailMember {
+  /** PID of this member, used as the React key and to drill in. */
+  pid: number
+  /** Start time (Unix ms) when known, to disambiguate a reused PID on drill-in. */
+  startedAtUnixMs?: number
+  /** Member display name. */
+  name: string
+  /**
+   * Volatile base64 PNG icon when available; absent -> fallback glyph. App
+   * members share their app's icon (helpers carry no distinct icon of their own);
+   * a non-bundled member shows its executable's icon.
+   */
+  iconPngBase64?: string
+  /** Active-metric display state for this member (ok / pending / unavailable). */
+  metricState: MetricState
+  /** Formatted active-metric value; set only when metricState is `ok`. */
+  metricText?: string
+}
+
+/** The selected process's parent context, shown above its identity. */
+export interface DetailParent {
+  /** Whether a parent PID is known for the selected process. */
+  available: boolean
+  /** Parent PID when available and > 0. */
+  pid?: number
+}
+
+/**
+ * Presentation model for the detail view of one selected group (or one process,
+ * when a member is drilled into - then it is a single-member group). Every
+ * textual field is optional with an availability state so the component can show
+ * an explicit unavailable/pending line instead of a blank or a faked value.
+ */
+export interface ProcessDetail {
+  /** Group identity key (matches {@link ProcessGroup.key}). */
+  key: string
+  /** Representative display name (the app name for a group, else the process). */
+  name: string
+  /** Representative PID. */
+  pid: number
+  /** Volatile base64 PNG icon when available; absent -> fallback glyph. */
+  iconPngBase64?: string
+  /** Bundle identifier when known (e.g. com.apple.dt.Xcode). */
+  bundleIdentifier?: string
+  /** Executable name, shown as the secondary identity when no bundle id exists. */
+  executableName?: string
+  /** Parent-process context of the representative. */
+  parent: DetailParent
+  /** Started-at time of the representative. */
+  startedAt: DetailState
+  /** Started-at value in Unix ms; set only when startedAt is `ok`. */
+  startedAtUnixMs?: number
+  /** Executable path of the representative. */
+  path: DetailState
+  /** Executable path value; set only when path is `ok` (drives copy). */
+  pathText?: string
+  /** Command line of the representative. */
+  commandLine: DetailCommandLine
+  /**
+   * The group's total for the currently selected metric (sum of members),
+   * formatted with detail precision. Shown above the member list and re-derived
+   * when the CPU/RAM switch changes.
+   */
+  total: DetailMetric
+  /** Which metric {@link total} reflects, for the "Total CPU"/"Total RAM" label. */
+  totalSort: SortMode
+  /** Number of processes in the group (>= 1). */
+  memberCount: number
+  /**
+   * All member rows for the expandable Members section (representative first).
+   * Empty for a single-process detail; the section scrolls within a bounded box
+   * when there are many, so no cap is applied here.
+   */
+  members: DetailMember[]
+}
+
+/** Reads the started-at identity of a row with pending/unavailable distinction. */
+function rowStartedAt(row: ProcessRow): { state: DetailState; value?: number } {
+  const identity = row.identity
+  if (identity && identity.startedAtStatus === FieldStatus.FIELD_STATUS_OK) {
+    return { state: "ok", value: identity.startedAtUnixMs }
+  }
+  return { state: isPending(identity?.startedAtStatus ?? FieldStatus.FIELD_STATUS_UNKNOWN) ? "pending" : "unavailable" }
+}
+
+/** Reads a StringValue field as a detail state plus optional text. */
+function detailString(
+  value: { status: FieldStatus; value: string } | undefined,
+): { state: DetailState; text?: string } {
+  const text = okString(value)
+  if (text !== undefined) {
+    return { state: "ok", text }
+  }
+  return { state: isPending(value?.status ?? FieldStatus.FIELD_STATUS_UNKNOWN) ? "pending" : "unavailable" }
+}
+
+/** Reads the representative's command line as a joined string with availability. */
+function detailCommandLine(row: ProcessRow): DetailCommandLine {
+  const commandLine = row.commandLine
+  if (commandLine && commandLine.status === FieldStatus.FIELD_STATUS_OK) {
+    return { state: "ok", text: commandLine.arguments.join(" ") }
+  }
+  return { state: isPending(commandLine?.status ?? FieldStatus.FIELD_STATUS_UNKNOWN) ? "pending" : "unavailable" }
+}
+
+/**
+ * Sums one metric across the group's members into a {@link DetailMetric}.
+ * `ok` when at least one member has a real value (others contribute 0); `pending`
+ * when none is OK but some are still being computed; `unavailable` otherwise.
+ */
+function sumGroupMetric(
+  members: ProcessRow[],
+  read: (row: ProcessRow) => MetricCell,
+  format: (value: number) => string,
+): DetailMetric {
+  let sum = 0
+  let hasMetric = false
+  let anyPending = false
+  for (const row of members) {
+    const cell = read(row)
+    if (cell.value !== undefined) {
+      sum += cell.value
+      hasMetric = true
+    } else if (cell.pending) {
+      anyPending = true
+    }
+  }
+  if (hasMetric) {
+    return { state: "ok", text: format(sum) }
+  }
+  return { state: anyPending ? "pending" : "unavailable" }
+}
+
+/** Projects one member row into a {@link DetailMember} under the active sort. */
+function buildMember(row: ProcessRow, sort: SortMode): DetailMember {
+  const cell = rowMetric(row, sort)
+  const metricState: MetricState = cell.value !== undefined ? "ok" : cell.pending ? "pending" : "unavailable"
+  const startedAt =
+    row.identity?.startedAtStatus === FieldStatus.FIELD_STATUS_OK
+      ? row.identity.startedAtUnixMs
+      : undefined
+  return {
+    pid: row.identity?.pid ?? 0,
+    startedAtUnixMs: startedAt,
+    name: rowDisplayName(row),
+    iconPngBase64: okString(row.app?.iconPngBase64),
+    metricState,
+    metricText: metricState === "ok" ? formatDetailMetric(cell.value ?? 0, sort) : undefined,
+  }
+}
+
+/**
+ * Projects a selected {@link ProcessGroup} into its {@link ProcessDetail} display
+ * model. Identity/path/argv/started-at come from the representative (the row the
+ * collapsed list already shows); CPU and memory are summed across all members so
+ * a grouped app reports its whole footprint, which the user would otherwise have
+ * to add up by hand. For a multi-process group all members (representative first)
+ * are projected for the expandable Members section, which scrolls within a
+ * bounded box rather than being capped; a single-process detail has no member
+ * list. The active `sort` sets each member's displayed value so the section reads
+ * like the main list.
+ */
+export function buildProcessDetail(group: ProcessGroup, sort: SortMode): ProcessDetail {
+  const representative = group.members[0]
+  const started = rowStartedAt(representative)
+  const path = detailString(representative.executablePath)
+  const bundleIdentifier = okString(representative.app?.bundleIdentifier)
+  const executableName = detailString(representative.executableName).text
+
+  const parentAvailable =
+    representative.parentStatus === FieldStatus.FIELD_STATUS_OK && representative.parentPid > 0
+
+  const read = sort === "cpu" ? rowCpu : rowMemory
+
+  // Display the members ranked by the active metric (highest first), like the
+  // main list - not in snapshot/PID order. A PID tie-break keeps equal-value rows
+  // (e.g. several idle 0.00% members) stable across ticks. The representative is
+  // still group.members[0] for the header identity; only the displayed list is
+  // ranked here.
+  const members =
+    group.memberCount > 1
+      ? group.members
+          .slice()
+          .sort((left, right) => {
+            const delta = (read(right).value ?? 0) - (read(left).value ?? 0)
+            if (delta !== 0) {
+              return delta
+            }
+            return (left.identity?.pid ?? 0) - (right.identity?.pid ?? 0)
+          })
+          .map((row) => buildMember(row, sort))
+      : []
+
+  // Only the selected metric's total is shown (the CPU/RAM switch picks which),
+  // formatted with detail precision.
+  const total = sumGroupMetric(group.members, read, (value) => formatDetailMetric(value, sort))
+
+  return {
+    key: group.key,
+    name: group.name,
+    pid: group.pid,
+    iconPngBase64: group.iconPngBase64,
+    bundleIdentifier,
+    executableName,
+    parent: { available: parentAvailable, pid: parentAvailable ? representative.parentPid : undefined },
+    startedAt: started.state,
+    startedAtUnixMs: started.value,
+    path: path.state,
+    pathText: path.text,
+    commandLine: detailCommandLine(representative),
+    total,
+    totalSort: sort,
+    memberCount: group.memberCount,
+    members,
+  }
+}
+
+/**
+ * A single-member {@link ProcessGroup} wrapping one member row, so drilling into
+ * a member reuses {@link buildProcessDetail} unchanged: its detail shows just
+ * that process (its own CPU/memory, no member list). The key is the row's
+ * PID/start-time singleton identity, distinct from any app-bundle group key.
+ */
+function singleProcessGroup(row: ProcessRow, sort: SortMode): ProcessGroup {
+  const cell = rowMetric(row, sort)
+  const metricState: MetricState = cell.value !== undefined ? "ok" : cell.pending ? "pending" : "unavailable"
+  const pid = row.identity?.pid ?? 0
+  return {
+    key: rowGroupKey(row),
+    name: rowDisplayName(row),
+    pid,
+    iconPngBase64: okString(row.app?.iconPngBase64),
+    memberCount: 1,
+    childCount: 0,
+    metricState,
+    metricText: metricState === "ok" ? formatGroupMetric(cell.value ?? 0, sort) : undefined,
+    sortValue: cell.value ?? 0,
+    members: [row],
+  }
+}
+
+/**
+ * A detail-view selection: either an app group (by its key) or one specific
+ * process (drilled into from a group's member list). A discriminated union so
+ * the resolver can re-find the right rows in each fresh snapshot.
+ */
+export type DetailSelection =
+  | { kind: "group"; key: string }
+  | { kind: "process"; pid: number; startedAtUnixMs?: number }
+
+/**
+ * Resolves a {@link DetailSelection} against the current snapshot into the
+ * {@link ProcessGroup} the detail renders, or undefined when it is gone (the
+ * group's processes all exited, or the drilled-in process exited / its PID was
+ * reused). For a process selection: if the selection carried an exact start time,
+ * only an exact (pid, started_at) match resolves - if the process exited and its
+ * PID was reused, no match is found and this returns undefined, so the drill-in
+ * falls back up the stack rather than silently showing an unrelated process. Only
+ * a selection with no recorded start time falls back to PID alone.
+ */
+export function resolveSelection(
+  snapshot: ProcessSnapshot,
+  sort: SortMode,
+  selection: DetailSelection,
+): ProcessGroup | undefined {
+  if (selection.kind === "group") {
+    return findGroupByKey(snapshot, sort, selection.key)
+  }
+
+  const matches = snapshot.processes.filter((row) => (row.identity?.pid ?? 0) === selection.pid)
+  if (matches.length === 0) {
+    return undefined
+  }
+
+  if (selection.startedAtUnixMs !== undefined) {
+    const exact = matches.find(
+      (row) =>
+        row.identity?.startedAtStatus === FieldStatus.FIELD_STATUS_OK &&
+        row.identity.startedAtUnixMs === selection.startedAtUnixMs,
+    )
+    // No exact (pid, started_at) match: the selected process is gone (its PID may
+    // have been reused). Return undefined rather than a different process.
+    return exact ? singleProcessGroup(exact, sort) : undefined
+  }
+
+  return singleProcessGroup(matches[0], sort)
 }

@@ -5,26 +5,30 @@ import type { ProcessListProjection } from "@/components/processes/process-view"
 /**
  * The ranked, grouped process rows plus the loading/empty/unavailable/
  * permission-limited states. The states occupy the same scroll area so the
- * panel never resizes as data arrives or a search empties the list.
+ * panel never resizes as data arrives or a search empties the list. Each row
+ * opens the detail view via {@link onOpenGroup} (a stable callback, so the
+ * memoized rows are not invalidated each tick).
  */
 export function ProcessList({
   projection,
   status,
   hasQuery,
+  onOpenGroup,
 }: {
   projection: ProcessListProjection
   status: SnapshotStatus
   hasQuery: boolean
+  onOpenGroup: (key: string) => void
 }) {
   const { groups } = projection
 
   return (
     <div className="scrollbar-hidden flex-1 overflow-y-auto">
       {groups.length > 0 ? (
-        <ul className="divide-y divide-border/40">
+        <ul>
           {groups.map((group) => (
             <li key={group.key}>
-              <ProcessRow group={group} />
+              <ProcessRow group={group} onOpen={onOpenGroup} />
             </li>
           ))}
         </ul>

@@ -33,10 +33,22 @@ export function formatCpuPercent(value: number): string {
 }
 
 /**
+ * Formats a per-process CPU percentage with two decimals, e.g. `13.04%`. Used in
+ * the detail panel, where the extra digit helps distinguish near-idle processes
+ * that the list's single-decimal format rounds to the same value.
+ */
+export function formatCpuPercentPrecise(value: number): string {
+  if (!Number.isFinite(value)) return UNAVAILABLE_TEXT;
+  return `${Math.max(0, value).toFixed(2)}%`;
+}
+
+/**
  * Formats a byte count using binary units (1024) with adaptive precision, e.g.
  * `512 MB`, `15.6 GB`. Sub-GB values stay whole; larger values keep one digit.
+ * Pass `precise` for one extra decimal (`512.4 MB`, `15.63 GB`) in the detail
+ * panel, where the finer figure is useful.
  */
-export function formatBytes(bytes: number): string {
+export function formatBytes(bytes: number, precise = false): string {
   if (!Number.isFinite(bytes) || bytes < 0) return UNAVAILABLE_TEXT;
   if (bytes < 1) return "0 B";
 
@@ -47,7 +59,9 @@ export function formatBytes(bytes: number): string {
     unit += 1;
   }
 
-  const digits = unit >= 3 ? 1 : 0; // One decimal from GB up, whole below.
+  // One decimal from GB up, whole below; `precise` adds one more digit each.
+  const baseDigits = unit >= 3 ? 1 : 0;
+  const digits = precise ? baseDigits + 1 : baseDigits;
   return `${value.toFixed(digits)} ${BYTE_UNITS[unit]}`;
 }
 
@@ -106,6 +120,25 @@ export function formatLoadAverage(load: number[]): string {
 export function formatTimestamp(epochMs: number): string {
   if (!Number.isFinite(epochMs) || epochMs <= 0) return UNAVAILABLE_TEXT;
   return new Date(epochMs).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+/**
+ * Formats a process start time (Unix milliseconds) as a local date and time,
+ * e.g. `Oct 29, 2025, 15:34:39`, for the detail view's "Started" line. Uses the
+ * locale's medium date with a 24-hour clock so the string stays compact and
+ * stable.
+ */
+export function formatStartTime(epochMs: number): string {
+  if (!Number.isFinite(epochMs) || epochMs <= 0) return UNAVAILABLE_TEXT;
+  return new Date(epochMs).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
