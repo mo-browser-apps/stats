@@ -142,6 +142,14 @@ function rowMetric(row: ProcessRow, sort: SortMode): MetricCell {
 }
 
 /**
+ * Maps a {@link MetricCell} to its display state: `ok` when it has a value,
+ * `pending` while it is still being computed, else `unavailable`.
+ */
+function cellState(cell: MetricCell): MetricState {
+  return cell.value !== undefined ? "ok" : cell.pending ? "pending" : "unavailable"
+}
+
+/**
  * Group key. Only real app identity groups rows; non-app processes stay as
  * PID/start-time singletons so unrelated `node`/`python`/shell processes do not
  * get summed into one misleading row.
@@ -189,33 +197,20 @@ function rowHaystack(row: ProcessRow): string {
   return parts.join(" ").toLowerCase()
 }
 
-/** Accumulator while folding member rows into one group. */
+/**
+ * Accumulator while folding member rows into one group. It tracks only what
+ * cannot be re-derived from the members afterwards: the summed sort metric and
+ * the metric-availability flags. Display identity (representative, name, icon,
+ * counts) is derived from `members` when the group is built.
+ */
 interface GroupAccumulator {
   key: string
-  memberCount: number
   sortValueSum: number
   /** True once any member contributed a real (OK) metric value. */
   hasMetric: boolean
   /** True if any member's metric is pending (UNKNOWN); used when none is OK. */
   anyPending: boolean
-  /**
-   * PID of the representative member. The representative is the lowest-PID member
-   * - the app's main process, which starts before its helpers - NOT the busiest
-   * member. Using a stable identity keeps the detail header (PID/path/argv/
-   * started-at) from flipping between members as live usage shifts each tick.
-   */
-  repMemberPid: number
-  /** Display name of the representative member (used when not an `.app` group). */
-  repMemberName: string
-  /**
-   * Icon of the representative member. For an `.app` group every member resolves
-   * to the same bundle icon natively, so any member's icon is the app's icon;
-   * for a daemon group it is the representative member's path-resolved icon.
-   */
-  repMemberIcon?: string
-  /** Owning `.app` bundle's display name (native), when the group is an app. */
-  appName?: string
-  /** All member rows, in snapshot order; the representative is hoisted first later. */
+  /** All member rows, in snapshot order. */
   members: ProcessRow[]
 }
 
@@ -231,6 +226,52 @@ function formatGroupMetric(sum: number, sort: SortMode): string {
  */
 function formatDetailMetric(value: number, sort: SortMode): string {
   return sort === "cpu" ? formatCpuPercentPrecise(value) : formatBytes(value, true)
+}
+
+/** PID of a row, or 0 when the identity is missing. */
+function rowPid(row: ProcessRow): number {
+  return row.identity?.pid ?? 0
+}
+
+/**
+ * The representative member of a group: the lowest-PID row - the app's main
+ * process, which starts before its helpers. Using this stable identity (rather
+ * than the busiest member) keeps the detail header from flipping between members
+ * as live usage shifts. Assumes a non-empty member list.
+ */
+function representativeOf(members: ProcessRow[]): ProcessRow {
+  return members.reduce((lowest, row) => (rowPid(row) < rowPid(lowest) ? row : lowest))
+}
+
+/**
+ * Builds the display {@link ProcessGroup} from an accumulated group: derives the
+ * representative and the display name/icon/counts from the members (rather than
+ * tracking them during the fold). The representative is hoisted to `members[0]`
+ * so the detail header reads its identity; the icon prefers the representative's,
+ * falling back to any member that has one (an `.app` group shares one icon).
+ */
+function buildGroupRow(group: GroupAccumulator, sort: SortMode): ProcessGroup {
+  const representative = representativeOf(group.members)
+  const isGroup = group.members.length > 1
+  const metricState: MetricState = group.hasMetric ? "ok" : group.anyPending ? "pending" : "unavailable"
+  const icon =
+    okString(representative.app?.iconPngBase64) ??
+    group.members.map((row) => okString(row.app?.iconPngBase64)).find(Boolean)
+  // A multi-process group shows the owning `.app` name; a single process (incl. a
+  // drilled-in member) shows its own display name, not its app's.
+  const appName = isGroup ? okString(representative.app?.bundle?.name) : undefined
+  return {
+    key: group.key,
+    name: appName ?? rowDisplayName(representative),
+    pid: rowPid(representative),
+    iconPngBase64: icon,
+    memberCount: group.members.length,
+    childCount: group.members.length - 1,
+    metricState,
+    metricText: metricState === "ok" ? formatGroupMetric(group.sortValueSum, sort) : undefined,
+    sortValue: group.sortValueSum,
+    members: representativeFirst(group.members, representative),
+  }
 }
 
 /**
@@ -254,71 +295,28 @@ function buildGroups(rows: ProcessRow[], sort: SortMode, query: string): Process
 
     const key = rowGroupKey(row)
     const metric = rowMetric(row, sort)
-    const metricValue = metric.value ?? 0
-    const pid = row.identity?.pid ?? 0
-    const name = rowDisplayName(row)
-    const icon = okString(row.app?.iconPngBase64)
     const existing = groups.get(key)
 
     if (existing === undefined) {
       groups.set(key, {
         key,
-        memberCount: 1,
-        sortValueSum: metricValue,
+        sortValueSum: metric.value ?? 0,
         hasMetric: metric.value !== undefined,
         anyPending: metric.pending,
-        repMemberPid: pid,
-        repMemberName: name,
-        repMemberIcon: icon,
-        appName: okString(row.app?.bundle?.name),
         members: [row],
       })
       continue
     }
 
-    existing.memberCount += 1
-    existing.sortValueSum += metricValue
+    existing.sortValueSum += metric.value ?? 0
     existing.hasMetric = existing.hasMetric || metric.value !== undefined
     existing.anyPending = existing.anyPending || metric.pending
     existing.members.push(row)
-    // The representative is the lowest-PID member - the app's main process, which
-    // starts before its helpers. This is a stable identity (it does not change as
-    // usage shifts), so the detail header stays put while the user reads it. An
-    // icon is taken from the representative; if it has none, keep any member icon
-    // already seen (for an `.app` group every member resolves to the same icon).
-    if (pid < existing.repMemberPid) {
-      existing.repMemberPid = pid
-      existing.repMemberName = name
-      if (icon) existing.repMemberIcon = icon
-    } else if (existing.repMemberIcon === undefined && icon) {
-      existing.repMemberIcon = icon
-    }
   }
 
-  const projected: ProcessGroup[] = Array.from(groups.values()).map((group) => {
-    const metricState: MetricState = group.hasMetric
-      ? "ok"
-      : group.anyPending
-        ? "pending"
-        : "unavailable"
-    const name = group.appName ?? group.repMemberName
-    const pid = group.repMemberPid
-    const iconPngBase64 = group.repMemberIcon
-    return {
-      key: group.key,
-      name,
-      pid,
-      iconPngBase64,
-      memberCount: group.memberCount,
-      childCount: group.memberCount - 1,
-      metricState,
-      metricText: metricState === "ok" ? formatGroupMetric(group.sortValueSum, sort) : undefined,
-      sortValue: group.sortValueSum,
-      // Representative (the lowest-PID main process) first, so the detail header
-      // and member list lead with the app's own process, not a transient helper.
-      members: representativeFirst(group.members, pid),
-    }
-  })
+  const projected: ProcessGroup[] = Array.from(groups.values()).map((group) =>
+    buildGroupRow(group, sort),
+  )
 
   // Rank by summed metric descending. The name tiebreak applies only between two
   // rows that both have a real value, so on a first-sample cold start (every row
@@ -371,19 +369,19 @@ export function findGroupByKey(
 }
 
 /**
- * Returns the group's members with the representative (the row whose PID is the
- * group's representative PID) at index 0. The detail reads `members[0]` for its
- * header identity (name/PID/path/argv), so the representative must be first; the
- * order of the rest does not matter here because the detail re-ranks the
- * displayed member list by the active metric in {@link buildProcessDetail}.
+ * Returns the group's members with `representative` at index 0. The detail reads
+ * `members[0]` for its header identity (name/PID/path/argv), so the representative
+ * must be first; the order of the rest does not matter here because the detail
+ * re-ranks the displayed member list by the active metric in
+ * {@link buildProcessDetail}.
  */
-function representativeFirst(members: ProcessRow[], representativePid: number): ProcessRow[] {
-  const index = members.findIndex((row) => (row.identity?.pid ?? 0) === representativePid)
+function representativeFirst(members: ProcessRow[], representative: ProcessRow): ProcessRow[] {
+  const index = members.indexOf(representative)
   if (index <= 0) {
     return members
   }
   const ordered = members.slice()
-  const [representative] = ordered.splice(index, 1)
+  ordered.splice(index, 1)
   ordered.unshift(representative)
   return ordered
 }
@@ -564,13 +562,13 @@ function sumGroupMetric(
 /** Projects one member row into a {@link DetailMember} under the active sort. */
 function buildMember(row: ProcessRow, sort: SortMode): DetailMember {
   const cell = rowMetric(row, sort)
-  const metricState: MetricState = cell.value !== undefined ? "ok" : cell.pending ? "pending" : "unavailable"
+  const metricState = cellState(cell)
   const startedAt =
     row.identity?.startedAtStatus === FieldStatus.FIELD_STATUS_OK
       ? row.identity.startedAtUnixMs
       : undefined
   return {
-    pid: row.identity?.pid ?? 0,
+    pid: rowPid(row),
     startedAtUnixMs: startedAt,
     name: rowDisplayName(row),
     iconPngBase64: okString(row.app?.iconPngBase64),
@@ -648,25 +646,22 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode): Process
 /**
  * A single-member {@link ProcessGroup} wrapping one member row, so drilling into
  * a member reuses {@link buildProcessDetail} unchanged: its detail shows just
- * that process (its own CPU/memory, no member list). The key is the row's
- * PID/start-time singleton identity, distinct from any app-bundle group key.
+ * that process (its own CPU/memory, no member list). Built through the same
+ * {@link buildGroupRow} path as list groups; the key is the row's PID/start-time
+ * singleton identity, distinct from any app-bundle group key.
  */
 function singleProcessGroup(row: ProcessRow, sort: SortMode): ProcessGroup {
   const cell = rowMetric(row, sort)
-  const metricState: MetricState = cell.value !== undefined ? "ok" : cell.pending ? "pending" : "unavailable"
-  const pid = row.identity?.pid ?? 0
-  return {
-    key: rowGroupKey(row),
-    name: rowDisplayName(row),
-    pid,
-    iconPngBase64: okString(row.app?.iconPngBase64),
-    memberCount: 1,
-    childCount: 0,
-    metricState,
-    metricText: metricState === "ok" ? formatGroupMetric(cell.value ?? 0, sort) : undefined,
-    sortValue: cell.value ?? 0,
-    members: [row],
-  }
+  return buildGroupRow(
+    {
+      key: rowGroupKey(row),
+      sortValueSum: cell.value ?? 0,
+      hasMetric: cell.value !== undefined,
+      anyPending: cell.pending,
+      members: [row],
+    },
+    sort,
+  )
 }
 
 /**
