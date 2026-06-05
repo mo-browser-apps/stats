@@ -123,6 +123,31 @@ struct AppBundle {
   std::string name;  // bundle basename without `.app`, or empty
 };
 
+std::string AppNameFromBundlePath(const std::string& bundle_path) {
+  constexpr char kAppExtension[] = ".app";
+  constexpr std::string::size_type kAppLen = sizeof(kAppExtension) - 1;
+  const std::string::size_type name_start = bundle_path.rfind('/');
+  const std::string base = name_start == std::string::npos
+                               ? bundle_path
+                               : bundle_path.substr(name_start + 1);
+  if (base.size() <= kAppLen ||
+      base.compare(base.size() - kAppLen, kAppLen, kAppExtension) != 0) {
+    return {};
+  }
+  return base.substr(0, base.size() - kAppLen);
+}
+
+void FillBundle(const std::string& bundle_path, NativeAppBundle* out) {
+  const std::string name = AppNameFromBundlePath(bundle_path);
+  if (name.empty()) {
+    return;
+  }
+  out->mutable_path()->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
+  out->mutable_path()->set_value(bundle_path);
+  out->mutable_name()->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
+  out->mutable_name()->set_value(name);
+}
+
 AppBundle AppBundleForPath(const std::string& executable_path) {
   constexpr char kAppSuffix[] = ".app/";
   constexpr std::string::size_type kAppLen = sizeof(kAppSuffix) - 2;  // ".app"
@@ -131,10 +156,7 @@ AppBundle AppBundleForPath(const std::string& executable_path) {
     return {};
   }
   const std::string path = executable_path.substr(0, slash + kAppLen);
-  const std::string::size_type name_start = path.rfind('/');
-  const std::string base =
-      name_start == std::string::npos ? path : path.substr(name_start + 1);
-  const std::string name = base.substr(0, base.size() - kAppLen);  // drop ".app"
+  const std::string name = AppNameFromBundlePath(path);
   if (name.empty()) {
     return {};  // A segment literally named ".app" is not a real bundle.
   }
@@ -148,10 +170,7 @@ void FillAppBundle(const std::string& executable_path, NativeAppBundle* out) {
   if (bundle.path.empty()) {
     return;  // Not inside a `.app`; leave the bundle unset (UNKNOWN downstream).
   }
-  out->mutable_path()->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
-  out->mutable_path()->set_value(bundle.path);
-  out->mutable_name()->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
-  out->mutable_name()->set_value(bundle.name);
+  FillBundle(bundle.path, out);
 }
 
 void IconForExecutablePath(const std::string& executable_path,
@@ -167,29 +186,35 @@ void IconForExecutablePath(const std::string& executable_path,
   const AppBundle bundle = AppBundleForPath(executable_path);
   const std::string& resolution_path =
       bundle.path.empty() ? executable_path : bundle.path;
+  IconForFilePath(resolution_path, out);
+}
 
+void IconForFilePath(const std::string& path, NativeImage* out) {
+  if (path.empty()) {
+    out->set_status(NATIVE_FIELD_STATUS_UNAVAILABLE);
+    return;
+  }
   // Fast path: the encoded icon is cached per resolution path, so a steady-state
   // pass (every bundle/executable already seen) is a hash lookup with no AppKit
   // work at all. Only the first time a given bundle/executable is seen do we
   // resolve+encode. Measured on a ~600-process machine: a fully warm pass is well
   // under 1 ms, while a cold resolve+encode is the only real cost, once per path.
-  if (IconCache().count(resolution_path) == 0) {
+  if (IconCache().count(path) == 0) {
     @autoreleasepool {
-      NSString* path =
-          [NSString stringWithUTF8String:resolution_path.c_str()];
+      NSString* file_path = [NSString stringWithUTF8String:path.c_str()];
       // iconForFile: never returns nil: a `.app` bundle yields its real icon, and
       // a plain executable yields the generic Unix-executable icon (the same
       // thing Activity Monitor shows), so this raises icon coverage well beyond
       // the GUI-app-only NSWorkspace enrichment without any private API.
-      NSImage* icon = path == nil
+      NSImage* icon = file_path == nil
                           ? nil
-                          : [[NSWorkspace sharedWorkspace] iconForFile:path];
-      FillIcon(out, icon, resolution_path);
+                          : [[NSWorkspace sharedWorkspace] iconForFile:file_path];
+      FillIcon(out, icon, path);
       return;
     }
   }
 
-  FillIcon(out, /*icon=*/nil, resolution_path);
+  FillIcon(out, /*icon=*/nil, path);
 }
 
 std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata() {
@@ -201,14 +226,17 @@ std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata() {
     by_pid.reserve(applications.count);
 
     for (NSRunningApplication* application in applications) {
-      // Identity only (bundle id + localized name). The icon is NOT encoded here:
-      // the collector resolves it from the owning `.app` bundle via
-      // IconForExecutablePath, which is the authoritative source and would
-      // override anything set here, so encoding it now would be wasted work.
       NativeAppMetadata metadata;
       FillString(metadata.mutable_bundle_identifier(),
                  application.bundleIdentifier);
       FillString(metadata.mutable_localized_name(), application.localizedName);
+      if (application.activationPolicy !=
+          NSApplicationActivationPolicyProhibited) {
+        NSString* bundle_path = application.bundleURL.path;
+        if (bundle_path.length > 0) {
+          FillBundle(bundle_path.UTF8String, metadata.mutable_bundle());
+        }
+      }
       by_pid.emplace(static_cast<int32_t>(application.processIdentifier),
                      std::move(metadata));
     }

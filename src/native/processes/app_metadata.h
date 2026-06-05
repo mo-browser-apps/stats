@@ -10,8 +10,8 @@
 namespace mostats {
 
 /**
- * Maps PID -> GUI application identity (bundle id + localized name) for the
- * currently running applications.
+ * Maps PID -> GUI application identity (bundle id, localized name, and exact
+ * bundle path when appropriate) for the currently running applications.
  *
  * Backed by NSWorkspace.runningApplications, so it only covers processes that
  * macOS treats as user-facing GUI applications (Finder, Safari, Xcode, ...),
@@ -19,10 +19,8 @@ namespace mostats {
  * matching records; processes with no entry keep bundle id / localized name
  * unset (UNKNOWN downstream).
  *
- * It does NOT fill the icon: {@link IconForExecutablePath} resolves the icon from
- * the owning `.app` bundle for every process (the authoritative source), so an
- * icon here would only be overridden. Each field carries per-field availability,
- * marked unavailable when missing rather than faked.
+ * Each field carries per-field availability, marked unavailable when missing
+ * rather than faked.
  */
 std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata();
 
@@ -46,6 +44,9 @@ std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata();
  * volatile display-only data and is never logged or persisted.
  */
 void IconForExecutablePath(const std::string& executable_path, NativeImage* out);
+
+/** Resolves an icon for an exact app/file path without applying app grouping. */
+void IconForFilePath(const std::string& path, NativeImage* out);
 
 /**
  * Fills the owning `.app` bundle (path + display name) for an executable path,

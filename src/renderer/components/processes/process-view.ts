@@ -24,10 +24,9 @@ export type SortMode = "cpu" | "memory"
 export type MetricState = "ok" | "pending" | "unavailable"
 
 /**
- * One display row in the list. A group collapses an app's processes (by owning
- * `.app` bundle path, else bundle id, else executable/command name) into a
- * single row with a summed metric and a child count, mirroring the compact
- * OneMenu list.
+ * One display row in the list. A group collapses an app's processes by owning
+ * `.app` bundle path or bundle id; processes without app identity stay singleton
+ * rows so unrelated CLIs with the same executable name are not merged.
  */
 export interface ProcessGroup {
   /** Stable key for React lists and selection. */
@@ -136,10 +135,9 @@ function rowMetric(row: ProcessRow, sort: SortMode): MetricCell {
 }
 
 /**
- * Group key. The owning `.app` bundle path (resolved natively, so an app's helper
- * processes collapse into one row with the main app process) comes first, then
- * the bundle identifier, then the executable/command name, then a per-PID key so
- * an unnamed process stays its own singleton rather than merging with others.
+ * Group key. Only real app identity groups rows; non-app processes stay as
+ * PID/start-time singletons so unrelated `node`/`python`/shell processes do not
+ * get summed into one misleading row.
  */
 function rowGroupKey(row: ProcessRow): string {
   const bundlePath = okString(row.app?.bundle?.path)
@@ -150,11 +148,12 @@ function rowGroupKey(row: ProcessRow): string {
   if (bundleId) {
     return `bundle:${bundleId}`
   }
-  const name = okString(row.executableName) ?? okString(row.commandName)
-  if (name) {
-    return `name:${name.toLowerCase()}`
-  }
-  return `pid:${row.identity?.pid ?? 0}`
+  const pid = row.identity?.pid ?? 0
+  const startedAt =
+    row.identity?.startedAtStatus === FieldStatus.FIELD_STATUS_OK
+      ? row.identity.startedAtUnixMs
+      : "unknown"
+  return `pid:${pid}:${startedAt}`
 }
 
 /**
@@ -216,12 +215,10 @@ function formatGroupMetric(sum: number, sort: SortMode): string {
 /**
  * Projects a snapshot into ranked, grouped, searched display rows.
  *
- * Grouping buckets rows by their native group key (the owning `.app` bundle, so a
- * multi-process app collapses into one row), sums each group's metric, and names
- * the group after its `.app` bundle, falling back to the highest-usage member for
- * daemons. The icon comes from that member; within one `.app` every member shares
- * the same bundle icon (resolved natively). Search matches a group when any member
- * matches. Sorting is by summed metric descending, with a stable name tiebreak.
+ * Grouping buckets rows by their native app key (the owning `.app` bundle or
+ * bundle id), sums each app group's metric, and keeps non-app processes as
+ * singleton rows. Search matches a group when any member matches. Sorting is by
+ * summed metric descending, with a stable name tiebreak.
  */
 export function projectProcessList(
   snapshot: ProcessSnapshot,

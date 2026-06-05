@@ -393,23 +393,22 @@ void FillRecord(
     *record->mutable_app() = match->second;
   }
 
-  // From the executable path, fill the owning `.app` bundle (the grouping key,
-  // for any bundled process, not just GUI-enriched ones) and the icon. The icon
-  // resolves the `.app` bundle's real icon when the executable is inside one,
-  // else the generic system executable icon - so every member of a multi-process
-  // app (a browser's helpers/renderers) gets the parent app's real icon and a
-  // plain daemon gets the generic glyph, matching Activity Monitor. The icon
-  // overrides any NSWorkspace icon on purpose: macOS surfaces some apps only
-  // through a helper whose runningApplications icon is the generic glyph, whereas
-  // the bundle icon is the real app icon and identical across members. Bundle id
-  // / localized name stay NSWorkspace-owned. Both are cached per resolution path,
-  // so a steady-state pass adds no measurable cost. Guarded on an available path;
-  // if the path is unreadable, any NSWorkspace enrichment above is left in place.
   if (record->executable_path().status() == NATIVE_FIELD_STATUS_AVAILABLE) {
-    FillAppBundle(record->executable_path().value(),
-                  record->mutable_app()->mutable_bundle());
-    IconForExecutablePath(record->executable_path().value(),
-                          record->mutable_app()->mutable_icon_png());
+    const bool has_app_bundle =
+        record->has_app() && record->app().bundle().path().status() ==
+                                 NATIVE_FIELD_STATUS_AVAILABLE;
+    if (!has_app_bundle) {
+      FillAppBundle(record->executable_path().value(),
+                    record->mutable_app()->mutable_bundle());
+    }
+
+    if (has_app_bundle) {
+      IconForFilePath(record->app().bundle().path().value(),
+                      record->mutable_app()->mutable_icon_png());
+    } else {
+      IconForExecutablePath(record->executable_path().value(),
+                            record->mutable_app()->mutable_icon_png());
+    }
   }
 }
 
