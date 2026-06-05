@@ -23,6 +23,11 @@ set(APP_SOURCES
         src/native/processes/app_metadata.h
         src/native/processes/app_metadata.mm)
 
+# The AppKit/NSWorkspace bridge uses Objective-C objects while rasterizing icons.
+# Scope ARC to this Objective-C++ file so native C++ sources stay unchanged.
+set_source_files_properties(src/native/processes/app_metadata.mm
+        PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+
 # Defines the main target of the application.
 add_library(mobrowser_lib STATIC ${APP_SOURCES} ${GENERATED_SOURCES})
 
