@@ -1,5 +1,5 @@
-import { Check, ChevronDown, ChevronRight, Copy } from "lucide-react"
-import { useState } from "react"
+import { Check, ChevronRight, Copy } from "lucide-react"
+import { useState, type ReactNode } from "react"
 
 import { appGateway } from "@/gateway/app-gateway"
 import { cn } from "@/lib/utils"
@@ -56,7 +56,7 @@ export function TextDisclosure({
     value !== undefined ? emptyText : state === "pending" ? pendingText : UNAVAILABLE_TEXT
 
   return (
-    <section className="flex flex-col gap-1.5">
+    <section className="flex flex-col">
       <div className="flex items-center gap-1.5">
         <button
           type="button"
@@ -71,19 +71,14 @@ export function TextDisclosure({
           )}
         >
           {hasContent ? (
-            expanded ? (
-              <ChevronDown
-                className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                strokeWidth={1.75}
-                aria-hidden="true"
-              />
-            ) : (
-              <ChevronRight
-                className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                strokeWidth={1.75}
-                aria-hidden="true"
-              />
-            )
+            <ChevronRight
+              className={cn(
+                "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out motion-reduce:transition-none",
+                expanded && "rotate-90",
+              )}
+              strokeWidth={1.75}
+              aria-hidden="true"
+            />
           ) : (
             <span className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           )}
@@ -99,14 +94,42 @@ export function TextDisclosure({
         {hasContent ? <CopyButton text={value} label={copyLabel} /> : null}
       </div>
 
-      {hasContent && expanded ? (
-        <div className="scrollbar-hidden max-h-24 overflow-y-auto rounded-lg border border-border bg-muted/30 p-2.5">
-          <p className="break-all whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-foreground">
-            {value}
-          </p>
-        </div>
+      {hasContent ? (
+        <DisclosureContent open={expanded}>
+          <div className="scrollbar-hidden max-h-24 overflow-y-auto rounded-lg border border-border bg-muted/30 p-2.5">
+            <p className="break-all whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-foreground">
+              {value}
+            </p>
+          </div>
+        </DisclosureContent>
       ) : null}
     </section>
+  )
+}
+
+/**
+ * Smooth height/opacity wrapper for compact disclosure bodies. It keeps content
+ * mounted so close animations can run, while `inert` prevents hidden controls
+ * from being reachable by keyboard.
+ */
+export function DisclosureContent({
+  open,
+  children,
+}: {
+  open: boolean
+  children: ReactNode
+}) {
+  return (
+    <div
+      aria-hidden={!open}
+      inert={open ? undefined : true}
+      className={cn(
+        "grid transition-[grid-template-rows,opacity,margin-top] duration-150 ease-out motion-reduce:transition-none",
+        open ? "mt-1.5 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0",
+      )}
+    >
+      <div className="min-h-0 overflow-hidden">{children}</div>
+    </div>
   )
 }
 

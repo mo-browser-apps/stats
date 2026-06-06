@@ -1,10 +1,14 @@
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
 import { UNAVAILABLE_TEXT, formatStartTime } from "@/lib/format"
 import type { ActionState, ProcessActionKind } from "@/gen/process_explorer"
-import { CommandLineBlock, TextDisclosure } from "@/components/processes/command-line-block"
+import {
+  CommandLineBlock,
+  DisclosureContent,
+  TextDisclosure,
+} from "@/components/processes/command-line-block"
 import { ProcessActions } from "@/components/processes/process-actions"
 import { ProcessIcon } from "@/components/processes/process-row"
 import { ProcessSortControl } from "@/components/processes/process-sort-control"
@@ -243,25 +247,28 @@ function Members({
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <section className="flex flex-col gap-1.5 border-t border-border/60 pt-1.5">
+    <section className="flex flex-col border-t border-border/60 pt-1.5">
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
         className="no-drag flex items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
       >
-        {expanded ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
-        )}
+        <ChevronRight
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out motion-reduce:transition-none",
+            expanded && "rotate-90",
+          )}
+          strokeWidth={1.75}
+          aria-hidden="true"
+        />
         <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Members ({memberCount})
         </span>
         <MetricValue metric={total} className="ml-auto text-[13px]" />
       </button>
 
-      {expanded ? (
+      <DisclosureContent open={expanded}>
         <ul className="scrollbar-hidden flex max-h-48 flex-col gap-0.5 overflow-y-auto">
           {members.map((member) => (
             <li key={member.pid}>
@@ -269,7 +276,7 @@ function Members({
             </li>
           ))}
         </ul>
-      ) : null}
+      </DisclosureContent>
     </section>
   )
 }
