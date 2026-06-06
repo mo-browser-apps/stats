@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronLeft, ChevronRight, List as ListIcon } from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
@@ -35,11 +35,12 @@ const TOTAL_LABEL: Record<SortMode, string> = {
  * parent PID, the group's CPU and memory totals so the user does not add member
  * usage by hand, and - for a multi-process app - an expandable Members section
  * whose rows drill into each member's own detail. `onBack` pops one navigation
- * level (member -> group -> list); `onOpenMember` drills into a member. It is
- * presentation-only: every field comes from the pure {@link ProcessDetail} model
- * with explicit availability, so unavailable/pending states render honestly
- * instead of as blanks or faked values. Command-line text is shown/copied only on
- * user action and is never logged or persisted.
+ * level (member -> group -> list), `onBackToList` returns directly to the process
+ * list, and `onOpenMember` drills into a member. It is presentation-only: every
+ * field comes from the pure {@link ProcessDetail} model with explicit
+ * availability, so unavailable/pending states render honestly instead of as
+ * blanks or faked values. Command-line text is shown/copied only on user action
+ * and is never logged or persisted.
  *
  * The fixed bottom action row (Open / Quit / Force Quit) reflects main's
  * authoritative {@link ActionState} list; running an action just forwards the kind
@@ -54,6 +55,7 @@ export function ProcessDetailView({
   actionMessage,
   onSortChange,
   onBack,
+  onBackToList,
   onOpenMember,
   onRunAction,
 }: {
@@ -64,6 +66,7 @@ export function ProcessDetailView({
   actionMessage?: string
   onSortChange: (sort: SortMode) => void
   onBack: () => void
+  onBackToList: () => void
   onOpenMember: (pid: number, startedAtUnixMs?: number) => void
   onRunAction: (kind: ProcessActionKind) => void
 }) {
@@ -76,6 +79,15 @@ export function ProcessDetailView({
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex items-center gap-2 pb-3">
+        <button
+          type="button"
+          onClick={onBackToList}
+          aria-label="Back to process list"
+          title="Back to process list"
+          className="no-drag flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <ListIcon className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+        </button>
         <button
           type="button"
           onClick={onBack}

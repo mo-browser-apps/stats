@@ -99,6 +99,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     [],
   )
   const goBack = useCallback(() => setSelectionStack((stack) => stack.slice(0, -1)), [])
+  const goToList = useCallback(() => setSelectionStack([]), [])
 
   // The detail model for the deepest still-resolvable selection, re-resolved from
   // the current snapshot and sort so CPU/memory stay live as ticks arrive. If the
@@ -134,6 +135,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
           actionMessage={actionMessage}
           onSortChange={setSort}
           onBack={goBack}
+          onBackToList={goToList}
           onOpenMember={openMember}
           onRunAction={runAction}
         />
