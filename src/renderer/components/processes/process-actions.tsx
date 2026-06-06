@@ -123,6 +123,8 @@ function destructiveTitle(verb: string, action: ActionState | undefined): string
       return `Cannot ${verb.toLowerCase()} a system process`
     case ActionDisabledReason.ACTION_DISABLED_REASON_STALE:
       return "This process is no longer available"
+    case ActionDisabledReason.ACTION_DISABLED_REASON_UNSTABLE_IDENTITY:
+      return "Process start time is unavailable"
     default:
       return `${verb} is unavailable for this process`
   }

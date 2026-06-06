@@ -57,17 +57,17 @@ function okString(value: { status: FieldStatus; value: string } | undefined): st
 }
 
 /**
- * Finds the row in a snapshot that still matches a target identity (pid plus,
- * when the target carried one, an exact start time so a reused PID does not
- * match). Returns undefined when the process has exited or its PID was reused,
- * which the caller turns into a STALE result. Pure: inspects identity only, never
- * a sensitive value.
+ * Finds the row in a snapshot that still matches a target identity. When the
+ * target carries an exact start time, it must match too so a reused PID does not
+ * match. A target without start time falls back to PID only; destructive actions
+ * apply a separate stable-identity guard before signaling. Pure: inspects
+ * identity only, never a sensitive value.
  *
  * This `(pid, started_at)` identity match against the live cached snapshot is the
  * action path's staleness guard, and it supersedes the request's `revision`
- * field: matching identity already rejects an exited PID (not found) and a reused
- * PID (start time differs), which a coarser revision compare would not, so the
- * action service does not read `request.revision`.
+ * field for targets with known start time: matching identity rejects an exited
+ * PID (not found) and a reused PID (start time differs), which a coarser revision
+ * compare would not, so the action service does not read `request.revision`.
  */
 export function findTargetRow(
   snapshot: ProcessSnapshot,
@@ -81,7 +81,8 @@ export function findTargetRow(
     return undefined;
   }
   // A target with a known start time must match it exactly (reused-PID guard);
-  // a target with no recorded start time falls back to PID alone.
+  // a target with no recorded start time falls back to PID alone. Quit/Force Quit
+  // still reject unstable target identities before sending a signal.
   if (target.startedAtStatus === FieldStatus.FIELD_STATUS_OK) {
     return matches.find(
       (row) =>
@@ -90,6 +91,11 @@ export function findTargetRow(
     );
   }
   return matches[0];
+}
+
+/** True when a renderer target carries a PID-reuse-safe process identity. */
+function hasStableTargetIdentity(target: ProcessIdentity | undefined): boolean {
+  return target?.startedAtStatus === FieldStatus.FIELD_STATUS_OK;
 }
 
 /** True when a resolved row is a protected/system-critical process. */
@@ -117,13 +123,14 @@ export function isSystemProcess(row: ProcessRow): boolean {
  *
  * - Reveal needs an OK executable path (NO_PATH otherwise); it is always allowed
  *   for self/system processes because opening a file in Finder is harmless.
- * - Quit / Force Quit are blocked for MoStats itself (SELF) and for
- *   system-critical processes (PROTECTED); everything else is allowed.
+ * - Quit / Force Quit require a known target start time (UNSTABLE_IDENTITY), then
+ *   block MoStats itself (SELF) and system-critical processes (PROTECTED).
  */
 export function disabledReasonFor(
   action: ProcessActionKind,
   row: ProcessRow,
   selfPid: number,
+  target: ProcessIdentity | undefined,
 ): ActionDisabledReason {
   if (action === ProcessActionKind.PROCESS_ACTION_KIND_REVEAL) {
     return okString(row.executablePath) !== undefined
@@ -131,6 +138,9 @@ export function disabledReasonFor(
       : ActionDisabledReason.ACTION_DISABLED_REASON_NO_PATH;
   }
 
+  if (!hasStableTargetIdentity(target)) {
+    return ActionDisabledReason.ACTION_DISABLED_REASON_UNSTABLE_IDENTITY;
+  }
   if ((row.identity?.pid ?? 0) === selfPid) {
     return ActionDisabledReason.ACTION_DISABLED_REASON_SELF;
   }
@@ -194,7 +204,7 @@ export class ProcessActionService {
 
     return {
       targetValid: true,
-      actions: ACTION_KINDS.map((kind) => this.actionState(kind, row)),
+      actions: ACTION_KINDS.map((kind) => this.actionState(kind, row, request.target)),
     };
   }
 
@@ -215,9 +225,9 @@ export class ProcessActionService {
       return { outcome: Outcome.OUTCOME_STALE_TARGET, affectedCount: 0 };
     }
 
-    const disabledReason = disabledReasonFor(request.action, row, this.selfPid);
+    const disabledReason = disabledReasonFor(request.action, row, this.selfPid, request.target);
     if (disabledReason !== ActionDisabledReason.ACTION_DISABLED_REASON_NONE) {
-      // NO_PATH/SELF/PROTECTED all collapse to a count-only not-allowed outcome.
+      // NO_PATH/SELF/PROTECTED/UNSTABLE_IDENTITY collapse to count-only not allowed.
       return { outcome: Outcome.OUTCOME_NOT_ALLOWED, affectedCount: 0 };
     }
 
@@ -231,7 +241,23 @@ export class ProcessActionService {
         // Treat a declined confirmation as a no-op, not a failure.
         return { outcome: Outcome.OUTCOME_SUCCEEDED, affectedCount: 0 };
       }
-      return this.signal(request.action, row);
+
+      const freshRow = findTargetRow(this.getSnapshot(), request.target);
+      if (freshRow === undefined) {
+        return { outcome: Outcome.OUTCOME_STALE_TARGET, affectedCount: 0 };
+      }
+
+      const freshDisabledReason = disabledReasonFor(
+        request.action,
+        freshRow,
+        this.selfPid,
+        request.target,
+      );
+      if (freshDisabledReason !== ActionDisabledReason.ACTION_DISABLED_REASON_NONE) {
+        return { outcome: Outcome.OUTCOME_NOT_ALLOWED, affectedCount: 0 };
+      }
+
+      return this.signal(request.action, freshRow);
     }
 
     if (request.action === ProcessActionKind.PROCESS_ACTION_KIND_QUIT) {
@@ -243,8 +269,12 @@ export class ProcessActionService {
   }
 
   /** Builds one {@link ActionState} for an already-resolved, non-stale row. */
-  private actionState(kind: ProcessActionKind, row: ProcessRow): ActionState {
-    const disabledReason = disabledReasonFor(kind, row, this.selfPid);
+  private actionState(
+    kind: ProcessActionKind,
+    row: ProcessRow,
+    target: ProcessIdentity | undefined,
+  ): ActionState {
+    const disabledReason = disabledReasonFor(kind, row, this.selfPid, target);
     const enabled = disabledReason === ActionDisabledReason.ACTION_DISABLED_REASON_NONE;
     return {
       kind,

@@ -142,6 +142,14 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
           },
     [targetPid, targetStartedAt],
   )
+  const targetKey =
+    target === undefined
+      ? ""
+      : `${target.pid}:${target.startedAtStatus}:${target.startedAtUnixMs}`
+  const targetKeyRef = useRef(targetKey)
+  useEffect(() => {
+    targetKeyRef.current = targetKey
+  }, [targetKey])
   const [actions, setActions] = useState<ActionState[]>([])
   const [actionsBusy, setActionsBusy] = useState(false)
   // Always read the latest revision when running an action, without making the
@@ -156,13 +164,20 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
       setActions([])
       return
     }
+    const requestedKey = targetKey
+    setActions([])
     try {
       const response = await processExplorerGateway.getActionStates(target, revisionRef.current)
-      setActions(response.actions)
+      if (targetKeyRef.current === requestedKey) {
+        setActions(response.actions)
+      }
     } catch {
-      // Leave the last states; an unreadable fetch should not crash the panel.
+      // Keep the row disabled for this target until the next successful fetch.
+      if (targetKeyRef.current === requestedKey) {
+        setActions([])
+      }
     }
-  }, [target])
+  }, [target, targetKey])
 
   useEffect(() => {
     void refreshActionStates()

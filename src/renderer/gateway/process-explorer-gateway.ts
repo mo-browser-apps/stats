@@ -73,8 +73,8 @@ export const processExplorerGateway = {
 
   /**
    * Reads per-action availability for a target, validated in main against the
-   * latest snapshot. Pass the revision the UI is currently showing so main can
-   * detect a stale target.
+   * latest snapshot. The revision is passed as request context only; stale-target
+   * detection uses PID plus start time in the live cache.
    */
   async getActionStates(
     target: ProcessIdentity,

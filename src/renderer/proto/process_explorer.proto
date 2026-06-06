@@ -182,7 +182,8 @@ message ProcessSnapshot {
   // Overall snapshot state (loading/ok/unavailable/permission-limited).
   SnapshotStatus status = 1;
   // Monotonic revision id; 0 before the first snapshot. Action requests carry
-  // the revision they were issued against so main can reject stale targets.
+  // this for context; main's stale-target guard is the live snapshot identity
+  // match by PID plus start time.
   uint64 revision = 2;
   // Epoch milliseconds when this snapshot was produced in main.
   int64 timestamp_ms = 3;
@@ -238,6 +239,9 @@ enum ActionDisabledReason {
   ACTION_DISABLED_REASON_STALE = 5;
   // Actions are not implemented yet for this build (I10 placeholder state).
   ACTION_DISABLED_REASON_NOT_IMPLEMENTED = 6;
+  // Quit/Force Quit require a known start time so PID reuse cannot hit another
+  // process. Reveal can still be allowed because it only opens Finder.
+  ACTION_DISABLED_REASON_UNSTABLE_IDENTITY = 7;
 }
 
 // Whether one action kind is currently available for a target.
@@ -253,7 +257,8 @@ message ActionState {
 message GetProcessActionStatesRequest {
   // Target process identity (pid + start time).
   ProcessIdentity target = 1;
-  // Snapshot revision the renderer is showing; lets main detect a stale target.
+  // Snapshot revision the renderer is showing. Informational for the action path;
+  // main detects stale targets by matching PID plus start time in the live cache.
   uint64 revision = 2;
 }
 
@@ -270,7 +275,8 @@ message RunProcessActionRequest {
   ProcessActionKind action = 1;
   // Target process identity (pid + start time).
   ProcessIdentity target = 2;
-  // Snapshot revision the action was issued against, for stale-target rejection.
+  // Snapshot revision the action was issued against. Informational for the action
+  // path; main revalidates with PID plus start time in the live cache.
   uint64 revision = 3;
 }
 
