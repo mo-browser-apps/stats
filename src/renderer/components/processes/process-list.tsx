@@ -1,24 +1,24 @@
 import { SnapshotStatus } from "@/gen/process_explorer"
 import { ProcessRow } from "@/components/processes/process-row"
-import type { ProcessListProjection } from "@/components/processes/process-view"
+import type { DetailSelection, ProcessListProjection } from "@/components/processes/process-view"
 
 /**
  * The ranked, grouped process rows plus the loading/empty/unavailable/
  * permission-limited states. The states occupy the same scroll area so the
  * panel never resizes as data arrives or a search empties the list. Each row
- * opens the detail view via {@link onOpenGroup} (a stable callback, so the
+ * opens the detail view via {@link onOpenSelection} (a stable callback, so the
  * memoized rows are not invalidated each tick).
  */
 export function ProcessList({
   projection,
   status,
   hasQuery,
-  onOpenGroup,
+  onOpenSelection,
 }: {
   projection: ProcessListProjection
   status: SnapshotStatus
   hasQuery: boolean
-  onOpenGroup: (key: string) => void
+  onOpenSelection: (selection: DetailSelection) => void
 }) {
   const { groups } = projection
 
@@ -28,7 +28,7 @@ export function ProcessList({
         <ul>
           {groups.map((group) => (
             <li key={group.key}>
-              <ProcessRow group={group} onOpen={onOpenGroup} />
+              <ProcessRow group={group} onOpen={onOpenSelection} />
             </li>
           ))}
         </ul>

@@ -81,10 +81,10 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     }
   }, [active, pull])
 
-  // Open a group from the list (resets any prior drill-in), drill into a member,
-  // and pop one level. Selection entries are snapshot-stable identities, not
-  // resolved rows, so they survive ticks.
-  const openGroup = useCallback((key: string) => setSelectionStack([{ kind: "group", key }]), [])
+  const openSelection = useCallback(
+    (selection: DetailSelection) => setSelectionStack([selection]),
+    [],
+  )
   const openMember = useCallback(
     (pid: number, startedAtUnixMs?: number) =>
       setSelectionStack((stack) => [...stack, { kind: "process", pid, startedAtUnixMs }]),
@@ -138,7 +138,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
         projection={projection}
         status={snapshot.status}
         hasQuery={query.trim().length > 0}
-        onOpenGroup={openGroup}
+        onOpenSelection={openSelection}
       />
     </div>
   )

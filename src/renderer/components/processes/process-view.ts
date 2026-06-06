@@ -17,6 +17,15 @@ import { formatBytes, formatCpuPercent, formatCpuPercentPrecise } from "@/lib/fo
 export type SortMode = "cpu" | "memory"
 
 /**
+ * A detail-view selection: either an app group (by its key) or one specific
+ * process (drilled into from a group's member list, or opened from a search
+ * result that matched a member rather than the whole app group).
+ */
+export type DetailSelection =
+  | { kind: "group"; key: string }
+  | { kind: "process"; pid: number; startedAtUnixMs?: number }
+
+/**
  * Display state of a group's active-metric value, mirroring the overview's metric
  * states: `ok` has a value, `pending` is not computed yet (show `--`), and
  * `unavailable` was tried and could not be read (show the unavailable text).
@@ -50,6 +59,12 @@ export interface ProcessGroup {
   metricText?: string
   /** Numeric active-metric magnitude used for ranking (0 when not ok). */
   sortValue: number
+  /**
+   * Detail target for opening this list row. Unsearched rows target the group;
+   * searched rows are projected as individual process rows, so they target the
+   * matched process and their visible name matches the opened detail.
+   */
+  openSelection: DetailSelection
   /**
    * The group's member rows, with the representative (the lowest-PID main
    * process) first. Carried so the detail view can show identity, command line,
@@ -163,6 +178,11 @@ function rowGroupKey(row: ProcessRow): string {
   if (bundleId) {
     return `bundle:${bundleId}`
   }
+  return rowIdentityKey(row)
+}
+
+/** Stable singleton key for one process row, independent of app grouping. */
+function rowIdentityKey(row: ProcessRow): string {
   const pid = row.identity?.pid ?? 0
   const startedAt =
     row.identity?.startedAtStatus === FieldStatus.FIELD_STATUS_OK
@@ -233,6 +253,15 @@ function rowPid(row: ProcessRow): number {
   return row.identity?.pid ?? 0
 }
 
+/** Snapshot-stable process selection for one row. */
+function rowSelection(row: ProcessRow): DetailSelection {
+  const startedAtUnixMs =
+    row.identity?.startedAtStatus === FieldStatus.FIELD_STATUS_OK
+      ? row.identity.startedAtUnixMs
+      : undefined
+  return { kind: "process", pid: rowPid(row), startedAtUnixMs }
+}
+
 /**
  * The representative member of a group: the lowest-PID row - the app's main
  * process, which starts before its helpers. Using this stable identity (rather
@@ -270,6 +299,7 @@ function buildGroupRow(group: GroupAccumulator, sort: SortMode): ProcessGroup {
     metricState,
     metricText: metricState === "ok" ? formatGroupMetric(group.sortValueSum, sort) : undefined,
     sortValue: group.sortValueSum,
+    openSelection: { kind: "group", key: group.key },
     members: representativeFirst(group.members, representative),
   }
 }
@@ -278,7 +308,9 @@ function buildGroupRow(group: GroupAccumulator, sort: SortMode): ProcessGroup {
  * Folds the snapshot rows into ranked display groups for the given sort and
  * (optional) search query. Buckets rows by their native app key (the owning
  * `.app` bundle or bundle id), sums each app group's metric, and keeps non-app
- * processes as singleton rows; search matches a group when any member matches.
+ * processes as singleton rows. Search deliberately returns matching member
+ * processes as singleton rows instead of app groups, so the visible result name
+ * matches the process detail opened from that row.
  * Returns every matched group, ranked by summed metric descending with a stable
  * name tiebreak, with no display cap applied - callers cap for the list, while
  * the detail lookup needs the full set so a selected group stays findable even
@@ -286,13 +318,17 @@ function buildGroupRow(group: GroupAccumulator, sort: SortMode): ProcessGroup {
  */
 function buildGroups(rows: ProcessRow[], sort: SortMode, query: string): ProcessGroup[] {
   const trimmed = query.trim().toLowerCase()
+  if (trimmed.length > 0) {
+    return sortGroups(
+      rows
+        .filter((row) => rowHaystack(row).includes(trimmed))
+        .map((row) => singleProcessGroup(row, sort)),
+    )
+  }
+
   const groups = new Map<string, GroupAccumulator>()
 
   for (const row of rows) {
-    if (trimmed.length > 0 && !rowHaystack(row).includes(trimmed)) {
-      continue
-    }
-
     const key = rowGroupKey(row)
     const metric = rowMetric(row, sort)
     const existing = groups.get(key)
@@ -318,6 +354,11 @@ function buildGroups(rows: ProcessRow[], sort: SortMode, query: string): Process
     buildGroupRow(group, sort),
   )
 
+  return sortGroups(projected)
+}
+
+/** Sorts list groups by active metric, with stable cold-start behavior. */
+function sortGroups(projected: ProcessGroup[]): ProcessGroup[] {
   // Rank by summed metric descending. The name tiebreak applies only between two
   // rows that both have a real value, so on a first-sample cold start (every row
   // pending, all sortValue 0) the list keeps the snapshot's insertion order
@@ -652,9 +693,9 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode): Process
  */
 function singleProcessGroup(row: ProcessRow, sort: SortMode): ProcessGroup {
   const cell = rowMetric(row, sort)
-  return buildGroupRow(
+  const group = buildGroupRow(
     {
-      key: rowGroupKey(row),
+      key: rowIdentityKey(row),
       sortValueSum: cell.value ?? 0,
       hasMetric: cell.value !== undefined,
       anyPending: cell.pending,
@@ -662,16 +703,8 @@ function singleProcessGroup(row: ProcessRow, sort: SortMode): ProcessGroup {
     },
     sort,
   )
+  return { ...group, openSelection: rowSelection(row) }
 }
-
-/**
- * A detail-view selection: either an app group (by its key) or one specific
- * process (drilled into from a group's member list). A discriminated union so
- * the resolver can re-find the right rows in each fresh snapshot.
- */
-export type DetailSelection =
-  | { kind: "group"; key: string }
-  | { kind: "process"; pid: number; startedAtUnixMs?: number }
 
 /**
  * Resolves a {@link DetailSelection} against the current snapshot into the

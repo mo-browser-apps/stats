@@ -3,14 +3,15 @@ import { Box } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { UNAVAILABLE_TEXT } from "@/lib/format"
-import type { ProcessGroup } from "@/components/processes/process-view"
+import type { DetailSelection, ProcessGroup } from "@/components/processes/process-view"
 
 /**
  * One fixed-height process row: app icon (or a generic fallback), the process or
  * app name, an optional "+N" grouped-child badge, and the right-aligned active
  * metric. Height is fixed and the name truncates, so long names or large values
  * never reflow the list. The whole row is a button that opens the detail view
- * for the group; grouped rows open the detail panel rather than expanding inline.
+ * for the row's selection target; unsearched grouped rows target the group, while
+ * searched grouped rows can target the matched member process.
  *
  * Wrapped in {@link memo} with a field-wise comparator: the projection rebuilds
  * fresh group objects every 2s tick, but most rows' displayed fields are
@@ -22,12 +23,12 @@ export const ProcessRow = memo(function ProcessRow({
   onOpen,
 }: {
   group: ProcessGroup
-  onOpen: (key: string) => void
+  onOpen: (selection: DetailSelection) => void
 }) {
   return (
     <button
       type="button"
-      onClick={() => onOpen(group.key)}
+      onClick={() => onOpen(group.openSelection)}
       aria-label={`Show details for ${group.name}`}
       className="flex h-11 w-full items-center gap-2.5 rounded-md px-1 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
     >
@@ -61,12 +62,14 @@ export const ProcessRow = memo(function ProcessRow({
  * its visible fields changes. The projection produces new group objects every
  * tick, so a referential compare would always miss; comparing the displayed
  * fields lets a steady row skip rendering. `key` is the group identity and is
- * compared too so React never reuses a row across distinct groups. `onOpen` is a
- * stable callback from the parent, so it does not need comparing.
+ * compared too so React never reuses a row across distinct groups. The row's
+ * open target is also compared because a search can keep the same visible group
+ * name while changing which matched member should open. `onOpen` is a stable
+ * callback from the parent, so it does not need comparing.
  */
 function areGroupsEqual(
-  previous: { group: ProcessGroup; onOpen: (key: string) => void },
-  next: { group: ProcessGroup; onOpen: (key: string) => void },
+  previous: { group: ProcessGroup; onOpen: (selection: DetailSelection) => void },
+  next: { group: ProcessGroup; onOpen: (selection: DetailSelection) => void },
 ): boolean {
   const a = previous.group
   const b = next.group
@@ -77,8 +80,20 @@ function areGroupsEqual(
     a.childCount === b.childCount &&
     a.memberCount === b.memberCount &&
     a.metricState === b.metricState &&
-    a.metricText === b.metricText
+    a.metricText === b.metricText &&
+    areSelectionsEqual(a.openSelection, b.openSelection)
   )
+}
+
+/** True when two row open targets point to the same detail selection. */
+function areSelectionsEqual(left: DetailSelection, right: DetailSelection): boolean {
+  if (left.kind === "group" && right.kind === "group") {
+    return left.key === right.key
+  }
+  if (left.kind === "process" && right.kind === "process") {
+    return left.pid === right.pid && left.startedAtUnixMs === right.startedAtUnixMs
+  }
+  return false
 }
 
 /**
