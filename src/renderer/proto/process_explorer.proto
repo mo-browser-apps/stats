@@ -15,9 +15,7 @@ syntax = "proto3";
 // renderer pulls a cached snapshot with GetProcessSnapshot while subscribing to
 // a lightweight StreamRevisions broadcast (revision id + timestamp only) to
 // learn when a newer snapshot exists. Actions stay unary because each has an
-// explicit user target validated in main. As of I10 the service returns an
-// explicit empty/unavailable snapshot and disabled action states; native
-// collection and real actions land in later iterations.
+// explicit user target validated in main.
 
 // Availability of a single value or group inside a process snapshot. UNKNOWN is
 // the proto3 default and means "not yet determined"; the other states are
@@ -181,9 +179,8 @@ message SnapshotWarning {
 message ProcessSnapshot {
   // Overall snapshot state (loading/ok/unavailable/permission-limited).
   SnapshotStatus status = 1;
-  // Monotonic revision id; 0 before the first snapshot. Action requests carry
-  // this for context; main's stale-target guard is the live snapshot identity
-  // match by PID plus start time.
+  // Monotonic revision id; 0 before the first snapshot. The renderer uses this
+  // to ignore out-of-order snapshot pulls.
   uint64 revision = 2;
   // Epoch milliseconds when this snapshot was produced in main.
   int64 timestamp_ms = 3;
@@ -258,11 +255,9 @@ message ActionState {
 // Request the current per-action availability for one target, validated against
 // the latest snapshot in main.
 message GetProcessActionStatesRequest {
+  reserved 2;
   // Target process identity (pid + start time).
   ProcessIdentity target = 1;
-  // Snapshot revision the renderer is showing. Informational for the action path;
-  // main detects stale targets by matching PID plus start time in the live cache.
-  uint64 revision = 2;
 }
 
 // Per-action availability for one target.
@@ -273,14 +268,12 @@ message GetProcessActionStatesResponse {
 }
 
 // Run one action against one target. Main re-validates against the latest
-// snapshot and applies self/system/stale protections before acting (I14).
+// snapshot and applies self/critical/stale protections before acting.
 message RunProcessActionRequest {
+  reserved 3;
   ProcessActionKind action = 1;
   // Target process identity (pid + start time).
   ProcessIdentity target = 2;
-  // Snapshot revision the action was issued against. Informational for the action
-  // path; main revalidates with PID plus start time in the live cache.
-  uint64 revision = 3;
 }
 
 // Result of an attempted action. Outcome is a coarse status with no sensitive
@@ -322,10 +315,9 @@ service ProcessExplorerService {
   rpc StreamRevisions(StreamRevisionsRequest) returns (stream ProcessSnapshotRevision);
 
   // Returns per-action availability for one target, validated against the
-  // latest snapshot. Disabled until the action iteration.
+  // latest snapshot.
   rpc GetProcessActionStates(GetProcessActionStatesRequest) returns (GetProcessActionStatesResponse);
 
-  // Runs one validated action against one target. Returns NOT_IMPLEMENTED until
-  // the action iteration.
+  // Runs one validated action against one target.
   rpc RunProcessAction(RunProcessActionRequest) returns (RunProcessActionResponse);
 }

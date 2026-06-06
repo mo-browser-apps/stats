@@ -73,26 +73,22 @@ export const processExplorerGateway = {
 
   /**
    * Reads per-action availability for a target, validated in main against the
-   * latest snapshot. The revision is passed as request context only; stale-target
-   * detection uses PID plus start time in the live cache.
+   * latest snapshot. Stale-target detection uses PID plus start time in the live
+   * cache, so no snapshot revision is part of the action request.
    */
-  async getActionStates(
-    target: ProcessIdentity,
-    revision: number,
-  ): Promise<GetProcessActionStatesResponse> {
-    return ipc.processExplorer.GetProcessActionStates({ target, revision });
+  async getActionStates(target: ProcessIdentity): Promise<GetProcessActionStatesResponse> {
+    return ipc.processExplorer.GetProcessActionStates({ target });
   },
 
   /**
    * Requests a validated action against a target. Main re-validates and applies
-   * self/system/stale protections; the result is count-only with no sensitive
+   * self/critical/stale protections; the result is count-only with no sensitive
    * detail.
    */
   async runAction(
     action: ProcessActionKind,
     target: ProcessIdentity,
-    revision: number,
   ): Promise<RunProcessActionResponse> {
-    return ipc.processExplorer.RunProcessAction({ action, target, revision });
+    return ipc.processExplorer.RunProcessAction({ action, target });
   },
 };

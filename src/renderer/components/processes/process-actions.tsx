@@ -6,6 +6,7 @@ import {
   ProcessActionKind,
   type ActionState,
 } from "@/gen/process_explorer"
+import {ReactNode} from "react";
 
 /**
  * The fixed bottom action row of the detail view: Open (reveal in Finder), Quit,
@@ -14,10 +15,10 @@ import {
  * Presentation-only. Every button's enabled state and disabled reason come from
  * main (the authoritative {@link ActionState} list), and running an action just
  * forwards the kind through {@link onRun} to main, which re-validates, confirms
- * destructive actions with a native dialog, and applies self/system/stale
+ * destructive actions with a native dialog, and applies self/critical/stale
  * protections. The renderer never executes an action itself. Disabled buttons
  * carry an honest tooltip so the user knows why an action is unavailable (e.g.
- * the target is MoStats itself or a system process).
+ * the target is MoStats itself or a critical system process).
  */
 export function ProcessActions({
   actions,
@@ -84,7 +85,7 @@ function ActionButton({
 }: {
   label: string
   title: string
-  icon: React.ReactNode
+  icon: ReactNode
   disabled: boolean
   onClick: () => void
   destructive?: boolean

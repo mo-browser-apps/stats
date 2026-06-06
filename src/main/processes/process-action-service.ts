@@ -65,10 +65,9 @@ function okString(value: { status: FieldStatus; value: string } | undefined): st
  * identity only, never a sensitive value.
  *
  * This `(pid, started_at)` identity match against the live cached snapshot is the
- * action path's staleness guard, and it supersedes the request's `revision`
- * field for targets with known start time: matching identity rejects an exited
- * PID (not found) and a reused PID (start time differs), which a coarser revision
- * compare would not, so the action service does not read `request.revision`.
+ * action path's staleness guard. Matching identity rejects an exited PID (not
+ * found) and a reused PID (start time differs), without tying actions to the
+ * snapshot revision that happened to be visible when the user clicked.
  */
 export function findTargetRow(
   snapshot: ProcessSnapshot,
