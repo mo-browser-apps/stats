@@ -248,15 +248,15 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode): Process
   const members =
     group.memberCount > 1
       ? group.members
-          .slice()
-          .sort((left, right) => {
-            const delta = (read(right).value ?? 0) - (read(left).value ?? 0);
-            if (delta !== 0) {
-              return delta;
-            }
-            return (left.identity?.pid ?? 0) - (right.identity?.pid ?? 0);
-          })
-          .map((row) => buildMember(row, sort))
+        .slice()
+        .sort((left, right) => {
+          const delta = (read(right).value ?? 0) - (read(left).value ?? 0);
+          if (delta !== 0) {
+            return delta;
+          }
+          return (left.identity?.pid ?? 0) - (right.identity?.pid ?? 0);
+        })
+        .map((row) => buildMember(row, sort))
       : [];
 
   // Only the selected metric's total is shown (the CPU/RAM switch picks which),

@@ -1,6 +1,6 @@
-import * as os from 'node:os';
-import { ipc } from '@mobrowser/api';
-import { native } from '../gen/native';
+import * as os from "node:os";
+import { ipc } from "@mobrowser/api";
+import { native } from "../gen/native";
 import {
   NativeAppBundle,
   NativeAppMetadata,
@@ -11,7 +11,7 @@ import {
   NativeProcessMemory,
   NativeProcessRecord,
   NativeString,
-} from '../gen/native/process_collector';
+} from "../gen/native/process_collector";
 import {
   AppBundle,
   AppMetadata,
@@ -27,8 +27,8 @@ import {
   SnapshotWarning_Code,
   StringValue,
   UInt64Value,
-} from '../gen/process_explorer';
-import { ProcessExplorerServiceDescriptor } from '../gen/ipc_service';
+} from "../gen/process_explorer";
+import { ProcessExplorerServiceDescriptor } from "../gen/ipc_service";
 
 /**
  * Interval between process collections, in milliseconds. Slower than the 1s
@@ -88,7 +88,7 @@ function toFieldStatus(status: NativeFieldStatus): FieldStatus {
 /** Maps a native string field, preserving availability and value. */
 function toStringValue(value: NativeString | undefined): StringValue {
   if (value === undefined) {
-    return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, value: '' };
+    return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, value: "" };
   }
   return { status: toFieldStatus(value.status), value: value.value };
 }
@@ -100,12 +100,12 @@ function toStringValue(value: NativeString | undefined): StringValue {
  */
 function toIconValue(icon: NativeImage | undefined): StringValue {
   if (icon === undefined) {
-    return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, value: '' };
+    return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, value: "" };
   }
   const status = toFieldStatus(icon.status);
   return {
     status,
-    value: status === FieldStatus.FIELD_STATUS_OK ? icon.pngBase64 : '',
+    value: status === FieldStatus.FIELD_STATUS_OK ? icon.pngBase64 : "",
   };
 }
 
@@ -133,7 +133,7 @@ function toAppBundle(bundle: NativeAppBundle | undefined): AppBundle | undefined
  */
 function toAppMetadata(app: NativeAppMetadata | undefined): AppMetadata {
   if (app === undefined) {
-    const unknown = { status: FieldStatus.FIELD_STATUS_UNKNOWN, value: '' };
+    const unknown = { status: FieldStatus.FIELD_STATUS_UNKNOWN, value: "" };
     return {
       bundleIdentifier: { ...unknown },
       localizedName: { ...unknown },
@@ -196,7 +196,7 @@ function recordKey(record: NativeProcessRecord): ProcessKey | null {
   const startedAt =
     identity.startedAtStatus === NativeFieldStatus.NATIVE_FIELD_STATUS_AVAILABLE
       ? identity.startedAtUnixMs
-      : 'unknown';
+      : "unknown";
   return `${identity.pid}:${startedAt}`;
 }
 

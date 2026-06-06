@@ -1,6 +1,7 @@
 import tsParser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import reactHooks from "eslint-plugin-react-hooks";
+import stylistic from "@stylistic/eslint-plugin";
 
 const browserGlobals = {
   document: "readonly",
@@ -46,6 +47,7 @@ export default [
     plugins: {
       "@typescript-eslint": tsPlugin,
       "react-hooks": reactHooks,
+      "@stylistic": stylistic,
     },
     rules: {
       ...tsPlugin.configs.recommended.rules,
@@ -57,6 +59,11 @@ export default [
           varsIgnorePattern: "^_",
         },
       ],
+      "@stylistic/semi": ["error", "always"],
+      "@stylistic/quotes": ["error", "double", { avoidEscape: true, allowTemplateLiterals: "always" }],
+      "@stylistic/object-curly-spacing": ["error", "always"],
+      "@stylistic/comma-dangle": ["error", "always-multiline"],
+      "@stylistic/quote-props": ["error", "as-needed"],
     },
   },
 ];

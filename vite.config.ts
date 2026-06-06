@@ -1,16 +1,16 @@
-import path from "path"
-import react from "@vitejs/plugin-react"
-import { defineConfig, type UserConfig } from "vite"
+import path from "path";
+import react from "@vitejs/plugin-react";
+import { defineConfig, type UserConfig } from "vite";
 
 export default defineConfig(({ mode }) => {
   if (mode === "main") {
-    return defineMainConfig()
+    return defineMainConfig();
   }
   if (mode === "renderer") {
-    return defineRendererConfig()
+    return defineRendererConfig();
   }
-  throw new Error(`Unsupported Vite config mode: ${mode}`)
-})
+  throw new Error(`Unsupported Vite config mode: ${mode}`);
+});
 
 function defineMainConfig(): UserConfig {
   return {
@@ -41,10 +41,10 @@ function defineMainConfig(): UserConfig {
     server: {
       forwardConsole: {
         unhandledErrors: true,
-        logLevels: ['warn', 'error'],
+        logLevels: ["warn", "error"],
       },
     },
-  }
+  };
 }
 
 
@@ -65,8 +65,8 @@ function defineRendererConfig(): UserConfig {
     server: {
       forwardConsole: {
         unhandledErrors: true,
-        logLevels: ['warn', 'error'],
+        logLevels: ["warn", "error"],
       },
     },
-  }
+  };
 }

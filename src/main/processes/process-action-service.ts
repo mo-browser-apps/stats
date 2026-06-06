@@ -1,6 +1,6 @@
-import process from 'node:process';
-import { app, desktop } from '@mobrowser/api';
-import type { BrowserWindow } from '@mobrowser/api';
+import process from "node:process";
+import { app, desktop } from "@mobrowser/api";
+import type { BrowserWindow } from "@mobrowser/api";
 import {
   ActionDisabledReason,
   ActionState,
@@ -14,7 +14,7 @@ import {
   RunProcessActionRequest,
   RunProcessActionResponse,
   RunProcessActionResponse_Outcome as Outcome,
-} from '../gen/process_explorer';
+} from "../gen/process_explorer";
 
 /** The action kinds the detail view exposes, in display order. */
 const ACTION_KINDS: readonly ProcessActionKind[] = [
@@ -37,16 +37,16 @@ const ACTION_KINDS: readonly ProcessActionKind[] = [
  * than pre-emptively greyed out.
  */
 const CRITICAL_PROCESS_NAMES: ReadonlySet<string> = new Set([
-  'kernel_task', // the kernel
-  'launchd', // PID 1, the init/service manager
-  'WindowServer', // the display server; killing it logs the user out
-  'loginwindow', // owns the login/user session
-  'logind', // session lifecycle
-  'SystemUIServer', // the menu bar
-  'Dock', // the Dock and Mission Control
-  'Finder', // the desktop and file UI
-  'coreaudiod', // core audio; killing it breaks all sound
-  'WindowManager', // Stage Manager / window management
+  "kernel_task", // the kernel
+  "launchd", // PID 1, the init/service manager
+  "WindowServer", // the display server; killing it logs the user out
+  "loginwindow", // owns the login/user session
+  "logind", // session lifecycle
+  "SystemUIServer", // the menu bar
+  "Dock", // the Dock and Mission Control
+  "Finder", // the desktop and file UI
+  "coreaudiod", // core audio; killing it breaks all sound
+  "WindowManager", // Stage Manager / window management
 ]);
 
 /** Reads a string field only when it is explicitly OK and non-empty. */
@@ -311,16 +311,16 @@ export class ProcessActionService {
   /** Sends SIGTERM (Quit) or SIGKILL (Force Quit) to a resolved row's PID. */
   private signal(action: ProcessActionKind, row: ProcessRow): RunProcessActionResponse {
     const pid = row.identity?.pid ?? 0;
-    const signal = action === ProcessActionKind.PROCESS_ACTION_KIND_FORCE_QUIT ? 'SIGKILL' : 'SIGTERM';
+    const signal = action === ProcessActionKind.PROCESS_ACTION_KIND_FORCE_QUIT ? "SIGKILL" : "SIGTERM";
     try {
       process.kill(pid, signal);
       return { outcome: Outcome.OUTCOME_SUCCEEDED, affectedCount: 1 };
     } catch (error) {
       const code = (error as NodeJS.ErrnoException | undefined)?.code;
       switch (code) {
-        case 'ESRCH':
+        case "ESRCH":
           return { outcome: Outcome.OUTCOME_STALE_TARGET, affectedCount: 0 };
-        case 'EPERM':
+        case "EPERM":
           return { outcome: Outcome.OUTCOME_NOT_PERMITTED, affectedCount: 0 };
         default:
           return { outcome: Outcome.OUTCOME_FAILED, affectedCount: 0 };
@@ -341,14 +341,14 @@ export class ProcessActionService {
     const result = await app.showMessageDialog({
       parentWindow: this.getParentWindow() ?? undefined,
       message: `Force Quit ${name}?`,
-      informativeText: 'The process will be killed immediately (SIGKILL).',
-      type: 'warning',
+      informativeText: "The process will be killed immediately (SIGKILL).",
+      type: "warning",
       buttons: [
-        { label: 'Cancel', type: 'secondary' },
-        { label: 'Force Quit', type: 'primary' },
+        { label: "Cancel", type: "secondary" },
+        { label: "Force Quit", type: "primary" },
       ],
     });
-    return result.button.type === 'primary';
+    return result.button.type === "primary";
   }
 
   /**

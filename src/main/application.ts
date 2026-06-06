@@ -1,11 +1,11 @@
-import process from 'node:process';
-import { app, clipboard, ipc } from '@mobrowser/api';
-import { ApplicationWindow } from './application-window';
-import { TrayController } from './tray-controller';
-import { MetricsService } from './metrics/metrics-service';
-import { ProcessExplorerService } from './processes/process-explorer-service';
-import { ActiveView, CopyTextRequest, SetActiveViewRequest, SetAlwaysOnTopRequest } from './gen/app';
-import { AppServiceDescriptor } from './gen/ipc_service';
+import process from "node:process";
+import { app, clipboard, ipc } from "@mobrowser/api";
+import { ApplicationWindow } from "./application-window";
+import { TrayController } from "./tray-controller";
+import { MetricsService } from "./metrics/metrics-service";
+import { ProcessExplorerService } from "./processes/process-explorer-service";
+import { ActiveView, CopyTextRequest, SetActiveViewRequest, SetAlwaysOnTopRequest } from "./gen/app";
+import { AppServiceDescriptor } from "./gen/ipc_service";
 
 /**
  * Composition root for the MoStats main process.
@@ -59,20 +59,20 @@ export class Application {
     // MoStats is a dark-only compact utility (DESIGN.md): fix the native theme
     // to dark so the window chrome matches the renderer rather than following
     // the OS appearance. There is no in-app theme switch.
-    app.setTheme('dark');
+    app.setTheme("dark");
 
     this.registerAppService();
 
     // On macOS, reopen the window when the app is activated (Dock click or
     // Cmd+Tab) after all windows were hidden or closed.
-    app.on('activated', () => {
+    app.on("activated", () => {
       if (this.quitting) {
         return;
       }
       this.window.show();
     });
-    app.on('allWindowsClosed', () => {
-      if (process.platform !== 'darwin') {
+    app.on("allWindowsClosed", () => {
+      if (process.platform !== "darwin") {
         this.quit();
       }
     });
@@ -149,7 +149,7 @@ export class Application {
         this.activeView = request.view;
         this.updateServiceActivation();
         this.window.resizeForView(
-          request.view === ActiveView.ACTIVE_VIEW_PROCESSES ? 'processes' : 'stats',
+          request.view === ActiveView.ACTIVE_VIEW_PROCESSES ? "processes" : "stats",
         );
         return {};
       },
@@ -158,7 +158,7 @@ export class Application {
         // copy of a path or command line is performed here. The text can be a
         // sensitive command line, so it is written to the user's clipboard on
         // request and never logged or persisted.
-        clipboard.write('text/plain', request.text);
+        clipboard.write("text/plain", request.text);
         return {};
       },
     });

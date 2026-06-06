@@ -1,4 +1,4 @@
-import { ipc } from '@mobrowser/api';
+import { ipc } from "@mobrowser/api";
 import {
   CpuMetric,
   DiskMetric,
@@ -8,9 +8,9 @@ import {
   NetworkMetric,
   TemperatureMetric,
   UptimeMetric,
-} from '../gen/metrics';
-import { MetricsServiceDescriptor } from '../gen/ipc_service';
-import { MetricsSampler } from './metrics-sampler';
+} from "../gen/metrics";
+import { MetricsServiceDescriptor } from "../gen/ipc_service";
+import { MetricsSampler } from "./metrics-sampler";
 import {
   CpuReading,
   DiskReading,
@@ -19,7 +19,7 @@ import {
   ReadingStatus,
   TemperatureReading,
   UptimeReading,
-} from './metric-types';
+} from "./metric-types";
 
 /** Interval between published snapshots, in milliseconds. */
 const PUBLISH_INTERVAL_MS = 1000;
@@ -27,9 +27,9 @@ const PUBLISH_INTERVAL_MS = 1000;
 /** Maps the sampler's internal status onto the generated wire enum. */
 function toMetricStatus(status: ReadingStatus): MetricStatus {
   switch (status) {
-    case 'ok':
+    case "ok":
       return MetricStatus.METRIC_STATUS_OK;
-    case 'unavailable':
+    case "unavailable":
       return MetricStatus.METRIC_STATUS_UNAVAILABLE;
     default:
       return MetricStatus.METRIC_STATUS_UNKNOWN;

@@ -1,18 +1,18 @@
-import { ipc } from '@mobrowser/api';
-import type { BrowserWindow } from '@mobrowser/api';
+import { ipc } from "@mobrowser/api";
+import type { BrowserWindow } from "@mobrowser/api";
 import {
   GetProcessActionStatesRequest,
   GetProcessActionStatesResponse,
   ProcessSnapshot,
   RunProcessActionRequest,
   RunProcessActionResponse,
-} from '../gen/process_explorer';
+} from "../gen/process_explorer";
 import {
   ProcessExplorerService as ProcessExplorerServiceImpl,
   ProcessExplorerServiceDescriptor,
-} from '../gen/ipc_service';
-import { ProcessActionService } from './process-action-service';
-import { ProcessSnapshotService } from './process-snapshot-service';
+} from "../gen/ipc_service";
+import { ProcessActionService } from "./process-action-service";
+import { ProcessSnapshotService } from "./process-snapshot-service";
 
 /**
  * Owns the renderer-facing process explorer service.
@@ -49,7 +49,7 @@ export class ProcessExplorerService {
    */
   private readonly unaryHandlers: Pick<
     ProcessExplorerServiceImpl,
-    'GetProcessSnapshot' | 'GetProcessActionStates' | 'RunProcessAction'
+    "GetProcessSnapshot" | "GetProcessActionStates" | "RunProcessAction"
   > = {
     GetProcessSnapshot: () => this.getProcessSnapshot(),
     GetProcessActionStates: (request) => this.getProcessActionStates(request),

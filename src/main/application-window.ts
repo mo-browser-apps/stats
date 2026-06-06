@@ -1,9 +1,9 @@
-import process from 'node:process';
-import { app, BrowserWindow } from '@mobrowser/api';
-import type { CloseBrowserWindowAction, CloseBrowserWindowParams } from '@mobrowser/api';
+import process from "node:process";
+import { app, BrowserWindow } from "@mobrowser/api";
+import type { CloseBrowserWindowAction, CloseBrowserWindowParams } from "@mobrowser/api";
 
 /** The two top-level views; the window picks its height per view. */
-export type WindowView = 'stats' | 'processes';
+export type WindowView = "stats" | "processes";
 
 /**
  * Compact window dimensions aligned with DESIGN.md. Width is constant; the height
@@ -19,7 +19,7 @@ const VIEW_HEIGHT: Record<WindowView, number> = {
 };
 
 /** The view the window opens at (and re-shows at after a hide). */
-const INITIAL_VIEW: WindowView = 'stats';
+const INITIAL_VIEW: WindowView = "stats";
 
 /**
  * Per-view resize animation. macOS has no documented animate flag on setBounds,
@@ -160,7 +160,7 @@ export class ApplicationWindow {
   }
 
   private create(): BrowserWindow {
-    const isMac = process.platform === 'darwin';
+    const isMac = process.platform === "darwin";
     const initialHeight = this.targetHeight;
     const window = new BrowserWindow({
       url: app.url,
@@ -190,20 +190,20 @@ export class ApplicationWindow {
 
     // Hide instead of close so the app keeps running in the background. When
     // the app is quitting, allow the window to close so the process can exit.
-    window.handle('close', async (params: CloseBrowserWindowParams): Promise<CloseBrowserWindowAction> => {
+    window.handle("close", async (params: CloseBrowserWindowParams): Promise<CloseBrowserWindowAction> => {
       if (params.isQuitting) {
-        return 'close';
+        return "close";
       }
-      return 'hide';
+      return "hide";
     });
 
-    window.on('shown', () => {
+    window.on("shown", () => {
       this.onVisibilityChange?.();
     });
-    window.on('hidden', () => {
+    window.on("hidden", () => {
       this.onVisibilityChange?.();
     });
-    window.on('closed', () => {
+    window.on("closed", () => {
       this.stopResize();
       this.window = null;
       this.onVisibilityChange?.();
@@ -245,9 +245,9 @@ export class ApplicationWindow {
 
   /** Applies a bounded per-view height while preserving the chosen frame origin. */
   private setWindowHeight(
-      window: BrowserWindow,
-      height: number,
-      origin = window.bounds.origin,
+    window: BrowserWindow,
+    height: number,
+    origin = window.bounds.origin,
   ): void {
     window.setBounds({
       origin: { x: origin.x, y: origin.y },

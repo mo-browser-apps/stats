@@ -42,20 +42,19 @@ export function useProcessActions(
 ): ProcessActionsState {
   const targetPid = detail?.pid;
   const targetStartedAt = detail?.startedAt === "ok" ? detail.startedAtUnixMs : undefined;
-  const target = useMemo<ProcessIdentity | undefined>(
-    () =>
-      targetPid === undefined
-        ? undefined
-        : {
-            pid: targetPid,
-            startedAtStatus:
-              targetStartedAt === undefined
-                ? FieldStatus.FIELD_STATUS_UNKNOWN
-                : FieldStatus.FIELD_STATUS_OK,
-            startedAtUnixMs: targetStartedAt ?? 0,
-          },
-    [targetPid, targetStartedAt],
-  );
+  const target = useMemo<ProcessIdentity | undefined>(() => {
+    if (targetPid === undefined) {
+      return undefined;
+    }
+    return {
+      pid: targetPid,
+      startedAtStatus:
+        targetStartedAt === undefined
+          ? FieldStatus.FIELD_STATUS_UNKNOWN
+          : FieldStatus.FIELD_STATUS_OK,
+      startedAtUnixMs: targetStartedAt ?? 0,
+    };
+  }, [targetPid, targetStartedAt]);
   const targetKey = target ? `${target.pid}:${target.startedAtStatus}:${target.startedAtUnixMs}` : "";
   const targetKeyRef = useRef(targetKey);
   targetKeyRef.current = targetKey;

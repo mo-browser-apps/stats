@@ -35,6 +35,7 @@
     "@mobrowser/sdk-win-x64": "2.8.0"
   },
   "devDependencies": {
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@tailwindcss/postcss": "^4.1.2",
     "@types/node": "^20.11.5",
     "@types/react": "^19.1.2",

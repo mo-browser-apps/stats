@@ -138,7 +138,7 @@ export class MetricsSampler {
     try {
       const usage = await native.memory.ReadUsage({});
       if (!usage.available || !Number.isFinite(usage.totalBytes) || usage.totalBytes <= 0) {
-        return { status: "unavailable", usedBytes: 0, totalBytes: 0, availableBytes: 0, cachedBytes: 0, usedPercent: 0};
+        return { status: "unavailable", usedBytes: 0, totalBytes: 0, availableBytes: 0, cachedBytes: 0, usedPercent: 0 };
       }
 
       const totalBytes = usage.totalBytes;
@@ -148,7 +148,7 @@ export class MetricsSampler {
       const usedPercent = clampPercent((usedBytes / totalBytes) * 100);
       return { status: "ok", usedBytes, totalBytes, availableBytes, cachedBytes, usedPercent };
     } catch {
-      return { status: "unavailable", usedBytes: 0, totalBytes: 0, availableBytes: 0, cachedBytes: 0, usedPercent: 0};
+      return { status: "unavailable", usedBytes: 0, totalBytes: 0, availableBytes: 0, cachedBytes: 0, usedPercent: 0 };
     }
   }
 

@@ -1,6 +1,6 @@
-import { app, Menu, MenuItem, Tray } from '@mobrowser/api';
-import type { MouseButton } from '@mobrowser/api';
-import type { ApplicationWindow } from './application-window';
+import { app, Menu, MenuItem, Tray } from "@mobrowser/api";
+import type { MouseButton } from "@mobrowser/api";
+import type { ApplicationWindow } from "./application-window";
 
 /**
  * Owns the macOS menu-bar tray item and its menu.
@@ -26,16 +26,16 @@ export class TrayController {
     private readonly onQuit: () => void,
   ) {
     this.toggleWindowItem = new MenuItem({
-      id: 'toggleWindow',
+      id: "toggleWindow",
       label: this.getToggleLabel(),
       action: () => {
         this.window.toggle();
       },
     });
     this.quitItem = new MenuItem({
-      id: 'quit',
-      label: 'Quit MoStats',
-      shortcut: 'CommandOrControl+Q',
+      id: "quit",
+      label: "Quit MoStats",
+      shortcut: "CommandOrControl+Q",
       action: () => {
         this.onQuit();
       },
@@ -43,12 +43,12 @@ export class TrayController {
 
     this.tray = new Tray({
       tooltip: app.name,
-      imagePath: `${app.getPath('appResources')}/imageTemplate.png`,
+      imagePath: `${app.getPath("appResources")}/imageTemplate.png`,
       menu: this.buildMenu(),
     });
 
-    this.tray.on('mouseUp', (button: MouseButton) => {
-      if (button === 'secondary') {
+    this.tray.on("mouseUp", (button: MouseButton) => {
+      if (button === "secondary") {
         this.tray.openMenu();
         return;
       }
@@ -83,13 +83,13 @@ export class TrayController {
     return new Menu({
       items: [
         this.toggleWindowItem,
-        'separator',
+        "separator",
         this.quitItem,
       ],
     });
   }
 
   private getToggleLabel(): string {
-    return this.window.isVisible ? 'Hide MoStats' : 'Show MoStats';
+    return this.window.isVisible ? "Hide MoStats" : "Show MoStats";
   }
 }
