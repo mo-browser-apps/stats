@@ -60,9 +60,9 @@ export interface ProcessGroup {
   /** Numeric active-metric magnitude used for ranking (0 when not ok). */
   sortValue: number
   /**
-   * Detail target for opening this list row. Unsearched rows target the group;
-   * searched rows are projected as individual process rows, so they target the
-   * matched process and their visible name matches the opened detail.
+   * Detail target for opening this list row. Group rows target the group;
+   * searched member rows target the matched process so their visible name matches
+   * the opened detail.
    */
   openSelection: DetailSelection
   /**
@@ -192,11 +192,12 @@ function rowIdentityKey(row: ProcessRow): string {
 }
 
 /**
- * Lowercased search haystack for a row: display name, PID, executable path,
- * bundle id, owning `.app` name, and command-line arguments when available. The
- * `.app` name is included so every member is searchable by its app's name even
- * when the member's own name differs. Used only for in-memory matching; the
- * sensitive argument text never leaves this module.
+ * Lowercased search haystack for one process member: display name, PID,
+ * executable path, bundle id, command name, and command-line arguments when
+ * available. App/group identity lives in {@link groupHaystack} so searching the
+ * app name returns the app group, not every helper as an individual result.
+ * Used only for in-memory matching; the sensitive argument text never leaves
+ * this module.
  */
 function rowHaystack(row: ProcessRow): string {
   const parts: string[] = [
@@ -207,13 +208,33 @@ function rowHaystack(row: ProcessRow): string {
   if (path) parts.push(path)
   const bundle = okString(row.app?.bundleIdentifier)
   if (bundle) parts.push(bundle)
-  const bundleName = okString(row.app?.bundle?.name)
-  if (bundleName) parts.push(bundleName)
   const command = okString(row.commandName)
   if (command) parts.push(command)
   if (row.commandLine && row.commandLine.status === FieldStatus.FIELD_STATUS_OK) {
     parts.push(row.commandLine.arguments.join(" "))
   }
+  return parts.join(" ").toLowerCase()
+}
+
+/**
+ * Lowercased search haystack for the grouped app identity. It intentionally
+ * excludes member argv so a helper-specific query can open that helper, while an
+ * app-name/bundle-id query keeps the group and its Members section.
+ */
+function groupHaystack(group: ProcessGroup): string {
+  const representative = group.members[0]
+  const parts: string[] = [
+    group.name,
+    String(group.pid),
+  ]
+  const bundle = okString(representative.app?.bundleIdentifier)
+  if (bundle) parts.push(bundle)
+  const localizedName = okString(representative.app?.localizedName)
+  if (localizedName) parts.push(localizedName)
+  const bundleName = okString(representative.app?.bundle?.name)
+  if (bundleName) parts.push(bundleName)
+  const bundlePath = okString(representative.app?.bundle?.path)
+  if (bundlePath) parts.push(bundlePath)
   return parts.join(" ").toLowerCase()
 }
 
@@ -308,9 +329,9 @@ function buildGroupRow(group: GroupAccumulator, sort: SortMode): ProcessGroup {
  * Folds the snapshot rows into ranked display groups for the given sort and
  * (optional) search query. Buckets rows by their native app key (the owning
  * `.app` bundle or bundle id), sums each app group's metric, and keeps non-app
- * processes as singleton rows. Search deliberately returns matching member
- * processes as singleton rows instead of app groups, so the visible result name
- * matches the process detail opened from that row.
+ * processes as singleton rows. Search keeps app/group matches grouped (so the
+ * Members section remains available), but returns helper/member-specific matches
+ * as singleton rows so the visible result name matches the opened process.
  * Returns every matched group, ranked by summed metric descending with a stable
  * name tiebreak, with no display cap applied - callers cap for the list, while
  * the detail lookup needs the full set so a selected group stays findable even
@@ -318,14 +339,16 @@ function buildGroupRow(group: GroupAccumulator, sort: SortMode): ProcessGroup {
  */
 function buildGroups(rows: ProcessRow[], sort: SortMode, query: string): ProcessGroup[] {
   const trimmed = query.trim().toLowerCase()
+  const grouped = buildGroupedRows(rows, sort)
   if (trimmed.length > 0) {
-    return sortGroups(
-      rows
-        .filter((row) => rowHaystack(row).includes(trimmed))
-        .map((row) => singleProcessGroup(row, sort)),
-    )
+    return buildSearchGroups(grouped, sort, trimmed)
   }
 
+  return grouped
+}
+
+/** Builds the normal app-grouped list rows with no search filter applied. */
+function buildGroupedRows(rows: ProcessRow[], sort: SortMode): ProcessGroup[] {
   const groups = new Map<string, GroupAccumulator>()
 
   for (const row of rows) {
@@ -353,6 +376,34 @@ function buildGroups(rows: ProcessRow[], sort: SortMode, query: string): Process
   const projected: ProcessGroup[] = Array.from(groups.values()).map((group) =>
     buildGroupRow(group, sort),
   )
+
+  return sortGroups(projected)
+}
+
+/**
+ * Builds search results from already-grouped rows. App identity or representative
+ * matches keep the group; otherwise only the matching member processes are shown.
+ */
+function buildSearchGroups(
+  groups: ProcessGroup[],
+  sort: SortMode,
+  query: string,
+): ProcessGroup[] {
+  const projected: ProcessGroup[] = []
+
+  for (const group of groups) {
+    const representative = group.members[0]
+    if (groupHaystack(group).includes(query) || rowHaystack(representative).includes(query)) {
+      projected.push(group)
+      continue
+    }
+
+    for (const member of group.members) {
+      if (rowHaystack(member).includes(query)) {
+        projected.push(singleProcessGroup(member, sort))
+      }
+    }
+  }
 
   return sortGroups(projected)
 }
