@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
 import { UNAVAILABLE_TEXT, formatStartTime } from "@/lib/format"
-import { CommandLineBlock, CopyButton } from "@/components/processes/command-line-block"
+import { CommandLineBlock, TextDisclosure } from "@/components/processes/command-line-block"
 import { ProcessIcon } from "@/components/processes/process-row"
 import { ProcessSortControl } from "@/components/processes/process-sort-control"
 import type {
@@ -49,6 +49,9 @@ export function ProcessDetailView({
   onOpenMember: (pid: number, startedAtUnixMs?: number) => void
 }) {
   const secondary = detail.bundleIdentifier ?? detail.executableName
+  const metadata = `${secondary ? `${secondary} - ` : ""}PID ${detail.pid}${
+    detail.parent.available ? ` - Parent ${detail.parent.pid}` : ""
+  }`
   const grouped = detail.memberCount > 1
 
   return (
@@ -69,12 +72,17 @@ export function ProcessDetailView({
       <div className="scrollbar-hidden flex flex-1 flex-col gap-4 overflow-y-auto pb-1">
         <header className="flex items-center gap-3">
           <ProcessIcon iconPngBase64={detail.iconPngBase64} name={detail.name} size="lg" />
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate text-[15px] font-medium text-foreground">{detail.name}</h2>
-            <p className="truncate text-[11px] text-muted-foreground">
-              {secondary ? `${secondary} - ` : ""}PID {detail.pid}
-              {detail.parent.available ? ` - Parent ${detail.parent.pid}` : ""}
-            </p>
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <div className="scrollbar-hidden min-w-0 overflow-x-auto" title={detail.name}>
+              <h2 className="w-max whitespace-nowrap text-[15px] font-medium text-foreground">
+                {detail.name}
+              </h2>
+            </div>
+            <div className="scrollbar-hidden min-w-0 overflow-x-auto" title={metadata}>
+              <p className="w-max whitespace-nowrap text-[11px] text-muted-foreground">
+                {metadata}
+              </p>
+            </div>
           </div>
         </header>
 
@@ -89,15 +97,14 @@ export function ProcessDetailView({
               }
             />
           </Field>
-
-          <Field label="Path" action={pathCopy(detail)}>
-            {detail.path === "ok" && detail.pathText ? (
-              <span className="break-all font-mono text-[11px] text-foreground">{detail.pathText}</span>
-            ) : (
-              <StateText state={detail.path} />
-            )}
-          </Field>
         </dl>
+
+        <TextDisclosure
+          label="Path"
+          value={detail.path === "ok" ? (detail.pathText ?? "") : undefined}
+          state={detail.path}
+          copyLabel="Copy executable path"
+        />
 
         <CommandLineBlock commandLine={detail.commandLine} />
 
@@ -150,14 +157,6 @@ function MetricValue({ metric, className }: { metric: DetailMetric; className?: 
           : UNAVAILABLE_TEXT}
     </span>
   )
-}
-
-/** The copy button for the path row, shown only when a real path is present. */
-function pathCopy(detail: ProcessDetail): ReactNode {
-  if (detail.path !== "ok" || !detail.pathText) {
-    return null
-  }
-  return <CopyButton text={detail.pathText} label="Copy executable path" />
 }
 
 /**
@@ -287,4 +286,3 @@ function MemberRow({
     </button>
   )
 }
-
