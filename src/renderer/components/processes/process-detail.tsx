@@ -3,7 +3,9 @@ import { useState, type ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
 import { UNAVAILABLE_TEXT, formatStartTime } from "@/lib/format"
+import type { ActionState, ProcessActionKind } from "@/gen/process_explorer"
 import { CommandLineBlock, TextDisclosure } from "@/components/processes/command-line-block"
+import { ProcessActions } from "@/components/processes/process-actions"
 import { ProcessIcon } from "@/components/processes/process-row"
 import { ProcessSortControl } from "@/components/processes/process-sort-control"
 import type {
@@ -34,19 +36,30 @@ const TOTAL_LABEL: Record<SortMode, string> = {
  * with explicit availability, so unavailable/pending states render honestly
  * instead of as blanks or faked values. Command-line text is shown/copied only on
  * user action and is never logged or persisted.
+ *
+ * The fixed bottom action row (Open / Quit / Force Quit) reflects main's
+ * authoritative {@link ActionState} list; running an action just forwards the kind
+ * to main via {@link onRunAction}. When a member is drilled into, the row targets
+ * that member; otherwise it targets the group's representative.
  */
 export function ProcessDetailView({
   detail,
   sort,
+  actions,
+  actionsBusy,
   onSortChange,
   onBack,
   onOpenMember,
+  onRunAction,
 }: {
   detail: ProcessDetail
   sort: SortMode
+  actions: ActionState[]
+  actionsBusy: boolean
   onSortChange: (sort: SortMode) => void
   onBack: () => void
   onOpenMember: (pid: number, startedAtUnixMs?: number) => void
+  onRunAction: (kind: ProcessActionKind) => void
 }) {
   const secondary = detail.bundleIdentifier ?? detail.executableName
   const metadata = `${secondary ? `${secondary} - ` : ""}PID ${detail.pid}${
@@ -119,6 +132,8 @@ export function ProcessDetailView({
           <SingleProcessMetric detail={detail} />
         )}
       </div>
+
+      <ProcessActions actions={actions} busy={actionsBusy} onRun={onRunAction} />
     </div>
   )
 }

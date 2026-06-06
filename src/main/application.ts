@@ -14,9 +14,10 @@ import { AppServiceDescriptor } from './gen/ipc_service';
  * registration of renderer-facing IPC services, including the metrics stream.
  * The metrics service samples CPU, memory, disk, network, uptime/load, and
  * optional CPU temperature in main and streams them to the renderer. The process
- * explorer service collects live process snapshots in main and serves them on its
- * own IPC service; its reveal/quit/force-quit actions remain not-yet-implemented
- * until the action iteration.
+ * explorer service collects live process snapshots in main, serves them on its
+ * own IPC service, and runs the main-authoritative reveal/quit/force-quit actions
+ * (validated against the latest snapshot, with native confirmation for the
+ * destructive ones).
  *
  * Lifecycle: the window hides instead of closing, so the app keeps running in the
  * background with only the tray present. Per-view background work is gated on two
@@ -40,7 +41,7 @@ export class Application {
 
   private readonly metrics = new MetricsService();
 
-  private readonly processExplorer = new ProcessExplorerService();
+  private readonly processExplorer = new ProcessExplorerService(() => this.window.instance);
 
   private quitting = false;
 

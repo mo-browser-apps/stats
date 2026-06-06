@@ -1,26 +1,18 @@
 import { ipc } from '@mobrowser/api';
+import type { BrowserWindow } from '@mobrowser/api';
 import {
-  ActionDisabledReason,
   GetProcessActionStatesRequest,
   GetProcessActionStatesResponse,
-  ProcessActionKind,
   ProcessSnapshot,
   RunProcessActionRequest,
   RunProcessActionResponse,
-  RunProcessActionResponse_Outcome,
 } from '../gen/process_explorer';
 import {
   ProcessExplorerService as ProcessExplorerServiceImpl,
   ProcessExplorerServiceDescriptor,
 } from '../gen/ipc_service';
+import { ProcessActionService } from './process-action-service';
 import { ProcessSnapshotService } from './process-snapshot-service';
-
-/** Action kinds the detail view exposes; all disabled until the action iteration. */
-const ACTION_KINDS: readonly ProcessActionKind[] = [
-  ProcessActionKind.PROCESS_ACTION_KIND_REVEAL,
-  ProcessActionKind.PROCESS_ACTION_KIND_QUIT,
-  ProcessActionKind.PROCESS_ACTION_KIND_FORCE_QUIT,
-];
 
 /**
  * Owns the renderer-facing process explorer service.
@@ -28,10 +20,11 @@ const ACTION_KINDS: readonly ProcessActionKind[] = [
  * Composes the small process explorer pieces, consistent with
  * {@link import('../metrics/metrics-service').MetricsService}: the
  * {@link ProcessSnapshotService} owns native collection, the cached snapshot, and
- * the streaming `StreamRevisions` broadcast, while this class registers the unary
- * methods. `GetProcessSnapshot` is delegated to the snapshot service;
- * `GetProcessActionStates`/`RunProcessAction` stay not-yet-implemented because
- * main-authoritative reveal/quit/force-quit land in the action iteration (I14).
+ * the streaming `StreamRevisions` broadcast; the {@link ProcessActionService} owns
+ * the main-authoritative reveal/quit/force-quit actions (validated against that
+ * cached snapshot); and this class registers the unary methods and routes them to
+ * the right piece. `GetProcessSnapshot` is delegated to the snapshot service;
+ * `GetProcessActionStates`/`RunProcessAction` are delegated to the action service.
  *
  * Lifecycle mirrors the metrics service: {@link setActive} gates the collection
  * cadence (driven by {@link import('../application').Application} when the
@@ -45,6 +38,8 @@ const ACTION_KINDS: readonly ProcessActionKind[] = [
  */
 export class ProcessExplorerService {
   private readonly snapshots = new ProcessSnapshotService();
+
+  private readonly actions: ProcessActionService;
 
   /**
    * The unary handlers. Held as one object so {@link dispose} unregisters the
@@ -63,7 +58,13 @@ export class ProcessExplorerService {
 
   private disposed = false;
 
-  constructor() {
+  /**
+   * @param getWindow Returns the live window (or null) so destructive-action
+   *   confirmation dialogs can be parented to it. Passed lazily because the
+   *   window is recreated across hide/show cycles.
+   */
+  constructor(getWindow: () => BrowserWindow | null) {
+    this.actions = new ProcessActionService(() => this.snapshots.getSnapshot(), getWindow);
     ipc.registerService(ProcessExplorerServiceDescriptor, this.unaryHandlers);
   }
 
@@ -102,35 +103,24 @@ export class ProcessExplorerService {
   }
 
   /**
-   * Returns per-action availability for a target. Until actions are implemented
-   * the target is reported invalid and every action is disabled with the
-   * not-implemented reason. The request target is intentionally not inspected or
-   * logged (it carries privacy-sensitive identity).
+   * Returns per-action availability for a target, validated in the action service
+   * against the latest snapshot. The request target carries privacy-sensitive
+   * identity and is never logged.
    */
   private async getProcessActionStates(
-    _request: GetProcessActionStatesRequest,
+    request: GetProcessActionStatesRequest,
   ): Promise<GetProcessActionStatesResponse> {
-    return {
-      targetValid: false,
-      actions: ACTION_KINDS.map((kind) => ({
-        kind,
-        enabled: false,
-        disabledReason: ActionDisabledReason.ACTION_DISABLED_REASON_NOT_IMPLEMENTED,
-      })),
-    };
+    return this.actions.getActionStates(request);
   }
 
   /**
-   * Runs an action against a target. Until actions are implemented this performs
-   * nothing and reports NOT_IMPLEMENTED with a zero affected count. The request
-   * is intentionally not inspected or logged.
+   * Runs a validated action against a target through the action service (reveal /
+   * confirmed quit / confirmed force quit). The request is never logged and the
+   * result is count-only.
    */
   private async runProcessAction(
-    _request: RunProcessActionRequest,
+    request: RunProcessActionRequest,
   ): Promise<RunProcessActionResponse> {
-    return {
-      outcome: RunProcessActionResponse_Outcome.OUTCOME_NOT_IMPLEMENTED,
-      affectedCount: 0,
-    };
+    return this.actions.runAction(request);
   }
 }

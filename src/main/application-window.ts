@@ -101,6 +101,15 @@ export class ApplicationWindow {
   }
 
   /**
+   * The live window instance, or null when none exists (it is created lazily and
+   * dropped on close). Exposed so main can parent a native dialog to the window;
+   * callers must tolerate null (the dialog is then app-modal).
+   */
+  get instance(): BrowserWindow | null {
+    return this.window !== null && !this.window.isClosed ? this.window : null;
+  }
+
+  /**
    * Pins or unpins the window above other windows.
    */
   setAlwaysOnTop(alwaysOnTop: boolean): void {

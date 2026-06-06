@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { processExplorerGateway } from "@/gateway/process-explorer-gateway"
-import type { ProcessSnapshot } from "@/gen/process_explorer"
+import {
+  FieldStatus,
+  type ActionState,
+  type ProcessActionKind,
+  type ProcessIdentity,
+  type ProcessSnapshot,
+} from "@/gen/process_explorer"
 import { ProcessDetailView } from "@/components/processes/process-detail"
 import { ProcessList } from "@/components/processes/process-list"
 import { ProcessSearchField } from "@/components/processes/process-search-field"
@@ -113,15 +119,88 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     [snapshot, sort, query],
   )
 
+  // Main-authoritative action states for the open detail's target. Fetched when
+  // the target process changes (its enabled/disabled reasons - self/system/path -
+  // are stable tick to tick; staleness is re-checked authoritatively in main when
+  // an action runs). `actionsBusy` disables the row while an action is in flight.
+  // The target is memoized on the primitive identity (pid + start time), not the
+  // detail object (which is a fresh reference each tick), so it stays stable while
+  // the same process is selected and does not refetch on every revision.
+  const targetPid = detail?.pid
+  const targetStartedAt = detail?.startedAt === "ok" ? detail.startedAtUnixMs : undefined
+  const target = useMemo<ProcessIdentity | undefined>(
+    () =>
+      targetPid === undefined
+        ? undefined
+        : {
+            pid: targetPid,
+            startedAtStatus:
+              targetStartedAt === undefined
+                ? FieldStatus.FIELD_STATUS_UNKNOWN
+                : FieldStatus.FIELD_STATUS_OK,
+            startedAtUnixMs: targetStartedAt ?? 0,
+          },
+    [targetPid, targetStartedAt],
+  )
+  const [actions, setActions] = useState<ActionState[]>([])
+  const [actionsBusy, setActionsBusy] = useState(false)
+  // Always read the latest revision when running an action, without making the
+  // action-state fetch depend on it (which would refetch every 2s tick).
+  const revisionRef = useRef(0)
+  useEffect(() => {
+    revisionRef.current = snapshot.revision
+  }, [snapshot.revision])
+
+  const refreshActionStates = useCallback(async () => {
+    if (!target) {
+      setActions([])
+      return
+    }
+    try {
+      const response = await processExplorerGateway.getActionStates(target, revisionRef.current)
+      setActions(response.actions)
+    } catch {
+      // Leave the last states; an unreadable fetch should not crash the panel.
+    }
+  }, [target])
+
+  useEffect(() => {
+    void refreshActionStates()
+  }, [refreshActionStates])
+
+  const runAction = useCallback(
+    async (kind: ProcessActionKind) => {
+      if (!target || actionsBusy) {
+        return
+      }
+      setActionsBusy(true)
+      try {
+        await processExplorerGateway.runAction(kind, target, revisionRef.current)
+      } catch {
+        // No diagnostic is logged - the target/result can carry process identity.
+      } finally {
+        setActionsBusy(false)
+      }
+      // Re-pull so a quit/force-quit drops the row promptly (the detail then falls
+      // back down the stack), and refresh the action availability for what remains.
+      await pull()
+      await refreshActionStates()
+    },
+    [target, actionsBusy, pull, refreshActionStates],
+  )
+
   if (detail) {
     return (
       <div className="flex flex-1 flex-col overflow-hidden px-4 pb-4 pt-3">
         <ProcessDetailView
           detail={detail}
           sort={sort}
+          actions={actions}
+          actionsBusy={actionsBusy}
           onSortChange={setSort}
           onBack={goBack}
           onOpenMember={openMember}
+          onRunAction={runAction}
         />
       </div>
     )
