@@ -1,5 +1,5 @@
-import { ipc } from '@/gen/ipc';
-import { ActiveView } from '@/gen/app';
+import { ipc } from "@/gen/ipc";
+import { ActiveView } from "@/gen/app";
 
 /**
  * Renderer-side wrapper over the generated app-level IPC client. Keeps

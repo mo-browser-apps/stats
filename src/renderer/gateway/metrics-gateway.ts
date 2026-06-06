@@ -1,5 +1,5 @@
-import { ipc } from '@/gen/ipc';
-import type { MetricsSnapshot } from '@/gen/metrics';
+import { ipc } from "@/gen/ipc";
+import type { MetricsSnapshot } from "@/gen/metrics";
 
 /** Called for each snapshot the main process pushes. */
 export type SnapshotListener = (snapshot: MetricsSnapshot) => void;

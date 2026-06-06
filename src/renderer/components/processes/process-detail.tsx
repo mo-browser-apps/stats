@@ -1,30 +1,27 @@
-import { ChevronLeft, ChevronRight, List as ListIcon } from "lucide-react"
-import { useState, type ReactNode } from "react"
+import { ChevronLeft, ChevronRight, List as ListIcon } from "lucide-react";
+import { useState, type ReactNode } from "react";
 
-import { cn } from "@/lib/utils"
-import { UNAVAILABLE_TEXT, formatStartTime } from "@/lib/format"
-import type { ActionState, ProcessActionKind } from "@/gen/process_explorer"
-import {
-  CommandLineBlock,
-  DisclosureContent,
-  TextDisclosure,
-} from "@/components/processes/command-line-block"
-import { ProcessActions } from "@/components/processes/process-actions"
-import { ProcessIcon } from "@/components/processes/process-row"
-import { ProcessSortControl } from "@/components/processes/process-sort-control"
+import { cn } from "@/lib/utils";
+import { UNAVAILABLE_TEXT, formatStartTime } from "@/lib/format";
+import type { ActionState, ProcessActionKind } from "@/gen/process_explorer";
+import { CommandLineBlock } from "@/components/processes/command-line-block";
+import { DisclosureContent, TextDisclosure } from "@/components/processes/disclosure";
+import { ProcessActions } from "@/components/processes/process-actions";
+import { ProcessIcon } from "@/components/processes/process-icon";
+import { ProcessSortControl } from "@/components/processes/process-sort-control";
+import type { SortMode } from "@/domain/process-list";
 import type {
   DetailMember,
   DetailMetric,
   DetailState,
   ProcessDetail,
-  SortMode,
-} from "@/components/processes/process-view"
+} from "@/domain/process-detail";
 
 /** Human label for the group total under the active metric. */
 const TOTAL_LABEL: Record<SortMode, string> = {
   cpu: "CPU",
   memory: "RAM",
-}
+};
 
 /**
  * The compact process detail view for one selected group (or one process, when a
@@ -70,11 +67,11 @@ export function ProcessDetailView({
   onOpenMember: (pid: number, startedAtUnixMs?: number) => void
   onRunAction: (kind: ProcessActionKind) => void
 }) {
-  const secondary = detail.bundleIdentifier ?? detail.executableName
+  const secondary = detail.bundleIdentifier ?? detail.executableName;
   const metadata = `${secondary ? `${secondary} - ` : ""}PID ${detail.pid}${
     detail.parent.available ? ` - Parent ${detail.parent.pid}` : ""
-  }`
-  const grouped = detail.memberCount > 1
+  }`;
+  const grouped = detail.memberCount > 1;
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -158,7 +155,7 @@ export function ProcessDetailView({
         onRun={onRunAction}
       />
     </div>
-  )
+  );
 }
 
 /**
@@ -175,7 +172,7 @@ function SingleProcessMetric({ detail }: { detail: ProcessDetail }) {
       </span>
       <MetricValue metric={detail.total} className="ml-auto text-[15px]" />
     </div>
-  )
+  );
 }
 
 /** Renders a {@link DetailMetric}'s value with the ok/pending/unavailable rule. */
@@ -194,7 +191,7 @@ function MetricValue({ metric, className }: { metric: DetailMetric; className?: 
           ? "--"
           : UNAVAILABLE_TEXT}
     </span>
-  )
+  );
 }
 
 /**
@@ -220,19 +217,19 @@ function Field({
       </div>
       <dd className="min-w-0">{children}</dd>
     </div>
-  )
+  );
 }
 
 /** Renders a value's pending/unavailable state, or the provided OK text. */
 function StateText({ state, text }: { state: DetailState; text?: string }) {
   if (state === "ok" && text !== undefined) {
-    return <span className="text-[12px] text-foreground">{text}</span>
+    return <span className="text-[12px] text-foreground">{text}</span>;
   }
   return (
     <span className="text-[12px] text-muted-foreground">
       {state === "pending" ? "--" : UNAVAILABLE_TEXT}
     </span>
-  )
+  );
 }
 
 /**
@@ -256,7 +253,7 @@ function Members({
   total: DetailMetric
   onOpenMember: (pid: number, startedAtUnixMs?: number) => void
 }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <section className="flex flex-col border-t border-border/60 pt-1.5">
@@ -290,7 +287,7 @@ function Members({
         </ul>
       </DisclosureContent>
     </section>
-  )
+  );
 }
 
 /**
@@ -325,5 +322,5 @@ function MemberRow({
         className="w-20 text-[12px]"
       />
     </button>
-  )
+  );
 }

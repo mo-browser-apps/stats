@@ -1,20 +1,20 @@
-import { ChevronDown } from "lucide-react"
-import { cva } from "class-variance-authority"
+import { ChevronDown } from "lucide-react";
+import { cva } from "class-variance-authority";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import type { SortMode } from "@/components/processes/process-view"
+} from "@/components/ui/dropdown-menu";
+import type { SortMode } from "@/domain/process-list";
 
 /** Compact dropdown trigger matching the search field's height and surface. */
 const sortTrigger = cva(
   "no-drag flex h-9 shrink-0 items-center gap-1 rounded-lg border border-border bg-muted/40 pl-2.5 pr-1.5 text-[13px] text-foreground transition-colors hover:bg-muted/60 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted/60",
-)
+);
 
 /**
  * Sort selector for the process list: a compact dropdown button on the search
@@ -27,7 +27,7 @@ const sortTrigger = cva(
 const SORT_LABELS: Record<SortMode, string> = {
   cpu: "CPU",
   memory: "RAM",
-}
+};
 
 export function ProcessSortControl({
   sort,
@@ -57,5 +57,5 @@ export function ProcessSortControl({
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }

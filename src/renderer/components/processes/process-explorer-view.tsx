@@ -1,26 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { processExplorerGateway } from "@/gateway/process-explorer-gateway"
+import { processExplorerGateway } from "@/gateway/process-explorer-gateway";
+import { type ProcessSnapshot } from "@/gen/process_explorer";
+import { ProcessDetailView } from "@/components/processes/process-detail";
+import { ProcessList } from "@/components/processes/process-list";
+import { ProcessSearchField } from "@/components/processes/process-search-field";
+import { ProcessSortControl } from "@/components/processes/process-sort-control";
+import { useProcessActions } from "@/components/processes/use-process-actions";
 import {
-  FieldStatus,
-  RunProcessActionResponse_Outcome as Outcome,
-  type ActionState,
-  type ProcessActionKind,
-  type ProcessIdentity,
-  type ProcessSnapshot,
-} from "@/gen/process_explorer"
-import { ProcessDetailView } from "@/components/processes/process-detail"
-import { ProcessList } from "@/components/processes/process-list"
-import { ProcessSearchField } from "@/components/processes/process-search-field"
-import { ProcessSortControl } from "@/components/processes/process-sort-control"
-import {
-  buildProcessDetail,
   projectProcessList,
   resolveSelection,
   type DetailSelection,
-  type ProcessDetail,
   type SortMode,
-} from "@/components/processes/process-view"
+} from "@/domain/process-list";
+import { buildProcessDetail } from "@/domain/process-detail";
 
 /**
  * The Processes view: a compact searchable, CPU/Memory-ranked, app-grouped
@@ -39,30 +32,30 @@ import {
 export function ProcessExplorerView({ active }: { active: boolean }) {
   const [snapshot, setSnapshot] = useState<ProcessSnapshot>(() =>
     processExplorerGateway.emptySnapshot(),
-  )
-  const [sort, setSort] = useState<SortMode>("cpu")
-  const [query, setQuery] = useState("")
+  );
+  const [sort, setSort] = useState<SortMode>("cpu");
+  const [query, setQuery] = useState("");
   // The drill-in stack: list -> group -> member. Empty is the list. Each entry is
   // re-resolved from every fresh snapshot so the detail stays live; the top entry
   // is the shown detail, and Back pops one level.
-  const [selectionStack, setSelectionStack] = useState<DetailSelection[]>([])
+  const [selectionStack, setSelectionStack] = useState<DetailSelection[]>([]);
 
   // Highest revision applied, so an out-of-order pull cannot show stale rows.
-  const appliedRevision = useRef(0)
+  const appliedRevision = useRef(0);
 
   const pull = useCallback(async () => {
     try {
-      const next = await processExplorerGateway.getSnapshot()
+      const next = await processExplorerGateway.getSnapshot();
       if (next.revision >= appliedRevision.current) {
-        appliedRevision.current = next.revision
-        setSnapshot(next)
+        appliedRevision.current = next.revision;
+        setSnapshot(next);
       }
     } catch {
       // A failed pull leaves the last snapshot in place; the next revision ping
       // (or the cadence) retries. No diagnostic is logged - it could carry
       // process-identifying data.
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
     // The view stays mounted across tab switches (so it keeps its rows, sort,
@@ -70,36 +63,36 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     // active view. While hidden it holds its last rows and does nothing; main
     // pauses collection then anyway.
     if (!active) {
-      return
+      return;
     }
 
-    let live = true
+    let live = true;
 
     // Pull immediately on becoming active so the (cached) rows show at once,
     // then re-pull on each revision ping.
-    void pull()
+    void pull();
 
     const unsubscribe = processExplorerGateway.subscribeRevisions(() => {
-      if (live) void pull()
-    })
+      if (live) void pull();
+    });
 
     return () => {
-      live = false
-      unsubscribe()
-    }
-  }, [active, pull])
+      live = false;
+      unsubscribe();
+    };
+  }, [active, pull]);
 
   const openSelection = useCallback(
     (selection: DetailSelection) => setSelectionStack([selection]),
     [],
-  )
+  );
   const openMember = useCallback(
     (pid: number, startedAtUnixMs?: number) =>
       setSelectionStack((stack) => [...stack, { kind: "process", pid, startedAtUnixMs }]),
     [],
-  )
-  const goBack = useCallback(() => setSelectionStack((stack) => stack.slice(0, -1)), [])
-  const goToList = useCallback(() => setSelectionStack([]), [])
+  );
+  const goBack = useCallback(() => setSelectionStack((stack) => stack.slice(0, -1)), []);
+  const goToList = useCallback(() => setSelectionStack([]), []);
 
   // The detail model for the deepest still-resolvable selection, re-resolved from
   // the current snapshot and sort so CPU/memory stay live as ticks arrive. If the
@@ -109,20 +102,20 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
   // already shown before continuing up.
   const detail = useMemo(() => {
     for (let depth = selectionStack.length - 1; depth >= 0; depth -= 1) {
-      const group = resolveSelection(snapshot, sort, selectionStack[depth])
+      const group = resolveSelection(snapshot, sort, selectionStack[depth]);
       if (group) {
-        return buildProcessDetail(group, sort)
+        return buildProcessDetail(group, sort);
       }
     }
-    return undefined
-  }, [snapshot, sort, selectionStack])
+    return undefined;
+  }, [snapshot, sort, selectionStack]);
 
   const projection = useMemo(
     () => projectProcessList(snapshot, sort, query),
     [snapshot, sort, query],
-  )
+  );
 
-  const { actions, actionsBusy, actionMessage, runAction } = useProcessActions(detail, pull)
+  const { actions, actionsBusy, actionMessage, runAction } = useProcessActions(detail, pull);
 
   if (detail) {
     return (
@@ -140,7 +133,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
           onRunAction={runAction}
         />
       </div>
-    )
+    );
   }
 
   return (
@@ -157,121 +150,5 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
         onOpenSelection={openSelection}
       />
     </div>
-  )
-}
-
-/**
- * Owns the detail's process-action concerns: the action target, its
- * main-authoritative {@link ActionState} list, the in-flight flag, a transient
- * non-success message, and the action runner. Kept out of the view component so
- * the latter stays focused on the snapshot lifecycle and list/detail rendering.
- *
- * The target is derived from the open `detail` but keyed on its primitive
- * identity (pid + start time) so it is stable across the 2s snapshot ticks (the
- * detail object is a fresh reference each tick) and does not refetch needlessly.
- * A `targetKey` guard drops out-of-order `getActionStates` responses. Action
- * requests do not carry a snapshot revision: main validates the target by
- * identity against its latest cached snapshot.
- */
-function useProcessActions(detail: ProcessDetail | undefined, onActed: () => Promise<void>) {
-  const targetPid = detail?.pid
-  const targetStartedAt = detail?.startedAt === "ok" ? detail.startedAtUnixMs : undefined
-  const target = useMemo<ProcessIdentity | undefined>(
-    () =>
-      targetPid === undefined
-        ? undefined
-        : {
-            pid: targetPid,
-            startedAtStatus:
-              targetStartedAt === undefined
-                ? FieldStatus.FIELD_STATUS_UNKNOWN
-                : FieldStatus.FIELD_STATUS_OK,
-            startedAtUnixMs: targetStartedAt ?? 0,
-          },
-    [targetPid, targetStartedAt],
-  )
-  const targetKey = target ? `${target.pid}:${target.startedAtStatus}:${target.startedAtUnixMs}` : ""
-  const targetKeyRef = useRef(targetKey)
-  targetKeyRef.current = targetKey
-
-  const [actions, setActions] = useState<ActionState[]>([])
-  const [actionsBusy, setActionsBusy] = useState(false)
-  const [actionMessage, setActionMessage] = useState<string | undefined>(undefined)
-
-  const refreshActionStates = useCallback(async () => {
-    if (!target) {
-      setActions([])
-      return
-    }
-    const requestedKey = targetKey
-    setActions([])
-    try {
-      const response = await processExplorerGateway.getActionStates(target)
-      // Ignore a response that arrived after the selection moved on.
-      if (targetKeyRef.current === requestedKey) {
-        setActions(response.actions)
-      }
-    } catch {
-      // Keep the row disabled for this target until the next successful fetch.
-      if (targetKeyRef.current === requestedKey) {
-        setActions([])
-      }
-    }
-  }, [target, targetKey])
-
-  // Refresh states and clear any prior message whenever the target changes.
-  useEffect(() => {
-    setActionMessage(undefined)
-    void refreshActionStates()
-  }, [refreshActionStates])
-
-  const runAction = useCallback(
-    async (kind: ProcessActionKind) => {
-      if (!target || actionsBusy) {
-        return
-      }
-      setActionsBusy(true)
-      setActionMessage(undefined)
-      try {
-        const response = await processExplorerGateway.runAction(kind, target)
-        // A succeeded quit/force-quit drops the row and the detail falls back, so
-        // only a non-success outcome needs surfacing. Messages are derived from the
-        // coarse outcome only - they carry no process identity.
-        setActionMessage(actionOutcomeMessage(response.outcome))
-      } catch {
-        // No diagnostic is logged - the target/result can carry process identity.
-        setActionMessage("Action could not be completed.")
-      } finally {
-        setActionsBusy(false)
-      }
-      // Re-pull so a quit/force-quit drops the row promptly (the detail then falls
-      // back down the stack), and refresh the action availability for what remains.
-      await onActed()
-      await refreshActionStates()
-    },
-    [target, actionsBusy, onActed, refreshActionStates],
-  )
-
-  return { actions, actionsBusy, actionMessage, runAction }
-}
-
-/**
- * Maps a coarse action outcome to a short, non-sensitive message for the detail's
- * action row, or undefined when nothing needs to be said. A succeeded action
- * drops the row (the detail falls back), and a stale target likewise resolves to
- * a different view, so neither shows a message; only an OS refusal or an
- * unspecified failure does. The message is derived from the outcome enum alone -
- * it never includes a process name, path, or argv.
- */
-function actionOutcomeMessage(outcome: Outcome): string | undefined {
-  switch (outcome) {
-    case Outcome.OUTCOME_NOT_PERMITTED:
-      return "Couldn't quit - this process is owned by the system."
-    case Outcome.OUTCOME_NOT_ALLOWED:
-      return "This action isn't allowed for this process."
-    case Outcome.OUTCOME_FAILED:
-      return "Action could not be completed."
-    default:
-      return undefined
-  }
+  );
 }

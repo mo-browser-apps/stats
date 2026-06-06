@@ -1,12 +1,19 @@
-import {useEffect, useState} from "react"
-import type {LucideIcon} from "lucide-react"
-import {Clock, Cpu, HardDrive, MemoryStick, Network, Thermometer} from "lucide-react"
+import { useEffect, useState } from "react";
+import type { LucideIcon } from "lucide-react";
+import { Clock, Cpu, HardDrive, MemoryStick, Network, Thermometer } from "lucide-react";
 
-import {MetricRow} from "@/components/metric-row"
-import {metricsGateway} from "@/gateway/metrics-gateway"
-import type {MetricsSnapshot} from "@/gen/metrics"
-import {baseState, isLive, usageState} from "@/domain/metric-view"
-import {UNAVAILABLE_TEXT, formatBytes, formatCelsius, formatPercent, formatRate, formatUptime,} from "@/lib/format"
+import { MetricRow } from "@/components/metric-row";
+import { metricsGateway } from "@/gateway/metrics-gateway";
+import type { MetricsSnapshot } from "@/gen/metrics";
+import { baseState, isLive, usageState } from "@/domain/metric-view";
+import {
+  UNAVAILABLE_TEXT,
+  formatBytes,
+  formatCelsius,
+  formatPercent,
+  formatRate,
+  formatUptime,
+} from "@/lib/format";
 
 /**
  * Live overview (the Stats view).
@@ -19,15 +26,15 @@ import {UNAVAILABLE_TEXT, formatBytes, formatCelsius, formatPercent, formatRate,
  * (~1s). The renderer holds no sampling timer.
  */
 export function MetricsOverview({ active }: { active: boolean }) {
-  const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null)
+  const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null);
 
   useEffect(() => {
     if (!active) {
-      return
+      return;
     }
     // Subscribe while active; the returned unsubscribe is the cleanup on hide.
-    return metricsGateway.subscribe(setSnapshot, () => setSnapshot(null))
-  }, [active])
+    return metricsGateway.subscribe(setSnapshot, () => setSnapshot(null));
+  }, [active]);
 
   return (
     <div className="flex flex-1 flex-col px-6 pb-5">
@@ -50,14 +57,14 @@ export function MetricsOverview({ active }: { active: boolean }) {
         <FooterStats snapshot={snapshot} />
       </div>
     </div>
-  )
+  );
 }
 
 function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
-  const cpu = snapshot?.cpu
-  const state = cpu ? usageState(cpu.status, cpu.usagePercent) : "pending"
-  const live = isLive(state)
-  const detail = cpu && cpu.model ? `${cpu.model}${cpu.coreCount ? ` - ${cpu.coreCount} cores` : ""}` : undefined
+  const cpu = snapshot?.cpu;
+  const state = cpu ? usageState(cpu.status, cpu.usagePercent) : "pending";
+  const live = isLive(state);
+  const detail = cpu && cpu.model ? `${cpu.model}${cpu.coreCount ? ` - ${cpu.coreCount} cores` : ""}` : undefined;
   return (
     <MetricRow
       icon={Cpu}
@@ -67,13 +74,13 @@ function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
       detail={live ? detail : undefined}
       percent={live ? cpu?.usagePercent : undefined}
     />
-  )
+  );
 }
 
 function MemoryRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
-  const memory = snapshot?.memory
-  const state = memory ? usageState(memory.status, memory.usedPercent) : "pending"
-  const live = isLive(state)
+  const memory = snapshot?.memory;
+  const state = memory ? usageState(memory.status, memory.usedPercent) : "pending";
+  const live = isLive(state);
   return (
     <MetricRow
       icon={MemoryStick}
@@ -83,13 +90,13 @@ function MemoryRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
       detail={live ? `${formatBytes(memory!.usedBytes)} / ${formatBytes(memory!.totalBytes)}` : undefined}
       percent={live ? memory?.usedPercent : undefined}
     />
-  )
+  );
 }
 
 function DiskRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
-  const disk = snapshot?.disk
-  const state = disk ? usageState(disk.status, disk.usedPercent) : "pending"
-  const live = isLive(state)
+  const disk = snapshot?.disk;
+  const state = disk ? usageState(disk.status, disk.usedPercent) : "pending";
+  const live = isLive(state);
   return (
     <MetricRow
       icon={HardDrive}
@@ -99,13 +106,13 @@ function DiskRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
       detail={live ? `${formatBytes(disk!.usedBytes)} / ${formatBytes(disk!.totalBytes)}` : undefined}
       percent={live ? disk?.usedPercent : undefined}
     />
-  )
+  );
 }
 
 function NetworkRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
-  const network = snapshot?.network
-  const state = network ? baseState(network.status) : "pending"
-  const live = isLive(state)
+  const network = snapshot?.network;
+  const state = network ? baseState(network.status) : "pending";
+  const live = isLive(state);
   return (
     <MetricRow
       icon={Network}
@@ -114,7 +121,7 @@ function NetworkRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
       value={network && live ? `↓ ${formatRate(network.rxBytesPerSec)}` : undefined}
       detail={network && live ? `↑ ${formatRate(network.txBytesPerSec)}` : undefined}
     />
-  )
+  );
 }
 
 /**
@@ -125,17 +132,17 @@ function NetworkRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
  * sensor reading is actually available rather than as a dead placeholder.
  */
 function FooterStats({ snapshot }: { snapshot: MetricsSnapshot | null }) {
-  const uptime = snapshot?.uptime
-  const uptimeState = uptime ? baseState(uptime.status) : "pending"
-  const uptimeLive = isLive(uptimeState)
+  const uptime = snapshot?.uptime;
+  const uptimeState = uptime ? baseState(uptime.status) : "pending";
+  const uptimeLive = isLive(uptimeState);
   const uptimeValue = uptime && uptimeLive
     ? formatUptime(uptime.uptimeSeconds)
     : uptimeState === "pending"
       ? "--"
-      : UNAVAILABLE_TEXT
+      : UNAVAILABLE_TEXT;
 
-  const temperature = snapshot?.temperature
-  const temperatureLive = temperature ? isLive(baseState(temperature.status)) : false
+  const temperature = snapshot?.temperature;
+  const temperatureLive = temperature ? isLive(baseState(temperature.status)) : false;
 
   return (
     <div className="flex items-center justify-between text-[11px]">
@@ -149,7 +156,7 @@ function FooterStats({ snapshot }: { snapshot: MetricsSnapshot | null }) {
         ) : null}
       </div>
     </div>
-  )
+  );
 }
 
 /** A single footer stat: quiet icon + label, then the value. */
@@ -168,5 +175,5 @@ function FooterStat({
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium tabular-nums">{value}</span>
     </div>
-  )
+  );
 }

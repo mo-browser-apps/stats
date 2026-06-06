@@ -1,12 +1,12 @@
-import { FolderOpen, Power, OctagonX } from "lucide-react"
+import { type ReactNode } from "react";
+import { FolderOpen, OctagonX, Power } from "lucide-react";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 import {
   ActionDisabledReason,
   ProcessActionKind,
   type ActionState,
-} from "@/gen/process_explorer"
-import {ReactNode} from "react";
+} from "@/gen/process_explorer";
 
 /**
  * The fixed bottom action row of the detail view: Open (reveal in Finder), Quit,
@@ -31,11 +31,11 @@ export function ProcessActions({
   message?: string
   onRun: (kind: ProcessActionKind) => void
 }) {
-  const reveal = actions.find((a) => a.kind === ProcessActionKind.PROCESS_ACTION_KIND_REVEAL)
-  const quit = actions.find((a) => a.kind === ProcessActionKind.PROCESS_ACTION_KIND_QUIT)
+  const reveal = actions.find((a) => a.kind === ProcessActionKind.PROCESS_ACTION_KIND_REVEAL);
+  const quit = actions.find((a) => a.kind === ProcessActionKind.PROCESS_ACTION_KIND_QUIT);
   const forceQuit = actions.find(
     (a) => a.kind === ProcessActionKind.PROCESS_ACTION_KIND_FORCE_QUIT,
-  )
+  );
 
   return (
     <div className="flex flex-col gap-2 border-t border-border/60 pt-3">
@@ -71,7 +71,7 @@ export function ProcessActions({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 /** One compact action button, styled to match the detail view's quiet controls. */
@@ -107,35 +107,35 @@ function ActionButton({
       {icon}
       {label}
     </button>
-  )
+  );
 }
 
 /** Tooltip for the reveal button, honest about why it is unavailable. */
 function revealTitle(reveal: ActionState | undefined): string {
   if (reveal?.enabled) {
-    return "Show the executable in Finder"
+    return "Show the executable in Finder";
   }
   if (reveal?.disabledReason === ActionDisabledReason.ACTION_DISABLED_REASON_NO_PATH) {
-    return "Executable path is unavailable"
+    return "Executable path is unavailable";
   }
-  return "Reveal is unavailable for this process"
+  return "Reveal is unavailable for this process";
 }
 
 /** Tooltip for a destructive button, honest about why it is unavailable. */
 function destructiveTitle(verb: string, action: ActionState | undefined): string {
   if (action?.enabled) {
-    return `${verb} this process`
+    return `${verb} this process`;
   }
   switch (action?.disabledReason) {
     case ActionDisabledReason.ACTION_DISABLED_REASON_SELF:
-      return `Cannot ${verb.toLowerCase()} MoStats itself`
+      return `Cannot ${verb.toLowerCase()} MoStats itself`;
     case ActionDisabledReason.ACTION_DISABLED_REASON_PROTECTED:
-      return `Cannot ${verb.toLowerCase()} a critical system process`
+      return `Cannot ${verb.toLowerCase()} a critical system process`;
     case ActionDisabledReason.ACTION_DISABLED_REASON_STALE:
-      return "This process is no longer available"
+      return "This process is no longer available";
     case ActionDisabledReason.ACTION_DISABLED_REASON_UNSTABLE_IDENTITY:
-      return "Process start time is unavailable"
+      return "Process start time is unavailable";
     default:
-      return `${verb} is unavailable for this process`
+      return `${verb} is unavailable for this process`;
   }
 }

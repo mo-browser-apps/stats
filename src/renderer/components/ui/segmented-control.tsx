@@ -1,17 +1,17 @@
-import { cva } from "class-variance-authority"
+import { cva } from "class-variance-authority";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 /**
  * One option in a {@link SegmentedControl}.
  */
 export interface SegmentedOption<T extends string> {
-  value: T
-  label: string
+  value: T;
+  label: string;
   /** Disabled options stay visible but unselectable (e.g. an unsupported sort). */
-  disabled?: boolean
+  disabled?: boolean;
   /** Tooltip, used to explain a disabled option's reason. */
-  title?: string
+  title?: string;
 }
 
 /**
@@ -38,7 +38,7 @@ const segment = cva("rounded-md font-medium transition-colors", {
     selected: false,
     disabled: false,
   },
-})
+});
 
 /**
  * Compact macOS-style segmented control: a quiet track with a subtle elevated
@@ -70,7 +70,7 @@ export function SegmentedControl<T extends string>({
       )}
     >
       {options.map((option) => {
-        const selected = option.value === value
+        const selected = option.value === value;
         return (
           <button
             key={option.value}
@@ -84,8 +84,8 @@ export function SegmentedControl<T extends string>({
           >
             {option.label}
           </button>
-        )
+        );
       })}
     </div>
-  )
+  );
 }

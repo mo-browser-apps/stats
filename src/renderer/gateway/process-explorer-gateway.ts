@@ -1,4 +1,4 @@
-import { ipc } from '@/gen/ipc';
+import { ipc } from "@/gen/ipc";
 import {
   GetProcessActionStatesResponse,
   ProcessIdentity,
@@ -7,7 +7,7 @@ import {
   ProcessSnapshotRevision,
   RunProcessActionResponse,
   SnapshotStatus,
-} from '@/gen/process_explorer';
+} from "@/gen/process_explorer";
 
 /** Called for each revision ping the main process publishes. */
 export type RevisionListener = (revision: ProcessSnapshotRevision) => void;
