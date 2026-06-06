@@ -384,31 +384,29 @@ void FillRecord(
   FillMemory(pid, task, task_ok, task_status, record->mutable_memory());
   FillCpu(task, task_ok, task_status, record->mutable_cpu());
 
-  // GUI app metadata/icon enrichment (NSWorkspace): copy the entry for this PID
-  // when one exists. This is the only source of bundle id / localized name, so
-  // it is left as the sole owner of those fields - non-GUI processes keep them
-  // unset (UNKNOWN downstream), which preserves naming and grouping.
+  // GUI app metadata enrichment (NSWorkspace): copy the entry for this PID when
+  // one exists. NSWorkspace remains the source of exact bundle id / localized
+  // app name. The grouping/icon bundle below is still normalized from the
+  // executable path so nested helper apps inside a larger `.app` group under the
+  // user-facing owner instead of appearing as arbitrary top-level apps.
   const auto match = app_metadata.find(static_cast<int32_t>(pid));
   if (match != app_metadata.end()) {
     *record->mutable_app() = match->second;
   }
 
   if (record->executable_path().status() == NATIVE_FIELD_STATUS_AVAILABLE) {
-    const bool has_app_bundle =
-        record->has_app() && record->app().bundle().path().status() ==
-                                 NATIVE_FIELD_STATUS_AVAILABLE;
-    if (!has_app_bundle) {
-      FillAppBundle(record->executable_path().value(),
-                    record->mutable_app()->mutable_bundle());
-    }
-
-    if (has_app_bundle) {
-      IconForFilePath(record->app().bundle().path().value(),
-                      record->mutable_app()->mutable_icon_png());
-    } else {
-      IconForExecutablePath(record->executable_path().value(),
-                            record->mutable_app()->mutable_icon_png());
-    }
+    FillAppBundle(record->executable_path().value(),
+                  record->mutable_app()->mutable_bundle());
+    IconForExecutablePath(record->executable_path().value(),
+                          record->mutable_app()->mutable_icon_png());
+  } else if (
+      record->has_app() &&
+      record->app().bundle().path().status() == NATIVE_FIELD_STATUS_AVAILABLE) {
+    // If the executable path itself is unavailable, fall back to NSWorkspace's
+    // exact app bundle when present. Without a path we cannot identify an
+    // outermost owner for nested bundles.
+    IconForFilePath(record->app().bundle().path().value(),
+                    record->mutable_app()->mutable_icon_png());
   }
 }
 
