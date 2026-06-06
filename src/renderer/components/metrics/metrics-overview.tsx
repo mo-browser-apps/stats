@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Clock, Cpu, HardDrive, MemoryStick, Network, Thermometer } from "lucide-react";
 
-import { MetricRow } from "@/components/metric-row";
+import { MetricRow } from "@/components/metrics/metric-row";
 import { metricsGateway } from "@/gateway/metrics-gateway";
 import type { MetricsSnapshot } from "@/gen/metrics";
 import { baseState, isLive, usageState } from "@/domain/metric-view";

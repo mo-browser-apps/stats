@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { Pin } from "lucide-react";
 
-import { MetricsOverview } from "@/components/metrics-overview";
+import { MetricsOverview } from "@/components/metrics/metrics-overview";
 import { Button } from "@/components/ui/button";
 import { appGateway } from "@/gateway/app-gateway";
 import { ActiveView } from "@/gen/app";
