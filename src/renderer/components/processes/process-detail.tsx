@@ -47,6 +47,7 @@ export function ProcessDetailView({
   sort,
   actions,
   actionsBusy,
+  actionMessage,
   onSortChange,
   onBack,
   onOpenMember,
@@ -56,6 +57,7 @@ export function ProcessDetailView({
   sort: SortMode
   actions: ActionState[]
   actionsBusy: boolean
+  actionMessage?: string
   onSortChange: (sort: SortMode) => void
   onBack: () => void
   onOpenMember: (pid: number, startedAtUnixMs?: number) => void
@@ -133,7 +135,12 @@ export function ProcessDetailView({
         )}
       </div>
 
-      <ProcessActions actions={actions} busy={actionsBusy} onRun={onRunAction} />
+      <ProcessActions
+        actions={actions}
+        busy={actionsBusy}
+        message={actionMessage}
+        onRun={onRunAction}
+      />
     </div>
   )
 }

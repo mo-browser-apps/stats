@@ -24,28 +24,29 @@ const ACTION_KINDS: readonly ProcessActionKind[] = [
 ];
 
 /**
- * POSIX path prefixes that mark a system-owned executable. A process running
- * from one of these is treated as system-critical and cannot be quit/force-quit,
- * mirroring Activity Monitor's refusal to kill core OS processes.
+ * A small, deliberately narrow denylist of session-critical processes whose
+ * termination would crash, log out, or visibly destabilize the macOS session.
+ * These cannot be quit/force-quit regardless of who owns them.
+ *
+ * This is intentionally NOT a "block all Apple/system software" rule. Ordinary
+ * apps - including Apple's bundled apps like Notes, Calculator, and Mail (which
+ * live under /System/Applications) - are quittable; only this hardcoded set is
+ * protected. Anything else is allowed to be signaled, and the OS itself is the
+ * final backstop: a process owned by another user (e.g. a root daemon) rejects
+ * an unprivileged signal with EPERM, which is reported as NOT_PERMITTED rather
+ * than pre-emptively greyed out.
  */
-const SYSTEM_PATH_PREFIXES: readonly string[] = [
-  '/System/',
-  '/sbin/',
-  '/usr/libexec/',
-  '/usr/sbin/',
-];
-
-/**
- * Well-known system process names that must never be signaled even though they
- * may not live under a system path.
- */
-const SYSTEM_PROCESS_NAMES: ReadonlySet<string> = new Set([
-  'kernel_task',
-  'launchd',
-  'loginwindow',
-  'notifyd',
-  'powerd',
-  'WindowServer',
+const CRITICAL_PROCESS_NAMES: ReadonlySet<string> = new Set([
+  'kernel_task', // the kernel
+  'launchd', // PID 1, the init/service manager
+  'WindowServer', // the display server; killing it logs the user out
+  'loginwindow', // owns the login/user session
+  'logind', // session lifecycle
+  'SystemUIServer', // the menu bar
+  'Dock', // the Dock and Mission Control
+  'Finder', // the desktop and file UI
+  'coreaudiod', // core audio; killing it breaks all sound
+  'WindowManager', // Stage Manager / window management
 ]);
 
 /** Reads a string field only when it is explicitly OK and non-empty. */
@@ -98,22 +99,25 @@ function hasStableTargetIdentity(target: ProcessIdentity | undefined): boolean {
   return target?.startedAtStatus === FieldStatus.FIELD_STATUS_OK;
 }
 
-/** True when a resolved row is a protected/system-critical process. */
-export function isSystemProcess(row: ProcessRow): boolean {
+/**
+ * True when a resolved row is a session-critical process that must never be
+ * signaled. This is PID 0/1 plus a small name denylist
+ * ({@link CRITICAL_PROCESS_NAMES}) - NOT a broad "is it system/Apple software"
+ * check, so ordinary apps (including Apple's bundled apps) are not protected.
+ * Matched against both the short command name and the executable name so a
+ * process is caught regardless of which one macOS reported.
+ */
+export function isCriticalProcess(row: ProcessRow): boolean {
   const pid = row.identity?.pid ?? 0;
   if (pid <= 1) {
     return true;
   }
   const commandName = okString(row.commandName);
   const executableName = okString(row.executableName);
-  if (
-    (commandName !== undefined && SYSTEM_PROCESS_NAMES.has(commandName)) ||
-    (executableName !== undefined && SYSTEM_PROCESS_NAMES.has(executableName))
-  ) {
-    return true;
-  }
-  const path = okString(row.executablePath);
-  return path !== undefined && SYSTEM_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+  return (
+    (commandName !== undefined && CRITICAL_PROCESS_NAMES.has(commandName)) ||
+    (executableName !== undefined && CRITICAL_PROCESS_NAMES.has(executableName))
+  );
 }
 
 /**
@@ -122,9 +126,11 @@ export function isSystemProcess(row: ProcessRow): boolean {
  * free so it can be unit tested in isolation (I15).
  *
  * - Reveal needs an OK executable path (NO_PATH otherwise); it is always allowed
- *   for self/system processes because opening a file in Finder is harmless.
+ *   for self/critical processes because opening a file in Finder is harmless.
  * - Quit / Force Quit require a known target start time (UNSTABLE_IDENTITY), then
- *   block MoStats itself (SELF) and system-critical processes (PROTECTED).
+ *   block MoStats itself (SELF) and session-critical processes (PROTECTED).
+ *   Everything else is allowed; a root-owned daemon is not pre-emptively blocked
+ *   here - the OS rejects the signal (EPERM -> NOT_PERMITTED) at execution time.
  */
 export function disabledReasonFor(
   action: ProcessActionKind,
@@ -144,7 +150,7 @@ export function disabledReasonFor(
   if ((row.identity?.pid ?? 0) === selfPid) {
     return ActionDisabledReason.ACTION_DISABLED_REASON_SELF;
   }
-  if (isSystemProcess(row)) {
+  if (isCriticalProcess(row)) {
     return ActionDisabledReason.ACTION_DISABLED_REASON_PROTECTED;
   }
   return ActionDisabledReason.ACTION_DISABLED_REASON_NONE;
@@ -155,12 +161,17 @@ export function disabledReasonFor(
  * reveal-in-Finder, Quit (SIGTERM), and Force Quit (SIGKILL).
  *
  * Every action is validated here against the latest cached snapshot - never from
- * renderer-supplied state - so the renderer cannot drive a stale, system, or
+ * renderer-supplied state - so the renderer cannot drive a stale, critical, or
  * self target. Targets are matched by (pid, start time) identity; an exited or
- * reused-PID target resolves to STALE. Force Quit (SIGKILL) requires an explicit
- * native confirmation dialog (main-authoritative, so the confirm step cannot be
- * skipped by a direct IPC call) because it kills immediately and loses unsaved
- * work; Quit (SIGTERM) is graceful and proceeds without a prompt.
+ * reused-PID target resolves to STALE. Destructive actions are blocked only for
+ * MoStats itself and a small session-critical denylist (see
+ * {@link CRITICAL_PROCESS_NAMES}); ordinary apps - including Apple's bundled apps
+ * like Notes - are quittable, and the OS is the final guard for root-owned
+ * daemons (an unprivileged signal returns EPERM -> NOT_PERMITTED). Force Quit
+ * (SIGKILL) requires an explicit native confirmation dialog (main-authoritative,
+ * so the confirm step cannot be skipped by a direct IPC call) because it kills
+ * immediately and loses unsaved work; Quit (SIGTERM) is graceful and proceeds
+ * without a prompt.
  *
  * Privacy: results are count-only. This service never logs or returns OS
  * diagnostics, executable paths, process names, bundle identifiers, or
@@ -306,12 +317,15 @@ export class ProcessActionService {
       process.kill(pid, signal);
       return { outcome: Outcome.OUTCOME_SUCCEEDED, affectedCount: 1 };
     } catch (error) {
-      // ESRCH means the process already exited between validation and the signal;
-      // report it as stale rather than a hard failure. No process detail leaks.
       const code = (error as NodeJS.ErrnoException | undefined)?.code;
-      return code === 'ESRCH'
-        ? { outcome: Outcome.OUTCOME_STALE_TARGET, affectedCount: 0 }
-        : { outcome: Outcome.OUTCOME_FAILED, affectedCount: 0 };
+      switch (code) {
+        case 'ESRCH':
+          return { outcome: Outcome.OUTCOME_STALE_TARGET, affectedCount: 0 };
+        case 'EPERM':
+          return { outcome: Outcome.OUTCOME_NOT_PERMITTED, affectedCount: 0 };
+        default:
+          return { outcome: Outcome.OUTCOME_FAILED, affectedCount: 0 };
+      }
     }
   }
 

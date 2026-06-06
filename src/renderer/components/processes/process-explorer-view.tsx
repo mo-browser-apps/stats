@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { processExplorerGateway } from "@/gateway/process-explorer-gateway"
 import {
   FieldStatus,
+  RunProcessActionResponse_Outcome as Outcome,
   type ActionState,
   type ProcessActionKind,
   type ProcessIdentity,
@@ -152,6 +153,13 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
   }, [targetKey])
   const [actions, setActions] = useState<ActionState[]>([])
   const [actionsBusy, setActionsBusy] = useState(false)
+  // A transient, non-sensitive message for an action that did not succeed (e.g. a
+  // root-owned daemon the OS refused to signal). Cleared whenever the selected
+  // target changes so it never carries over to a different process.
+  const [actionMessage, setActionMessage] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    setActionMessage(undefined)
+  }, [targetKey])
   // Always read the latest revision when running an action, without making the
   // action-state fetch depend on it (which would refetch every 2s tick).
   const revisionRef = useRef(0)
@@ -189,10 +197,16 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
         return
       }
       setActionsBusy(true)
+      setActionMessage(undefined)
       try {
-        await processExplorerGateway.runAction(kind, target, revisionRef.current)
+        const response = await processExplorerGateway.runAction(kind, target, revisionRef.current)
+        // A succeeded quit/force-quit drops the row and the detail falls back, so
+        // only a non-success outcome needs surfacing. Messages are derived from the
+        // coarse outcome only - they carry no process identity.
+        setActionMessage(actionOutcomeMessage(response.outcome))
       } catch {
         // No diagnostic is logged - the target/result can carry process identity.
+        setActionMessage("Action could not be completed.")
       } finally {
         setActionsBusy(false)
       }
@@ -212,6 +226,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
           sort={sort}
           actions={actions}
           actionsBusy={actionsBusy}
+          actionMessage={actionMessage}
           onSortChange={setSort}
           onBack={goBack}
           onOpenMember={openMember}
@@ -236,4 +251,25 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
       />
     </div>
   )
+}
+
+/**
+ * Maps a coarse action outcome to a short, non-sensitive message for the detail's
+ * action row, or undefined when nothing needs to be said. A succeeded action
+ * drops the row (the detail falls back), and a stale target likewise resolves to
+ * a different view, so neither shows a message; only an OS refusal or an
+ * unspecified failure does. The message is derived from the outcome enum alone -
+ * it never includes a process name, path, or argv.
+ */
+function actionOutcomeMessage(outcome: Outcome): string | undefined {
+  switch (outcome) {
+    case Outcome.OUTCOME_NOT_PERMITTED:
+      return "Couldn't quit - this process is owned by the system."
+    case Outcome.OUTCOME_NOT_ALLOWED:
+      return "This action isn't allowed for this process."
+    case Outcome.OUTCOME_FAILED:
+      return "Action could not be completed."
+    default:
+      return undefined
+  }
 }

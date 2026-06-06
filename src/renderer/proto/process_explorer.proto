@@ -233,7 +233,10 @@ enum ActionDisabledReason {
   ACTION_DISABLED_REASON_NO_PATH = 2;
   // The target is MoStats itself; self-termination is not allowed.
   ACTION_DISABLED_REASON_SELF = 3;
-  // The target is a protected/system-critical process (e.g. PID 0/1, kernel).
+  // The target is a session-critical process whose termination would destabilize
+  // the macOS session (e.g. PID 0/1, kernel_task, launchd, WindowServer,
+  // loginwindow). Ordinary apps - including Apple's bundled apps like Notes - are
+  // NOT protected; only a small hardcoded denylist of critical processes is.
   ACTION_DISABLED_REASON_PROTECTED = 4;
   // The target no longer matches the latest snapshot (exited / reused PID).
   ACTION_DISABLED_REASON_STALE = 5;
@@ -295,6 +298,10 @@ message RunProcessActionResponse {
     OUTCOME_NOT_IMPLEMENTED = 4;
     // The action failed for an unspecified, non-sensitive reason.
     OUTCOME_FAILED = 5;
+    // The OS refused the signal because the process is owned by another user
+    // (typically a root-owned daemon); an unprivileged signal returns EPERM.
+    // MoStats does not escalate privileges, so this is reported, not retried.
+    OUTCOME_NOT_PERMITTED = 6;
   }
   Outcome outcome = 1;
   // Number of processes the action affected (e.g. 1 for a single target, or a
