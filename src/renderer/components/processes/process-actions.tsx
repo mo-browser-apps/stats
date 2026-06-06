@@ -1,4 +1,4 @@
-import { FolderOpen, Power, Zap } from "lucide-react"
+import { FolderOpen, Power, OctagonX } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import {
@@ -63,7 +63,7 @@ export function ProcessActions({
           <ActionButton
             label="Force Quit"
             title={destructiveTitle("Force Quit", forceQuit)}
-            icon={<Zap className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
+            icon={<OctagonX className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
             disabled={busy || !forceQuit?.enabled}
             onClick={() => onRun(ProcessActionKind.PROCESS_ACTION_KIND_FORCE_QUIT)}
             destructive
