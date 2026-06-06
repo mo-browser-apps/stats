@@ -18,6 +18,7 @@ import {
   projectProcessList,
   resolveSelection,
   type DetailSelection,
+  type ProcessDetail,
   type SortMode,
 } from "@/components/processes/process-view"
 
@@ -120,103 +121,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     [snapshot, sort, query],
   )
 
-  // Main-authoritative action states for the open detail's target. Fetched when
-  // the target process changes (its enabled/disabled reasons - self/system/path -
-  // are stable tick to tick; staleness is re-checked authoritatively in main when
-  // an action runs). `actionsBusy` disables the row while an action is in flight.
-  // The target is memoized on the primitive identity (pid + start time), not the
-  // detail object (which is a fresh reference each tick), so it stays stable while
-  // the same process is selected and does not refetch on every revision.
-  const targetPid = detail?.pid
-  const targetStartedAt = detail?.startedAt === "ok" ? detail.startedAtUnixMs : undefined
-  const target = useMemo<ProcessIdentity | undefined>(
-    () =>
-      targetPid === undefined
-        ? undefined
-        : {
-            pid: targetPid,
-            startedAtStatus:
-              targetStartedAt === undefined
-                ? FieldStatus.FIELD_STATUS_UNKNOWN
-                : FieldStatus.FIELD_STATUS_OK,
-            startedAtUnixMs: targetStartedAt ?? 0,
-          },
-    [targetPid, targetStartedAt],
-  )
-  const targetKey =
-    target === undefined
-      ? ""
-      : `${target.pid}:${target.startedAtStatus}:${target.startedAtUnixMs}`
-  const targetKeyRef = useRef(targetKey)
-  useEffect(() => {
-    targetKeyRef.current = targetKey
-  }, [targetKey])
-  const [actions, setActions] = useState<ActionState[]>([])
-  const [actionsBusy, setActionsBusy] = useState(false)
-  // A transient, non-sensitive message for an action that did not succeed (e.g. a
-  // root-owned daemon the OS refused to signal). Cleared whenever the selected
-  // target changes so it never carries over to a different process.
-  const [actionMessage, setActionMessage] = useState<string | undefined>(undefined)
-  useEffect(() => {
-    setActionMessage(undefined)
-  }, [targetKey])
-  // Always read the latest revision when running an action, without making the
-  // action-state fetch depend on it (which would refetch every 2s tick).
-  const revisionRef = useRef(0)
-  useEffect(() => {
-    revisionRef.current = snapshot.revision
-  }, [snapshot.revision])
-
-  const refreshActionStates = useCallback(async () => {
-    if (!target) {
-      setActions([])
-      return
-    }
-    const requestedKey = targetKey
-    setActions([])
-    try {
-      const response = await processExplorerGateway.getActionStates(target, revisionRef.current)
-      if (targetKeyRef.current === requestedKey) {
-        setActions(response.actions)
-      }
-    } catch {
-      // Keep the row disabled for this target until the next successful fetch.
-      if (targetKeyRef.current === requestedKey) {
-        setActions([])
-      }
-    }
-  }, [target, targetKey])
-
-  useEffect(() => {
-    void refreshActionStates()
-  }, [refreshActionStates])
-
-  const runAction = useCallback(
-    async (kind: ProcessActionKind) => {
-      if (!target || actionsBusy) {
-        return
-      }
-      setActionsBusy(true)
-      setActionMessage(undefined)
-      try {
-        const response = await processExplorerGateway.runAction(kind, target, revisionRef.current)
-        // A succeeded quit/force-quit drops the row and the detail falls back, so
-        // only a non-success outcome needs surfacing. Messages are derived from the
-        // coarse outcome only - they carry no process identity.
-        setActionMessage(actionOutcomeMessage(response.outcome))
-      } catch {
-        // No diagnostic is logged - the target/result can carry process identity.
-        setActionMessage("Action could not be completed.")
-      } finally {
-        setActionsBusy(false)
-      }
-      // Re-pull so a quit/force-quit drops the row promptly (the detail then falls
-      // back down the stack), and refresh the action availability for what remains.
-      await pull()
-      await refreshActionStates()
-    },
-    [target, actionsBusy, pull, refreshActionStates],
-  )
+  const { actions, actionsBusy, actionMessage, runAction } = useProcessActions(detail, pull)
 
   if (detail) {
     return (
@@ -251,6 +156,101 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
       />
     </div>
   )
+}
+
+/**
+ * Owns the detail's process-action concerns: the action target, its
+ * main-authoritative {@link ActionState} list, the in-flight flag, a transient
+ * non-success message, and the action runner. Kept out of the view component so
+ * the latter stays focused on the snapshot lifecycle and list/detail rendering.
+ *
+ * The target is derived from the open `detail` but keyed on its primitive
+ * identity (pid + start time) so it is stable across the 2s snapshot ticks (the
+ * detail object is a fresh reference each tick) and does not refetch needlessly.
+ * A `targetKey` guard drops out-of-order `getActionStates` responses. The
+ * snapshot revision is not passed: main validates the target by identity, not
+ * revision, so any value would be ignored.
+ */
+function useProcessActions(detail: ProcessDetail | undefined, onActed: () => Promise<void>) {
+  const targetPid = detail?.pid
+  const targetStartedAt = detail?.startedAt === "ok" ? detail.startedAtUnixMs : undefined
+  const target = useMemo<ProcessIdentity | undefined>(
+      () =>
+          targetPid === undefined
+              ? undefined
+              : {
+                pid: targetPid,
+                startedAtStatus:
+                    targetStartedAt === undefined
+                        ? FieldStatus.FIELD_STATUS_UNKNOWN
+                        : FieldStatus.FIELD_STATUS_OK,
+                startedAtUnixMs: targetStartedAt ?? 0,
+              },
+      [targetPid, targetStartedAt],
+  )
+  const targetKey = target ? `${target.pid}:${target.startedAtStatus}:${target.startedAtUnixMs}` : ""
+  const targetKeyRef = useRef(targetKey)
+  targetKeyRef.current = targetKey
+
+  const [actions, setActions] = useState<ActionState[]>([])
+  const [actionsBusy, setActionsBusy] = useState(false)
+  const [actionMessage, setActionMessage] = useState<string | undefined>(undefined)
+
+  const refreshActionStates = useCallback(async () => {
+    if (!target) {
+      setActions([])
+      return
+    }
+    const requestedKey = targetKey
+    setActions([])
+    try {
+      const response = await processExplorerGateway.getActionStates(target, 0)
+      // Ignore a response that arrived after the selection moved on.
+      if (targetKeyRef.current === requestedKey) {
+        setActions(response.actions)
+      }
+    } catch {
+      // Keep the row disabled for this target until the next successful fetch.
+      if (targetKeyRef.current === requestedKey) {
+        setActions([])
+      }
+    }
+  }, [target, targetKey])
+
+  // Refresh states and clear any prior message whenever the target changes.
+  useEffect(() => {
+    setActionMessage(undefined)
+    void refreshActionStates()
+  }, [refreshActionStates])
+
+  const runAction = useCallback(
+      async (kind: ProcessActionKind) => {
+        if (!target || actionsBusy) {
+          return
+        }
+        setActionsBusy(true)
+        setActionMessage(undefined)
+        try {
+          const response = await processExplorerGateway.runAction(kind, target, 0)
+          // A succeeded quit/force-quit drops the row and the detail falls back, so
+          // only a non-success outcome needs surfacing. Messages are derived from the
+          // coarse outcome only - they carry no process identity.
+          setActionMessage(actionOutcomeMessage(response.outcome))
+        } catch {
+          // No diagnostic is logged - the target/result can carry process identity.
+          setActionMessage("Action could not be completed.")
+        } finally {
+          setActionsBusy(false)
+        }
+        // Re-pull so a quit/force-quit drops the row promptly (the detail then falls
+        // back down the stack), and refresh the action availability for what remains.
+        await onActed()
+        await refreshActionStates()
+      },
+      [target, actionsBusy, onActed, refreshActionStates],
+  )
+
+  return { actions, actionsBusy, actionMessage, runAction }
 }
 
 /**
