@@ -1,5 +1,5 @@
 import { FieldStatus, type ProcessRow } from "@/gen/process_explorer";
-import { formatBytes, formatCpuPercentPrecise } from "@/lib/format";
+import { formatBytes, formatCpuPercentPrecise, formatCpuTime } from "@/lib/format";
 import {
   cellState,
   isPending,
@@ -40,6 +40,17 @@ export type DetailState = ProcessMetricState;
 
 /** A summed group metric with its display state. */
 export interface DetailMetric {
+  state: DetailState;
+  /** Formatted value; set only when state is `ok`. */
+  text?: string;
+}
+
+/**
+ * A small secondary stat in the detail header strip (thread count, CPU time,
+ * owning user), with explicit availability so an unreadable one renders a muted
+ * placeholder rather than a blank.
+ */
+export interface DetailStat {
   state: DetailState;
   /** Formatted value; set only when state is `ok`. */
   text?: string;
@@ -115,6 +126,21 @@ export interface ProcessDetail {
   pathText?: string;
   /** Command line of the representative. */
   commandLine: DetailCommandLine;
+  /**
+   * Thread count: summed across the group's members (an app's total threads),
+   * or the single process's own count.
+   */
+  threadCount: DetailStat;
+  /**
+   * Total CPU time consumed since launch, summed across the group's members and
+   * formatted as a compact duration. The cumulative companion to the percent.
+   */
+  cpuTime: DetailStat;
+  /**
+   * Owning user (login name, or `uid N` when the name is unknown), taken from
+   * the representative; an app group's members all run as the same user.
+   */
+  user: DetailStat;
   /**
    * The group's total for the currently selected metric (sum of members),
    * formatted with detail precision. Shown above the member list and re-derived
@@ -199,6 +225,66 @@ function sumGroupMetric(
   return { state: anyPending ? "pending" : "unavailable" };
 }
 
+/** Per-process thread count with pending/unavailable distinction. */
+function rowThreadCount(row: ProcessRow): MetricCell {
+  const threads = row.threadCount;
+  if (threads && threads.status === FieldStatus.FIELD_STATUS_OK) {
+    return { value: threads.value, pending: false };
+  }
+  return { pending: threads === undefined || isPending(threads.status) };
+}
+
+/** Per-process cumulative CPU time (nanoseconds) with pending/unavailable. */
+function rowCpuTime(row: ProcessRow): MetricCell {
+  const cpuTime = row.cpuTime;
+  if (cpuTime && cpuTime.status === FieldStatus.FIELD_STATUS_OK) {
+    return { value: cpuTime.nanos, pending: false };
+  }
+  return { pending: cpuTime === undefined || isPending(cpuTime.status) };
+}
+
+/**
+ * Sums one stat across the group's members into a {@link DetailStat}, mirroring
+ * {@link sumGroupMetric}: `ok` when at least one member has a real value (others
+ * contribute 0), `pending` when none is OK but some are still pending, else
+ * `unavailable`.
+ */
+function sumGroupStat(
+  members: ProcessRow[],
+  read: (row: ProcessRow) => MetricCell,
+  format: (value: number) => string,
+): DetailStat {
+  let sum = 0;
+  let hasValue = false;
+  let anyPending = false;
+  for (const row of members) {
+    const cell = read(row);
+    if (cell.value !== undefined) {
+      sum += cell.value;
+      hasValue = true;
+    } else if (cell.pending) {
+      anyPending = true;
+    }
+  }
+  if (hasValue) {
+    return { state: "ok", text: format(sum) };
+  }
+  return { state: anyPending ? "pending" : "unavailable" };
+}
+
+/**
+ * Reads the representative's owning user as a display stat: the login name when
+ * known, else `uid N` (the numeric uid is still useful identity), else
+ * pending/unavailable.
+ */
+function detailUser(row: ProcessRow): DetailStat {
+  const user = row.user;
+  if (user && user.status === FieldStatus.FIELD_STATUS_OK) {
+    return { state: "ok", text: user.name.length > 0 ? user.name : `uid ${user.uid}` };
+  }
+  return { state: isPending(user?.status ?? FieldStatus.FIELD_STATUS_UNKNOWN) ? "pending" : "unavailable" };
+}
+
 /** Projects one member row into a {@link DetailMember} under the active sort. */
 function buildMember(row: ProcessRow, sort: SortMode): DetailMember {
   const cell = rowMetric(row, sort);
@@ -263,6 +349,15 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode): Process
   // formatted with detail precision.
   const total = sumGroupMetric(group.members, read, (value) => formatDetailMetric(value, sort));
 
+  // Secondary header stats. Thread count and CPU time sum across the group (an
+  // app's whole footprint); the user comes from the representative (members
+  // share it). Thread count uses no decimals.
+  const threadCount = sumGroupStat(group.members, rowThreadCount, (value) =>
+    Math.round(value).toString(),
+  );
+  const cpuTime = sumGroupStat(group.members, rowCpuTime, formatCpuTime);
+  const user = detailUser(representative);
+
   return {
     key: group.key,
     name: group.name,
@@ -276,6 +371,9 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode): Process
     path: path.state,
     pathText: path.text,
     commandLine: detailCommandLine(representative),
+    threadCount,
+    cpuTime,
+    user,
     total,
     totalSort: sort,
     memberCount: group.memberCount,

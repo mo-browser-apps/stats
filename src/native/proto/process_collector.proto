@@ -85,10 +85,23 @@ message NativeProcessMemory {
 
 // Cumulative per-process CPU time. This is a raw counter that must be diffed
 // across snapshots in main to produce a CPU usage percentage; the collector
-// never computes rates.
+// never computes rates. Main also forwards the cumulative value itself to the
+// renderer as the displayed "CPU time" (total CPU consumed since launch).
 message NativeProcessCpu {
   // Total user + system CPU time in nanoseconds (PROC_PIDTASKALLINFO).
   NativeInt64 cumulative_cpu_time_ns = 1;
+}
+
+// The user a process runs as. uid and name share one availability: the uid
+// comes from PROC_PIDTASKALLINFO (pbi_uid) and the name is resolved from it with
+// getpwuid_r; an unmapped uid (no passwd entry) keeps the numeric uid and leaves
+// the name empty.
+message NativeProcessUser {
+  NativeFieldStatus status = 1;
+  // Effective user id when status is AVAILABLE.
+  int32 uid = 2;
+  // Resolved login name (getpwuid_r) when known; empty if the uid has no entry.
+  string name = 3;
 }
 
 // The application bundle a process belongs to, used to group a multi-process
@@ -136,8 +149,13 @@ message NativeProcessRecord {
   NativeCommandLine command_line = 8;
   // Per-process memory metrics.
   NativeProcessMemory memory = 9;
-  // Cumulative per-process CPU time counter (diffed in main).
+  // Cumulative per-process CPU time counter (diffed in main, and forwarded as
+  // the displayed total CPU time).
   NativeProcessCpu cpu = 10;
+  // Number of threads in the task (PROC_PIDTASKALLINFO pti_threadnum).
+  NativeInt64 thread_count = 11;
+  // The user the process runs as (uid + resolved name).
+  NativeProcessUser user = 12;
   // Per-process network is intentionally absent: macOS has no reliable,
   // non-brittle per-process source, so the collector does not gather it.
 }

@@ -74,6 +74,27 @@ message CpuUsage {
   double usage_percent = 2; // >= 0; not capped at 100 (see message comment).
 }
 
+// Total CPU time a process has consumed since launch (user + system),
+// in nanoseconds. This is the cumulative counter main also diffs for CpuUsage,
+// surfaced here as a display value: unlike the instantaneous percent it does not
+// reset to UNKNOWN on a first sample, so it is shown as soon as it is read.
+message CpuTime {
+  FieldStatus status = 1;
+  uint64 nanos = 2;
+}
+
+// The user a process runs as. uid and name share one availability; an unmapped
+// uid keeps the numeric value with an empty name. Useful for telling a user
+// process from a root/system daemon, and explains why a Quit can be refused by
+// the OS (a process owned by another user returns EPERM).
+message ProcessUser {
+  FieldStatus status = 1;
+  // Effective user id when status is OK.
+  int32 uid = 2;
+  // Resolved login name when known; empty if the uid has no passwd entry.
+  string name = 3;
+}
+
 // Per-process memory. Physical footprint is the primary display value when
 // macOS permits reading it; resident size is a fallback display metric.
 message ProcessMemory {
@@ -153,6 +174,12 @@ message ProcessRow {
   ProcessMemory memory = 9;
   // Per-process CPU usage percent, computed in main from CPU-time deltas.
   CpuUsage cpu = 10;
+  // Number of threads in the process.
+  UInt64Value thread_count = 11;
+  // Total CPU time consumed since launch (cumulative; see CpuTime).
+  CpuTime cpu_time = 12;
+  // The user the process runs as (uid + resolved name).
+  ProcessUser user = 13;
 }
 
 // A safe, non-sensitive warning about a snapshot. Counts only - it must never

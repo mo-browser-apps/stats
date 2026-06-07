@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, Cpu, User } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
@@ -104,6 +104,8 @@ export function ProcessDetailView({
           </div>
         </header>
 
+        <HeaderStats detail={detail} grouped={grouped} />
+
         <dl className="flex flex-col gap-3">
           <Field label="Started">
             <StateText
@@ -166,6 +168,109 @@ function SingleProcessMetric({ detail }: { detail: ProcessDetail }) {
       <MetricValue metric={detail.total} className="ml-auto text-[15px]" />
     </div>
   );
+}
+
+/**
+ * The compact secondary-stat strip under the header: thread count, total CPU
+ * time, and owning user, dot-separated with small icons. It sits between the
+ * identity header and the inline field stack so the at-a-glance numbers
+ * Activity Monitor surfaces (threads, CPU time, user) are visible without
+ * scrolling. For a group, thread count and CPU time are the summed totals; the
+ * user is the app's (its members share it). Each stat shows its own
+ * pending/unavailable placeholder.
+ *
+ * Layout: the row fills the width and never wraps. Order is user, threads, time.
+ * The user comes first and gets the remaining width (it varies most and benefits
+ * from the room) - it flexes and truncates, with its full value in the title, so
+ * a long login name keeps the line within the window. Threads and CPU time
+ * follow in fixed-width slots sized to their realistic worst case, so a value
+ * change (a digit, or a minute/hour boundary) never drifts the stat after it;
+ * time gets the tighter slot since it needs the least room. `shrink-0` keeps the
+ * strip from being collapsed by the scroll column when the Members section below
+ * expands.
+ */
+function HeaderStats({ detail, grouped }: { detail: ProcessDetail; grouped: boolean }) {
+  const threadsText =
+    detail.threadCount.state === "ok"
+      ? `${detail.threadCount.text} ${detail.threadCount.text === "1" ? "thread" : "threads"}`
+      : undefined;
+
+  return (
+    <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
+      <HeaderStat
+        icon={<User className="h-3 w-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
+        state={detail.user.state}
+        text={detail.user.text}
+        label="User"
+        className="min-w-0 flex-1"
+        valueClassName="truncate"
+      />
+      <Separator />
+      <HeaderStat
+        icon={<Cpu className="h-3 w-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
+        state={detail.threadCount.state}
+        text={threadsText}
+        label={grouped ? "Total threads" : "Threads"}
+        // Fits up to a 4-digit count plus "threads"; left-aligned so a smaller
+        // count does not drift the next stat.
+        valueClassName="w-[4.75rem]"
+      />
+      <Separator />
+      {/* Time is last (nothing drifts after it) and gets the tightest slot, wide
+          enough for m:ss.cc or h:mm:ss. */}
+      <HeaderStat
+        icon={<Clock className="h-3 w-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
+        state={detail.cpuTime.state}
+        text={detail.cpuTime.text}
+        label={grouped ? "Total CPU time" : "CPU time"}
+        valueClassName="w-16"
+      />
+    </div>
+  );
+}
+
+/**
+ * One stat in the {@link HeaderStats} strip: a small icon plus its value. The
+ * value uses tabular figures; a fixed `valueClassName` width keeps a leading
+ * stat from drifting the rest of the line as its value changes, while the final
+ * (user) stat instead flexes and truncates via `className` (`flex-1 min-w-0`)
+ * and `valueClassName` (`truncate`).
+ */
+function HeaderStat({
+  icon,
+  state,
+  text,
+  label,
+  className,
+  valueClassName,
+}: {
+  icon: ReactNode
+  state: DetailState
+  text?: string
+  label: string
+  className?: string
+  valueClassName?: string
+}) {
+  const value = state === "ok" && text !== undefined ? text : state === "pending" ? "--" : UNAVAILABLE_TEXT;
+  return (
+    <span className={cn("flex items-center gap-1", className)} title={`${label}: ${value}`}>
+      {icon}
+      <span
+        className={cn(
+          "tabular-nums",
+          state === "ok" ? "text-foreground" : "text-muted-foreground",
+          valueClassName,
+        )}
+      >
+        {value}
+      </span>
+    </span>
+  );
+}
+
+/** A faint dot separator between header stats. */
+function Separator() {
+  return <span className="shrink-0 text-muted-foreground/50">·</span>;
 }
 
 /** Renders a {@link DetailMetric}'s value with the ok/pending/unavailable rule. */

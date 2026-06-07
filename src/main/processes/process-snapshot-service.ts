@@ -7,21 +7,25 @@ import {
   NativeCommandLine,
   NativeFieldStatus,
   NativeImage,
+  NativeInt64,
   NativeProcessCpu,
   NativeProcessMemory,
   NativeProcessRecord,
+  NativeProcessUser,
   NativeString,
 } from "../gen/native/process_collector";
 import {
   AppBundle,
   AppMetadata,
   CommandLine,
+  CpuTime,
   CpuUsage,
   FieldStatus,
   ProcessMemory,
   ProcessRow,
   ProcessSnapshot,
   ProcessSnapshotRevision,
+  ProcessUser,
   SnapshotStatus,
   SnapshotWarning,
   SnapshotWarning_Code,
@@ -167,6 +171,57 @@ function toProcessMemory(memory: NativeProcessMemory | undefined): ProcessMemory
     residentBytes: resident
       ? toBytes(toFieldStatus(resident.status), resident.value)
       : { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, value: 0 },
+  };
+}
+
+/**
+ * Maps the thread count (a native int64 with availability) onto the renderer's
+ * UInt64Value. A negative native value (should not happen) clamps to zero.
+ */
+function toThreadCount(threadCount: NativeInt64 | undefined): UInt64Value {
+  if (threadCount === undefined) {
+    return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, value: 0 };
+  }
+  const status = toFieldStatus(threadCount.status);
+  return {
+    status,
+    value: status === FieldStatus.FIELD_STATUS_OK ? Math.max(0, threadCount.value) : 0,
+  };
+}
+
+/**
+ * Maps the cumulative CPU-time counter into the renderer's CpuTime display value.
+ * This is the same native counter {@link deriveCpu} diffs for the percent, but
+ * surfaced directly: it is shown as soon as it is read (no first-sample UNKNOWN),
+ * since a cumulative total needs no delta. A negative value clamps to zero.
+ */
+function toCpuTime(cpu: NativeProcessCpu | undefined): CpuTime {
+  const counter = cpu?.cumulativeCpuTimeNs;
+  if (counter === undefined) {
+    return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, nanos: 0 };
+  }
+  const status = toFieldStatus(counter.status);
+  return {
+    status,
+    nanos: status === FieldStatus.FIELD_STATUS_OK ? Math.max(0, counter.value) : 0,
+  };
+}
+
+/**
+ * Maps the owning user (uid + resolved name). uid and name share one
+ * availability; an unmapped uid stays OK with the numeric value and an empty
+ * name. The name is non-sensitive identity data (it is a login name, not argv),
+ * so it is forwarded for display.
+ */
+function toProcessUser(user: NativeProcessUser | undefined): ProcessUser {
+  if (user === undefined) {
+    return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, uid: 0, name: "" };
+  }
+  const status = toFieldStatus(user.status);
+  return {
+    status,
+    uid: status === FieldStatus.FIELD_STATUS_OK ? user.uid : 0,
+    name: status === FieldStatus.FIELD_STATUS_OK ? user.name : "",
   };
 }
 
@@ -461,6 +516,9 @@ export class ProcessSnapshotService {
       commandLine,
       memory: toProcessMemory(record.memory),
       cpu,
+      threadCount: toThreadCount(record.threadCount),
+      cpuTime: toCpuTime(record.cpu),
+      user: toProcessUser(record.user),
     };
   }
 

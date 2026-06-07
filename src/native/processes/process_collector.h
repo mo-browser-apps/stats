@@ -9,11 +9,12 @@ namespace mostats {
  * Collects the current macOS process list into the generated response.
  *
  * Inspection-only and read-only: it enumerates PIDs and reads per-process
- * identity, command name, executable path, command-line arguments, memory, and
- * cumulative CPU time, attaching an explicit availability to each field. It
- * never sends signals or performs actions (process actions are main-owned and
- * land in a later iteration), and it computes no rates - the cumulative CPU
- * counter is diffed across snapshots in main.
+ * identity, command name, executable path, command-line arguments, memory,
+ * cumulative CPU time, thread count, and owning user, attaching an explicit
+ * availability to each field. It never sends signals or performs actions
+ * (process actions are main-owned and land in a later iteration), and it
+ * computes no rates - the cumulative CPU counter is diffed across snapshots in
+ * main.
  *
  * Sources: libproc (proc_listallpids, PROC_PIDTASKALLINFO, proc_name,
  * proc_pidpath), sysctl KERN_PROCARGS2 for arguments, and proc_pid_rusage for

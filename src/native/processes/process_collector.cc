@@ -2,6 +2,7 @@
 
 #include <libproc.h>
 #include <mach/mach_time.h>
+#include <pwd.h>
 #include <sys/proc_info.h>
 #include <sys/resource.h>
 #include <sys/sysctl.h>
@@ -353,6 +354,44 @@ void FillCpu(const proc_taskallinfo& task, bool task_ok,
                     SaturatingInt64(MachTicksToNanos(ticks)));
 }
 
+// Fills the thread count from task info (pti_threadnum). Available only when the
+// PROC_PIDTASKALLINFO read succeeded; otherwise it carries that read's status.
+void FillThreadCount(const proc_taskallinfo& task, bool task_ok,
+                     NativeFieldStatus task_status, NativeInt64* out) {
+  if (!task_ok) {
+    out->set_status(task_status);
+    return;
+  }
+  SetAvailableInt64(out, std::max(0, task.ptinfo.pti_threadnum));
+}
+
+// Fills the owning user: the uid from BSD info (pbi_uid) plus its login name
+// resolved with getpwuid_r. Available only when task info was read; an unmapped
+// uid (no passwd entry) stays AVAILABLE with the numeric uid and an empty name,
+// because the uid itself is still a real value. getpwuid_r is used (not
+// getpwuid) so the per-pass loop stays thread-safe and does not return a pointer
+// into shared static storage.
+void FillUser(const proc_taskallinfo& task, bool task_ok,
+              NativeFieldStatus task_status, NativeProcessUser* out) {
+  if (!task_ok) {
+    out->set_status(task_status);
+    return;
+  }
+  const uid_t uid = task.pbsd.pbi_uid;
+  out->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
+  out->set_uid(static_cast<int32_t>(uid));
+
+  // Resolve the login name. A miss (no entry / error) is not a failure: the uid
+  // is still valid, so the name is simply left empty.
+  struct passwd pwd = {};
+  struct passwd* result = nullptr;
+  char buffer[1024] = {};
+  if (getpwuid_r(uid, &pwd, buffer, sizeof(buffer), &result) == 0 &&
+      result != nullptr && result->pw_name != nullptr) {
+    out->set_name(result->pw_name);
+  }
+}
+
 // Builds one process record from all sources. Each field carries its own
 // availability so a single denied/exited read degrades that field, not the row.
 // app_metadata holds GUI-app metadata keyed by PID (from NSWorkspace); a record
@@ -383,6 +422,8 @@ void FillRecord(
   FillCommandLine(pid, arg_max, args_buffer, record->mutable_command_line());
   FillMemory(pid, task, task_ok, task_status, record->mutable_memory());
   FillCpu(task, task_ok, task_status, record->mutable_cpu());
+  FillThreadCount(task, task_ok, task_status, record->mutable_thread_count());
+  FillUser(task, task_ok, task_status, record->mutable_user());
 
   // GUI app metadata enrichment (NSWorkspace): copy the entry for this PID when
   // one exists. NSWorkspace remains the source of exact bundle id, localized app

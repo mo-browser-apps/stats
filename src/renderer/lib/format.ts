@@ -93,6 +93,47 @@ export function formatUptime(seconds: number): string {
 }
 
 /**
+ * Formats a cumulative CPU time given in nanoseconds as a compact duration,
+ * matching Activity Monitor's "CPU Time" column: `4.62s` below a minute and
+ * `40:31.84` (m:ss.cc) below an hour both carry centiseconds, so the value
+ * visibly advances on each refresh even when a near-idle process only accrues a
+ * few milliseconds per tick. From an hour up it is `1:00:05` (h:mm:ss) without
+ * centiseconds - it still ticks every second and keeps the width bounded.
+ * Tabular figures (applied where it is rendered) keep the width stable as the
+ * value changes.
+ */
+export function formatCpuTime(nanos: number): string {
+  if (!Number.isFinite(nanos) || nanos < 0) return UNAVAILABLE_TEXT;
+
+  const totalSeconds = nanos / 1_000_000_000;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    const wholeSeconds = Math.floor(seconds);
+    return `${hours}:${pad2(minutes)}:${pad2(wholeSeconds)}`;
+  }
+  if (minutes > 0) {
+    // m:ss.cc - centiseconds keep the value visibly ticking each refresh.
+    return `${minutes}:${pad2(Math.floor(seconds))}.${centis(seconds)}`;
+  }
+  return `${seconds.toFixed(2)}s`;
+}
+
+/** Two-digit zero-padded integer, for the mm/ss fields. */
+function pad2(value: number): string {
+  return value.toString().padStart(2, "0");
+}
+
+/** The centiseconds (00-99) of a fractional second, zero-padded. */
+function centis(seconds: number): string {
+  return Math.floor((seconds % 1) * 100)
+    .toString()
+    .padStart(2, "0");
+}
+
+/**
  * Formats a CPU temperature in Celsius, e.g. `48°C`. Whole degrees keep the
  * width stable and match how macOS surfaces temperatures.
  */
