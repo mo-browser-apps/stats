@@ -183,10 +183,10 @@ AppBundle AppBundleForPath(const std::string& executable_path) {
   return {path, name};
 }
 
-// Whether NSRunningApplication.icon should be used directly for this process.
-// Nested helper apps are grouped under the outer app, so they intentionally
-// use the owner app icon resolved later from the executable path.
-bool ShouldUseRunningApplicationIcon(NSRunningApplication* application) {
+// Whether this running app is the same outer `.app` MoStats groups by. Nested
+// helper apps are grouped under the outer app, so they use the owner icon
+// resolved later from the executable path.
+bool IsGroupedOwnerApplication(NSRunningApplication* application) {
   NSString* bundle_path = application.bundleURL.path;
   NSString* executable_path = application.executableURL.path;
   if (bundle_path.length == 0 || executable_path.length == 0) {
@@ -269,7 +269,7 @@ std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata() {
         if (bundle_path.length > 0) {
           FillBundle(bundle_path.UTF8String, metadata.mutable_bundle());
         }
-        if (ShouldUseRunningApplicationIcon(application)) {
+        if (IsGroupedOwnerApplication(application)) {
           FillIcon(metadata.mutable_icon_png(), application.icon,
                    RunningApplicationIconCacheKey(application));
         }

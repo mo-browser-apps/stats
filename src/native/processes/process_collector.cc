@@ -58,13 +58,6 @@ void SetAvailableString(NativeString* out, const char* value) {
   out->set_value(value == nullptr ? "" : value);
 }
 
-std::string AvailableStringValue(const NativeString& value) {
-  if (value.status() != NATIVE_FIELD_STATUS_AVAILABLE) {
-    return {};
-  }
-  return value.value();
-}
-
 // Fills a NativeInt64 as available with the given value.
 void SetAvailableInt64(NativeInt64* out, int64_t value) {
   out->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
@@ -405,28 +398,13 @@ void FillRecord(
   const bool has_app_icon =
       record->has_app() &&
       record->app().icon_png().status() == NATIVE_FIELD_STATUS_AVAILABLE;
-  const std::string exact_app_bundle_path =
-      record->has_app()
-          ? AvailableStringValue(record->app().bundle().path())
-          : std::string();
 
   if (record->executable_path().status() == NATIVE_FIELD_STATUS_AVAILABLE) {
     FillAppBundle(record->executable_path().value(),
                   record->mutable_app()->mutable_bundle());
-    const std::string owner_app_bundle_path =
-        AvailableStringValue(record->app().bundle().path());
-    const bool nested_app_icon =
-        has_app_icon && !exact_app_bundle_path.empty() &&
-        !owner_app_bundle_path.empty() &&
-        exact_app_bundle_path != owner_app_bundle_path;
-
-    if (!has_app_icon || nested_app_icon) {
-      NativeImage owner_icon;
-      IconForExecutablePath(record->executable_path().value(), &owner_icon);
-      if (owner_icon.status() == NATIVE_FIELD_STATUS_AVAILABLE ||
-          !has_app_icon) {
-        *record->mutable_app()->mutable_icon_png() = owner_icon;
-      }
+    if (!has_app_icon) {
+      IconForExecutablePath(record->executable_path().value(),
+                            record->mutable_app()->mutable_icon_png());
     }
   } else if (
       !has_app_icon &&

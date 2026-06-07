@@ -10,14 +10,20 @@
 namespace mostats {
 
 /**
- * Maps PID -> GUI application identity (bundle id, localized name, and exact
- * bundle path when appropriate) for the currently running applications.
+ * Maps PID -> GUI application identity (bundle id, localized name, exact bundle
+ * path when appropriate, and sometimes an icon) for the currently running
+ * applications.
  *
  * Backed by NSWorkspace.runningApplications, so it only covers processes that
  * macOS treats as user-facing GUI applications (Finder, Safari, Xcode, ...),
  * not every PID in the process table. The process collector merges this onto the
  * matching records; processes with no entry keep bundle id / localized name
  * unset (UNKNOWN downstream).
+ *
+ * Icon policy: only the running app that is also the outer `.app` MoStats groups
+ * by gets its exact NSRunningApplication icon here. Nested helper apps keep
+ * their identity metadata but no icon, so the collector can resolve the shared
+ * owner icon from the executable path.
  *
  * Each field carries per-field availability, marked unavailable when missing
  * rather than faked.
