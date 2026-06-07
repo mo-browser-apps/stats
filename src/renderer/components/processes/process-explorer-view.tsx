@@ -92,13 +92,6 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     [],
   );
   const goBack = useCallback(() => setSelectionStack((stack) => stack.slice(0, -1)), []);
-
-  // The detail model for the deepest still-resolvable selection, re-resolved from
-  // the current snapshot and sort so CPU/memory stay live as ticks arrive. If the
-  // top selection's process(es) have exited it falls back down the stack (member
-  // gone -> its group; group gone -> the list) without mutating state. Back still
-  // pops the (now-dead) top entry, so at worst one Back press lands on the level
-  // already shown before continuing up.
   const detail = useMemo(() => {
     for (let depth = selectionStack.length - 1; depth >= 0; depth -= 1) {
       const group = resolveSelection(snapshot, sort, selectionStack[depth]);
