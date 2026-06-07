@@ -4,6 +4,7 @@
 #include <mach/mach_time.h>
 #include <pwd.h>
 #include <sys/proc_info.h>
+#include <sys/proc.h>
 #include <sys/resource.h>
 #include <sys/sysctl.h>
 #include <unistd.h>
@@ -120,6 +121,29 @@ bool ListAllPids(std::vector<pid_t>* out, NativeFieldStatus* status) {
   return false;
 }
 
+// Reads the older BSD `kern.proc.pid` record for coarse identity fields. Some
+// protected macOS processes (notably WindowServer) deny PROC_PIDTASKALLINFO but
+// still expose their name, parent PID, start time, and uid through this public
+// sysctl. It does not expose reliable CPU or memory on current macOS, so it is
+// an identity fallback only.
+bool ReadKinfoProc(pid_t pid, kinfo_proc* info, NativeFieldStatus* status) {
+  int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, static_cast<int>(pid)};
+  size_t info_size = sizeof(*info);
+  errno = 0;
+  if (sysctl(mib, 4, info, &info_size, nullptr, 0) != 0) {
+    *status = StatusFromErrno(errno);
+    return false;
+  }
+
+  if (info_size >= sizeof(*info) && info->kp_proc.p_pid == pid) {
+    *status = NATIVE_FIELD_STATUS_AVAILABLE;
+    return true;
+  }
+
+  *status = NATIVE_FIELD_STATUS_PROCESS_EXITED;
+  return false;
+}
+
 // Reads PROC_PIDTASKALLINFO (BSD + task info) for one PID. This single call
 // provides the parent PID, command name, start time, resident size, and the
 // cumulative CPU-time counter, so it is the backbone of each record.
@@ -135,9 +159,24 @@ bool ReadTaskAllInfo(pid_t pid, proc_taskallinfo* info, NativeFieldStatus* statu
   return false;
 }
 
+// Chooses a status when a primary task-info read and its BSD sysctl fallback
+// both failed. A definite exit beats a denial; otherwise the original task-info
+// failure is the most useful explanation for task-backed fields.
+NativeFieldStatus CombinedFallbackStatus(NativeFieldStatus task_status,
+                                         NativeFieldStatus kinfo_status) {
+  if (kinfo_status == NATIVE_FIELD_STATUS_PROCESS_EXITED) {
+    return kinfo_status;
+  }
+  return task_status == NATIVE_FIELD_STATUS_UNSPECIFIED ? kinfo_status
+                                                        : task_status;
+}
+
 // Resolves the short command name, preferring proc_name and falling back to the
-// BSD info's registered name/comm when task info is available.
+// BSD info's registered name/comm when task info is available. For protected
+// processes that deny task info, falls back to kern.proc.pid's p_comm.
 void FillCommandName(pid_t pid, const proc_taskallinfo& task, bool task_ok,
+                     const kinfo_proc& kinfo, bool kinfo_ok,
+                     NativeFieldStatus kinfo_status,
                      NativeString* out) {
   char name[2 * MAXCOMLEN] = {};
   errno = 0;
@@ -157,7 +196,15 @@ void FillCommandName(pid_t pid, const proc_taskallinfo& task, bool task_ok,
     }
   }
 
-  out->set_status(StatusFromErrno(errno));
+  if (kinfo_ok && kinfo.kp_proc.p_comm[0] != '\0') {
+    SetAvailableString(out, kinfo.kp_proc.p_comm);
+    return;
+  }
+
+  const NativeFieldStatus name_status = StatusFromErrno(errno);
+  out->set_status(
+      name_status == NATIVE_FIELD_STATUS_UNAVAILABLE ? kinfo_status
+                                                     : name_status);
 }
 
 // Returns the basename of an absolute path, or the whole string if it has no
@@ -185,18 +232,40 @@ void FillExecutablePathAndName(pid_t pid, NativeString* path_out,
 }
 
 // Reads the start time from BSD info and writes it onto the identity as Unix
-// milliseconds. Only valid when task info was read.
-void FillStartTime(const proc_taskallinfo& task, bool task_ok,
-                   NativeProcessIdentity* identity) {
-  if (!task_ok || task.pbsd.pbi_start_tvsec == 0) {
+// milliseconds. Uses kern.proc.pid as a fallback when task info is denied.
+void SetStartTime(const timeval& start_time, NativeProcessIdentity* identity) {
+  if (start_time.tv_sec == 0) {
     identity->set_started_at_status(NATIVE_FIELD_STATUS_UNAVAILABLE);
     return;
   }
   const int64_t millis =
-      static_cast<int64_t>(task.pbsd.pbi_start_tvsec) * 1000 +
-      static_cast<int64_t>(task.pbsd.pbi_start_tvusec) / 1000;
+      static_cast<int64_t>(start_time.tv_sec) * 1000 +
+      static_cast<int64_t>(start_time.tv_usec) / 1000;
   identity->set_started_at_status(NATIVE_FIELD_STATUS_AVAILABLE);
   identity->set_started_at_unix_ms(millis);
+}
+
+void FillStartTime(const proc_taskallinfo& task, bool task_ok,
+                   NativeFieldStatus task_status,
+                   const kinfo_proc& kinfo, bool kinfo_ok,
+                   NativeFieldStatus kinfo_status,
+                   NativeProcessIdentity* identity) {
+  if (task_ok) {
+    timeval start_time = {};
+    start_time.tv_sec = static_cast<time_t>(task.pbsd.pbi_start_tvsec);
+    start_time.tv_usec =
+        static_cast<suseconds_t>(task.pbsd.pbi_start_tvusec);
+    SetStartTime(start_time, identity);
+    return;
+  }
+
+  if (kinfo_ok) {
+    SetStartTime(kinfo.kp_proc.p_starttime, identity);
+    return;
+  }
+
+  identity->set_started_at_status(
+      CombinedFallbackStatus(task_status, kinfo_status));
 }
 
 // Parses a KERN_PROCARGS2 buffer into the argument vector. Layout: a leading
@@ -365,19 +434,12 @@ void FillThreadCount(const proc_taskallinfo& task, bool task_ok,
   SetAvailableInt64(out, std::max(0, task.ptinfo.pti_threadnum));
 }
 
-// Fills the owning user: the uid from BSD info (pbi_uid) plus its login name
-// resolved with getpwuid_r. Available only when task info was read; an unmapped
-// uid (no passwd entry) stays AVAILABLE with the numeric uid and an empty name,
-// because the uid itself is still a real value. getpwuid_r is used (not
-// getpwuid) so the per-pass loop stays thread-safe and does not return a pointer
-// into shared static storage.
-void FillUser(const proc_taskallinfo& task, bool task_ok,
-              NativeFieldStatus task_status, NativeProcessUser* out) {
-  if (!task_ok) {
-    out->set_status(task_status);
-    return;
-  }
-  const uid_t uid = task.pbsd.pbi_uid;
+// Fills the owning user from task info or the kern.proc.pid fallback, then
+// resolves the login name with getpwuid_r. An unmapped uid (no passwd entry)
+// stays AVAILABLE with the numeric uid and an empty name, because the uid itself
+// is still a real value. getpwuid_r is used (not getpwuid) so the per-pass loop
+// stays thread-safe and does not return a pointer into shared static storage.
+void SetAvailableUser(uid_t uid, NativeProcessUser* out) {
   out->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
   out->set_uid(static_cast<int32_t>(uid));
 
@@ -390,6 +452,23 @@ void FillUser(const proc_taskallinfo& task, bool task_ok,
       result != nullptr && result->pw_name != nullptr) {
     out->set_name(result->pw_name);
   }
+}
+
+void FillUser(const proc_taskallinfo& task, bool task_ok,
+              NativeFieldStatus task_status,
+              const kinfo_proc& kinfo, bool kinfo_ok,
+              NativeFieldStatus kinfo_status, NativeProcessUser* out) {
+  if (task_ok) {
+    SetAvailableUser(task.pbsd.pbi_uid, out);
+    return;
+  }
+
+  if (kinfo_ok) {
+    SetAvailableUser(kinfo.kp_eproc.e_ucred.cr_uid, out);
+    return;
+  }
+
+  out->set_status(CombinedFallbackStatus(task_status, kinfo_status));
 }
 
 // Builds one process record from all sources. Each field carries its own
@@ -407,23 +486,35 @@ void FillRecord(
   NativeFieldStatus task_status = NATIVE_FIELD_STATUS_UNAVAILABLE;
   const bool task_ok = ReadTaskAllInfo(pid, &task, &task_status);
 
-  FillStartTime(task, task_ok, identity);
+  kinfo_proc kinfo = {};
+  NativeFieldStatus kinfo_status = NATIVE_FIELD_STATUS_UNAVAILABLE;
+  const bool kinfo_ok =
+      task_ok ? false : ReadKinfoProc(pid, &kinfo, &kinfo_status);
+
+  FillStartTime(task, task_ok, task_status, kinfo, kinfo_ok, kinfo_status,
+                identity);
 
   if (task_ok) {
     record->set_parent_status(NATIVE_FIELD_STATUS_AVAILABLE);
     record->set_parent_pid(static_cast<int32_t>(task.pbsd.pbi_ppid));
+  } else if (kinfo_ok) {
+    record->set_parent_status(NATIVE_FIELD_STATUS_AVAILABLE);
+    record->set_parent_pid(static_cast<int32_t>(kinfo.kp_eproc.e_ppid));
   } else {
-    record->set_parent_status(task_status);
+    record->set_parent_status(
+        CombinedFallbackStatus(task_status, kinfo_status));
   }
 
-  FillCommandName(pid, task, task_ok, record->mutable_command_name());
+  FillCommandName(pid, task, task_ok, kinfo, kinfo_ok, kinfo_status,
+                  record->mutable_command_name());
   FillExecutablePathAndName(pid, record->mutable_executable_path(),
                             record->mutable_executable_name());
   FillCommandLine(pid, arg_max, args_buffer, record->mutable_command_line());
   FillMemory(pid, task, task_ok, task_status, record->mutable_memory());
   FillCpu(task, task_ok, task_status, record->mutable_cpu());
   FillThreadCount(task, task_ok, task_status, record->mutable_thread_count());
-  FillUser(task, task_ok, task_status, record->mutable_user());
+  FillUser(task, task_ok, task_status, kinfo, kinfo_ok, kinfo_status,
+           record->mutable_user());
 
   // GUI app metadata enrichment (NSWorkspace): copy the entry for this PID when
   // one exists. NSWorkspace remains the source of exact bundle id, localized app
