@@ -2,7 +2,7 @@
  * Pure presentation formatters for metric values.
  *
  * These convert raw snapshot numbers into compact, human-readable strings for
- * the overview cards. They are intentionally side-effect free and hold no OS or
+ * the overview cards. They are intentionally side effect free and hold no OS or
  * IPC knowledge, so they stay easy to reason about and test.
  */
 
@@ -24,7 +24,7 @@ export function formatPercent(value: number): string {
 
 /**
  * Formats a per-process CPU percentage. Uses Activity Monitor semantics, so the
- * value is NOT clamped at 100: one fully busy core is ~100% and a multi-threaded
+ * value is NOT clamped at 100: one fully busy core is ~100% and a multithreaded
  * process can read higher (e.g. `240.0%`). Negative noise is floored at 0.
  */
 export function formatCpuPercent(value: number): string {
@@ -140,32 +140,6 @@ function centis(seconds: number): string {
 export function formatCelsius(celsius: number): string {
   if (!Number.isFinite(celsius)) return UNAVAILABLE_TEXT;
   return `${Math.round(celsius)}°C`;
-}
-
-/**
- * Formats a load-average triple (1/5/15 min) as `1.20 / 0.80 / 0.50`. Returns
- * unavailable text when the platform supplied no entries.
- */
-export function formatLoadAverage(load: number[]): string {
-  if (!load || load.length === 0) return UNAVAILABLE_TEXT;
-  return load
-    .slice(0, 3)
-    .map((value) => (Number.isFinite(value) ? value.toFixed(2) : "?"))
-    .join(" / ");
-}
-
-/**
- * Formats a snapshot epoch-millisecond timestamp as a local wall-clock time,
- * e.g. `14:05:32`, for the "updated" caption.
- */
-export function formatTimestamp(epochMs: number): string {
-  if (!Number.isFinite(epochMs) || epochMs <= 0) return UNAVAILABLE_TEXT;
-  return new Date(epochMs).toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
 }
 
 /**
