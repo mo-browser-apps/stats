@@ -261,6 +261,27 @@ interface GroupAccumulator {
   members: ProcessRow[];
 }
 
+/** Starts a group accumulator with the first row that belongs to the group. */
+function createGroupAccumulator(key: string, row: ProcessRow, sort: SortMode): GroupAccumulator {
+  const metric = rowMetric(row, sort);
+  return {
+    key,
+    sortValueSum: metric.value ?? 0,
+    hasMetric: metric.value !== undefined,
+    anyPending: metric.pending,
+    members: [row],
+  };
+}
+
+/** Adds one row's active metric and identity to a group accumulator. */
+function addRowToGroup(group: GroupAccumulator, row: ProcessRow, sort: SortMode): void {
+  const metric = rowMetric(row, sort);
+  group.sortValueSum += metric.value ?? 0;
+  group.hasMetric = group.hasMetric || metric.value !== undefined;
+  group.anyPending = group.anyPending || metric.pending;
+  group.members.push(row);
+}
+
 /** Formats a group's summed metric for the compact list under the active sort. */
 function formatGroupMetric(sum: number, sort: SortMode): string {
   return sort === "cpu" ? formatCpuPercent(sum) : formatBytes(sum);
@@ -350,24 +371,14 @@ function buildGroupedRows(rows: ProcessRow[], sort: SortMode): ProcessGroup[] {
 
   for (const row of rows) {
     const key = rowGroupKey(row);
-    const metric = rowMetric(row, sort);
     const existing = groups.get(key);
 
     if (existing === undefined) {
-      groups.set(key, {
-        key,
-        sortValueSum: metric.value ?? 0,
-        hasMetric: metric.value !== undefined,
-        anyPending: metric.pending,
-        members: [row],
-      });
+      groups.set(key, createGroupAccumulator(key, row, sort));
       continue;
     }
 
-    existing.sortValueSum += metric.value ?? 0;
-    existing.hasMetric = existing.hasMetric || metric.value !== undefined;
-    existing.anyPending = existing.anyPending || metric.pending;
-    existing.members.push(row);
+    addRowToGroup(existing, row, sort);
   }
 
   const projected: ProcessGroup[] = Array.from(groups.values()).map((group) =>
@@ -443,18 +454,35 @@ export function projectProcessList(
 }
 
 /**
- * Finds one group by its {@link ProcessGroup.key} for the detail view, grouping
- * the full snapshot with no search filter and no display cap. Returns undefined
- * when the group is gone (its processes all exited), so the detail can fall back
- * to the list. The active sort is passed so the representative and member order
- * match the list the user opened from.
+ * Finds one group by its {@link ProcessGroup.key} for the detail view. Collects
+ * only the rows whose {@link rowGroupKey} matches (rather than grouping the whole
+ * snapshot and discarding the rest - the detail re-resolves on every tick, so this
+ * stays cheap), then folds them through the same {@link buildGroupRow} path the
+ * list uses, so the representative and member order match the list the user opened
+ * from. Returns undefined when the group is gone (its processes all exited), so
+ * the detail can fall back to the list. No display cap applies.
  */
 export function findGroupByKey(
   snapshot: ProcessSnapshot,
   sort: SortMode,
   key: string,
 ): ProcessGroup | undefined {
-  return buildGroups(snapshot.processes, sort, "").find((group) => group.key === key);
+  let group: GroupAccumulator | undefined = undefined;
+
+  for (const row of snapshot.processes) {
+    if (rowGroupKey(row) !== key) {
+      continue;
+    }
+
+    const existing = group;
+    if (existing === undefined) {
+      group = createGroupAccumulator(key, row, sort);
+    } else {
+      addRowToGroup(existing, row, sort);
+    }
+  }
+
+  return group === undefined ? undefined : buildGroupRow(group, sort);
 }
 
 /**

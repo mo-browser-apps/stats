@@ -109,11 +109,6 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     return undefined;
   }, [snapshot, sort, selectionStack]);
 
-  const projection = useMemo(
-    () => projectProcessList(snapshot, sort, query),
-    [snapshot, sort, query],
-  );
-
   const { actions, actionsBusy, actionMessage, runAction } = useProcessActions(detail, pull);
 
   if (detail) {
@@ -136,17 +131,49 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
   }
 
   return (
+    <ProcessListPanel
+      snapshot={snapshot}
+      sort={sort}
+      query={query}
+      onSortChange={setSort}
+      onQueryChange={setQuery}
+      onOpenSelection={openSelection}
+    />
+  );
+}
+
+function ProcessListPanel({
+  snapshot,
+  sort,
+  query,
+  onSortChange,
+  onQueryChange,
+  onOpenSelection,
+}: {
+  snapshot: ProcessSnapshot;
+  sort: SortMode;
+  query: string;
+  onSortChange: (sort: SortMode) => void;
+  onQueryChange: (query: string) => void;
+  onOpenSelection: (selection: DetailSelection) => void;
+}) {
+  const projection = useMemo(
+    () => projectProcessList(snapshot, sort, query),
+    [snapshot, sort, query],
+  );
+
+  return (
     <div className="flex flex-1 flex-col gap-3 overflow-hidden px-4 pb-4 pt-3">
       <div className="flex items-center gap-2">
-        <ProcessSearchField value={query} onChange={setQuery} />
-        <ProcessSortControl sort={sort} onChange={setSort} />
+        <ProcessSearchField value={query} onChange={onQueryChange} />
+        <ProcessSortControl sort={sort} onChange={onSortChange} />
       </div>
 
       <ProcessList
         projection={projection}
         status={snapshot.status}
         hasQuery={query.trim().length > 0}
-        onOpenSelection={openSelection}
+        onOpenSelection={onOpenSelection}
       />
     </div>
   );
