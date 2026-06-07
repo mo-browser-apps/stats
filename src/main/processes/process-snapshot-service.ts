@@ -212,10 +212,12 @@ function recordKey(record: NativeProcessRecord): ProcessKey | null {
  * ping so the renderer pulls the full snapshot only when it changes.
  *
  * Per-process CPU usage is derived here, not in native: the collector reports a
- * cumulative CPU-time counter, and this service diffs it across collections and
- * normalizes to logical-core count. A first sample, a restarted process (reused
- * PID with a new start time), a missing identity, or a non-positive interval
- * yields an UNKNOWN CPU value rather than a fabricated one.
+ * cumulative CPU-time counter, and this service diffs it across collections
+ * against wall time using Activity Monitor semantics: one fully busy core reads
+ * around 100%, multi-threaded processes can exceed 100%, and the value is capped
+ * at all logical cores. A first sample, a restarted process (reused PID with a
+ * new start time), a missing identity, or a non-positive interval yields an
+ * UNKNOWN CPU value rather than a fabricated one.
  *
  * Privacy: command-line arguments pass through to the renderer for local
  * display/search only. This service never logs request targets, argument
