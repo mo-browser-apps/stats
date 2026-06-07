@@ -100,7 +100,7 @@ function ActionButton({
       className={cn(
         "no-drag flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
         destructive
-          ? "border-destructive/40 text-destructive hover:bg-destructive/10"
+          ? "border-destructive/40 text-destructive/80 hover:bg-destructive/10"
           : "border-border text-foreground hover:bg-muted/60",
       )}
     >
