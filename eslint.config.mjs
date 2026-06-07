@@ -29,7 +29,7 @@ export default [
     ],
   },
   {
-    files: ["src/**/*.{ts,tsx}", "vite.config.ts"],
+    files: ["src/**/*.{ts,tsx}", "tests/**/*.ts", "vite.config.ts", "vitest.config.ts"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
