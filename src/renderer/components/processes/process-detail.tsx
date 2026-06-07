@@ -4,13 +4,13 @@ import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { UNAVAILABLE_TEXT, formatStartTime } from "@/lib/format";
 import type { ActionState, ProcessActionKind } from "@/gen/process_explorer";
-import { CommandLineBlock } from "@/components/processes/command-line-block";
-import { DisclosureContent, TextDisclosure } from "@/components/processes/disclosure";
+import { CopyButton, DisclosureContent } from "@/components/processes/disclosure";
 import { ProcessActions } from "@/components/processes/process-actions";
 import { ProcessIcon } from "@/components/processes/process-icon";
 import { ProcessSortControl } from "@/components/processes/process-sort-control";
 import type { SortMode } from "@/domain/process-list";
 import type {
+  DetailCommandLine,
   DetailMember,
   DetailMetric,
   DetailState,
@@ -103,7 +103,7 @@ export function ProcessDetailView({
           </div>
         </header>
 
-        <dl className="flex flex-col gap-2.5">
+        <dl className="flex flex-col gap-3">
           <Field label="Started">
             <StateText
               state={detail.startedAt}
@@ -114,16 +114,19 @@ export function ProcessDetailView({
               }
             />
           </Field>
+
+          <Field label="Path">
+            <ScrollableValue
+              state={detail.path}
+              text={detail.path === "ok" ? (detail.pathText ?? "") : undefined}
+              copyLabel="Copy executable path"
+            />
+          </Field>
+
+          <Field label="Command line">
+            <CommandLineValue commandLine={detail.commandLine} />
+          </Field>
         </dl>
-
-        <TextDisclosure
-          label="Path"
-          value={detail.path === "ok" ? (detail.pathText ?? "") : undefined}
-          state={detail.path}
-          copyLabel="Copy executable path"
-        />
-
-        <CommandLineBlock commandLine={detail.commandLine} />
 
         {grouped ? (
           <Members
@@ -184,26 +187,22 @@ function MetricValue({ metric, className }: { metric: DetailMetric; className?: 
 }
 
 /**
- * A labeled detail field: a quiet uppercase label, an optional right-aligned
- * action (e.g. a copy button), and the value content below.
+ * A labeled detail field: a quiet uppercase label with the value content on the
+ * line below. Used for the inline Started / Path / Command line stack; long
+ * values manage their own horizontal scroll and copy affordance.
  */
 function Field({
   label,
-  action,
   children,
 }: {
   label: string
-  action?: ReactNode
   children: ReactNode
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between">
-        <dt className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          {label}
-        </dt>
-        {action}
-      </div>
+      <dt className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+        {label}
+      </dt>
       <dd className="min-w-0">{children}</dd>
     </div>
   );
@@ -218,6 +217,69 @@ function StateText({ state, text }: { state: DetailState; text?: string }) {
     <span className="text-[12px] text-muted-foreground">
       {state === "pending" ? "--" : UNAVAILABLE_TEXT}
     </span>
+  );
+}
+
+/**
+ * A long single-line value (executable path, command line) shown inline beneath
+ * its label. Long values do not wrap - the mono text scrolls horizontally in a
+ * hidden-scrollbar lane (the same affordance the header name uses) so a deep path
+ * or a multi-flag command line stays on one readable line instead of breaking
+ * mid-word. A copy button sits at the end when a real value exists; pending and
+ * unavailable states render the muted placeholder with no copy affordance.
+ *
+ * Sensitive process text (paths, argv) is copied only on explicit user action and
+ * is never logged or persisted; copy routes through main (the renderer is
+ * sandboxed).
+ */
+function ScrollableValue({
+  state,
+  text,
+  copyLabel,
+  emptyText = UNAVAILABLE_TEXT,
+  pendingText = "--",
+}: {
+  state: DetailState
+  text?: string
+  copyLabel: string
+  emptyText?: string
+  pendingText?: string
+}) {
+  const hasContent = text !== undefined && text.length > 0;
+
+  if (!hasContent) {
+    const placeholder =
+      text !== undefined ? emptyText : state === "pending" ? pendingText : UNAVAILABLE_TEXT;
+    return <span className="text-[12px] text-muted-foreground">{placeholder}</span>;
+  }
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="scrollbar-hidden min-w-0 flex-1 overflow-x-auto" title={text}>
+        <span className="block w-max whitespace-nowrap font-mono text-[11px] leading-relaxed text-foreground">
+          {text}
+        </span>
+      </div>
+      <CopyButton text={text} label={copyLabel} />
+    </div>
+  );
+}
+
+/**
+ * The command-line field: a thin specialization of {@link ScrollableValue} with
+ * command-line-specific placeholders (an OK-but-empty argv reads "No arguments",
+ * a not-yet-collected one reads "..."). Command-line text is shown and copied only
+ * on explicit user action and is never logged or persisted.
+ */
+function CommandLineValue({ commandLine }: { commandLine: DetailCommandLine }) {
+  return (
+    <ScrollableValue
+      state={commandLine.state}
+      text={commandLine.state === "ok" ? (commandLine.text ?? "") : undefined}
+      copyLabel="Copy command line"
+      emptyText="No arguments"
+      pendingText="..."
+    />
   );
 }
 
