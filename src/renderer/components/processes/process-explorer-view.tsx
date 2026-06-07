@@ -120,6 +120,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     return (
       <div className="flex flex-1 flex-col overflow-hidden px-4 pb-4 pt-3">
         <ProcessDetailView
+          key={detail.key}
           detail={detail}
           sort={sort}
           actions={actions}

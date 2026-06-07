@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Clock, Cpu, User } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import { UNAVAILABLE_TEXT, formatStartTime } from "@/lib/format";
@@ -171,8 +171,8 @@ function SingleProcessMetric({ detail }: { detail: ProcessDetail }) {
 }
 
 /**
- * The compact secondary-stat strip under the header: owning user, thread count,
- * and total CPU, dot-separated with small icons.
+ * The compact secondary-stat strip under the header, each stat a small icon plus
+ * its value.
  */
 function HeaderStats({ detail, grouped }: { detail: ProcessDetail; grouped: boolean }) {
   const threadsText =
@@ -424,35 +424,39 @@ function Members({
 
 /**
  * One member row in the expanded Members section: icon, name, and the active-metric
- * value (matching the list's sort). The PID is intentionally omitted to give the
- * name more room - long helper names (e.g. "Google Chrome Helper (Renderer)") would
- * otherwise truncate hard; the PID is on the member's own detail page (one tap away)
- * and stays in the hover title / aria-label for disambiguation. App members share
- * their app's icon (helpers have no distinct icon of their own); a non-bundled
- * member shows its executable's icon. The whole row is a button that drills into
- * that member's own single-process detail.
+ * value (matching the list's sort).
  */
-function MemberRow({
-  member,
-  onOpen,
-}: {
-  member: DetailMember
-  onOpen: (pid: number, startedAtUnixMs?: number) => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onOpen(member.pid, member.startedAtUnixMs)}
-      aria-label={`Show details for ${member.name}, PID ${member.pid}`}
-      title={`${member.name} - PID ${member.pid}`}
-      className="no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-    >
-      <ProcessIcon iconPngBase64={member.iconPngBase64} name={member.name} />
-      <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">{member.name}</span>
-      <MetricValue
-        metric={{ state: member.metricState, text: member.metricText }}
-        className="w-20 text-[12px]"
-      />
-    </button>
-  );
-}
+const MemberRow = memo(
+  function MemberRow({
+    member,
+    onOpen,
+  }: {
+    member: DetailMember
+    onOpen: (pid: number, startedAtUnixMs?: number) => void
+  }) {
+    return (
+      <button
+        type="button"
+        onClick={() => onOpen(member.pid, member.startedAtUnixMs)}
+        aria-label={`Show details for ${member.name}, PID ${member.pid}`}
+        title={`${member.name} - PID ${member.pid}`}
+        className="no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        <ProcessIcon iconPngBase64={member.iconPngBase64} name={member.name} />
+        <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">{member.name}</span>
+        <MetricValue
+          metric={{ state: member.metricState, text: member.metricText }}
+          className="w-20 text-[12px]"
+        />
+      </button>
+    );
+  },
+  (prev, next) =>
+    prev.onOpen === next.onOpen &&
+    prev.member.pid === next.member.pid &&
+    prev.member.startedAtUnixMs === next.member.startedAtUnixMs &&
+    prev.member.name === next.member.name &&
+    prev.member.iconPngBase64 === next.member.iconPngBase64 &&
+    prev.member.metricState === next.member.metricState &&
+    prev.member.metricText === next.member.metricText,
+);
