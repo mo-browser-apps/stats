@@ -170,6 +170,35 @@
   .scrollbar-hidden::-webkit-scrollbar {
     display: none;
   }
+
+  /*
+   * Edge fade for a horizontally scrollable lane.
+   */
+  .scroll-fade {
+    --scroll-fade-size: 1.5rem;
+  }
+
+  .scroll-fade[data-fade="end"] {
+    mask-image: linear-gradient(
+      to right,
+      black calc(100% - var(--scroll-fade-size)),
+      transparent
+    );
+  }
+
+  .scroll-fade[data-fade="start"] {
+    mask-image: linear-gradient(to right, transparent, black var(--scroll-fade-size));
+  }
+
+  .scroll-fade[data-fade="both"] {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black var(--scroll-fade-size),
+      black calc(100% - var(--scroll-fade-size)),
+      transparent
+    );
+  }
 }
 
 @layer base {

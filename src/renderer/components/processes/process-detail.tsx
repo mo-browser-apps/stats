@@ -6,6 +6,7 @@ import { UNAVAILABLE_TEXT, formatStartTime } from "@/lib/format";
 import type { ActionState, ProcessActionKind } from "@/gen/process_explorer";
 import { CopyButton, DisclosureContent } from "@/components/processes/disclosure";
 import { ProcessActions } from "@/components/processes/process-actions";
+import { ScrollFade } from "@/components/processes/scroll-fade";
 import { ProcessIcon } from "@/components/processes/process-icon";
 import { ProcessSortControl } from "@/components/processes/process-sort-control";
 import type { SortMode } from "@/domain/process-list";
@@ -90,16 +91,16 @@ export function ProcessDetailView({
         <header className="flex items-center gap-3">
           <ProcessIcon iconPngBase64={detail.iconPngBase64} name={detail.name} size="lg" />
           <div className="min-w-0 flex-1 space-y-0.5">
-            <div className="scrollbar-hidden min-w-0 overflow-x-auto" title={detail.name}>
+            <ScrollFade title={detail.name}>
               <h2 className="w-max whitespace-nowrap text-[15px] font-medium text-foreground">
                 {detail.name}
               </h2>
-            </div>
-            <div className="scrollbar-hidden min-w-0 overflow-x-auto" title={metadata}>
+            </ScrollFade>
+            <ScrollFade title={metadata}>
               <p className="w-max whitespace-nowrap text-[11px] text-muted-foreground">
                 {metadata}
               </p>
-            </div>
+            </ScrollFade>
           </div>
         </header>
 
@@ -255,11 +256,11 @@ function ScrollableValue({
 
   return (
     <div className="flex items-center gap-1.5">
-      <div className="scrollbar-hidden min-w-0 flex-1 overflow-x-auto" title={text}>
+      <ScrollFade className="flex-1" title={text}>
         <span className="block w-max whitespace-nowrap font-mono text-[11px] leading-relaxed text-foreground">
           {text}
         </span>
-      </div>
+      </ScrollFade>
       <CopyButton text={text} label={copyLabel} />
     </div>
   );
