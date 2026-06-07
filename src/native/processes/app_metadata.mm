@@ -31,6 +31,25 @@ std::unordered_map<std::string, std::string>& IconCache() {
   return cache;
 }
 
+// Stable cache key for a foreground GUI app's icon. Prefer the bundle id because
+// NSRunningApplication.icon is the authoritative icon for that running app; fall
+// back to paths only for apps without a bundle id.
+std::string RunningApplicationIconCacheKey(NSRunningApplication* application) {
+  NSString* bundle_id = application.bundleIdentifier;
+  if (bundle_id.length > 0) {
+    return bundle_id.UTF8String;
+  }
+  NSString* bundle_path = application.bundleURL.path;
+  if (bundle_path.length > 0) {
+    return bundle_path.UTF8String;
+  }
+  NSString* executable_path = application.executableURL.path;
+  if (executable_path.length > 0) {
+    return executable_path.UTF8String;
+  }
+  return {};
+}
+
 // Fills a NativeString from an NSString, marking it unavailable when empty so an
 // absent value is never confused with a real empty string.
 void FillString(NativeString* out, NSString* value) {
@@ -236,6 +255,8 @@ std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata() {
         if (bundle_path.length > 0) {
           FillBundle(bundle_path.UTF8String, metadata.mutable_bundle());
         }
+        FillIcon(metadata.mutable_icon_png(), application.icon,
+                 RunningApplicationIconCacheKey(application));
       }
       by_pid.emplace(static_cast<int32_t>(application.processIdentifier),
                      std::move(metadata));
