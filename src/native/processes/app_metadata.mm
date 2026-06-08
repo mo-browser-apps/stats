@@ -190,7 +190,7 @@ bool IsGroupedOwnerApplication(NSRunningApplication* application) {
   NSString* bundle_path = application.bundleURL.path;
   NSString* executable_path = application.executableURL.path;
   if (bundle_path.length == 0 || executable_path.length == 0) {
-    return true;
+    return true;  // No path to prove it is nested; treat it as its own owner.
   }
   const AppBundle owner = AppBundleForPath(executable_path.UTF8String);
   return owner.path.empty() || owner.path == bundle_path.UTF8String;

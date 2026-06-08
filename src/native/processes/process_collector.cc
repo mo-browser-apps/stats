@@ -384,13 +384,10 @@ void FillMemory(pid_t pid, const proc_taskallinfo& task, bool task_ok,
   }
 }
 
-// Converts a mach absolute-time tick count to nanoseconds using the host
-// timebase. proc_pidinfo reports pti_total_user/pti_total_system in mach time
-// units, NOT nanoseconds (verified on Apple Silicon, where the timebase is
-// numer/denom = 125/3, so one tick is ~41.67 ns); the timebase is 1/1 only on
-// older Intel Macs. A 128-bit intermediate avoids overflow in tick * numer for
-// large cumulative counters. The timebase is constant for the host, so it is
-// queried once.
+// Converts a mach absolute-time tick count to nanoseconds. proc_pidinfo reports
+// pti_total_user/system in mach time units, NOT nanoseconds (e.g. ~41.67 ns per
+// tick on Apple Silicon; 1:1 only on older Intel). The 128-bit intermediate
+// avoids overflow in tick * numer; the host timebase is queried once.
 uint64_t MachTicksToNanos(uint64_t ticks) {
   static const mach_timebase_info_data_t timebase = [] {
     mach_timebase_info_data_t info = {1, 1};

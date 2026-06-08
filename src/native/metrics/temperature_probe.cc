@@ -14,6 +14,7 @@
 #include <cstring>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -86,13 +87,10 @@ struct TemperatureAccumulator {
 // ---------------------------------------------------------------------------
 // SMC CPU-core temperature path (primary)
 //
-// On Apple Silicon the per-core die temperatures are exposed as AppleSMC keys
-// whose names differ by chip generation. This is the source Stats averages for
-// its "Average CPU" value, so it is the source we mirror. The catch is that a
-// parked core's key reads an idle floor (~5 C) rather than its real
-// temperature, so a single cold read averages in garbage. We hold the last
-// in-range value per key and reuse it while a core is parked - the same
-// technique Stats uses to keep the number steady.
+// Apple Silicon exposes per-core temperatures as AppleSMC keys whose names
+// differ by chip generation. A parked core's key reads an idle floor (~5 C)
+// rather than its real value, so we hold the last in-range reading per key and
+// reuse it while the core is parked, keeping the average steady.
 // ---------------------------------------------------------------------------
 
 // AppleSMC user-client RPC selectors and per-call sub-commands.
@@ -369,23 +367,17 @@ class SmcConnection {
 
 // Returns the CPU-core key list for this machine's generation, or an empty
 // span for non-Apple-Silicon / unknown chips.
-std::optional<std::pair<const std::string_view*, size_t>> CpuKeysForGeneration(
+std::span<const std::string_view> CpuKeysForGeneration(
     AppleSiliconGeneration generation) {
   switch (generation) {
-    case AppleSiliconGeneration::kM1:
-      return std::make_pair(kM1CpuKeys.data(), kM1CpuKeys.size());
-    case AppleSiliconGeneration::kM2:
-      return std::make_pair(kM2CpuKeys.data(), kM2CpuKeys.size());
-    case AppleSiliconGeneration::kM3:
-      return std::make_pair(kM3CpuKeys.data(), kM3CpuKeys.size());
-    case AppleSiliconGeneration::kM4:
-      return std::make_pair(kM4CpuKeys.data(), kM4CpuKeys.size());
-    case AppleSiliconGeneration::kM5:
-      return std::make_pair(kM5CpuKeys.data(), kM5CpuKeys.size());
-    case AppleSiliconGeneration::kUnknown:
-      return std::nullopt;
+    case AppleSiliconGeneration::kM1: return kM1CpuKeys;
+    case AppleSiliconGeneration::kM2: return kM2CpuKeys;
+    case AppleSiliconGeneration::kM3: return kM3CpuKeys;
+    case AppleSiliconGeneration::kM4: return kM4CpuKeys;
+    case AppleSiliconGeneration::kM5: return kM5CpuKeys;
+    case AppleSiliconGeneration::kUnknown: return {};
   }
-  return std::nullopt;
+  return {};
 }
 
 // Process-lifetime CPU-core temperature reader. Holds one SMC connection and
@@ -411,20 +403,10 @@ class CpuCoreTemperatureReader {
       return accumulator;
     }
 
-    const auto keys = CpuKeysForGeneration(generation_);
-    if (!keys.has_value()) {
-      return accumulator;
-    }
-
-    const std::string_view* key_data = keys->first;
-    const size_t key_count = keys->second;
-    for (size_t i = 0; i < key_count; ++i) {
-      const std::string_view key = key_data[i];
-
-      // Resolve the key's metadata once and cache it: size/type are fixed for
-      // the life of the machine, so every later tick skips the key-info RPC and
-      // does only the single bytes-read. A key absent from this chip never
-      // resolves and is skipped for good.
+    for (const std::string_view key : CpuKeysForGeneration(generation_)) {
+      // Cache each key's metadata: size/type are fixed for the machine's life,
+      // so later ticks skip the key-info RPC and do only the bytes-read. A key
+      // absent from this chip never resolves and is skipped for good.
       auto info_it = key_info_.find(std::string(key));
       if (info_it == key_info_.end()) {
         const std::optional<SmcKeyInfo> info = smc_.ReadKeyInfo(key);
@@ -438,9 +420,9 @@ class CpuCoreTemperatureReader {
       if (!value.has_value()) {
         continue;
       }
-      const std::optional<double> celsius = DecodeSmcTemperature(*value);
       // Keep only in-range readings; a parked core reads the idle floor and is
       // ignored this tick (its held value, if any, still counts below).
+      const std::optional<double> celsius = DecodeSmcTemperature(*value);
       if (celsius.has_value() && IsPlausibleTemperature(*celsius)) {
         last_good_[std::string(key)] = *celsius;
       }
@@ -467,16 +449,12 @@ class CpuCoreTemperatureReader {
 // ---------------------------------------------------------------------------
 // HID CPU-core temperature path
 //
-// Apple also exposes the per-core CPU temperatures on a dedicated HID page
-// (kHIDPage_AppleVendorTemperatureSensor, 0xff05) as services named
-// "pACC MTR Temp ..." (performance cores) and "eACC MTR Temp ..." (efficiency
-// cores). Unlike the SMC core keys these come back already resolved and do not
-// park at an idle floor, so they need no last-good handling - only a plausible-
-// range filter. This page is empty on some machines (it returned no services on
-// the M2 Max this was developed on); where present it is a real CPU-core source
-// and its readings are averaged together with the SMC core readings. We do NOT
-// read the SOC die sensors here: those are not CPU-core temperatures, so using
-// them would misreport the value the card claims to show.
+// Apple also exposes per-core CPU temperatures on a HID page (0xff05) as
+// services named "pACC MTR Temp" (performance) and "eACC MTR Temp" (efficiency
+// cores). These come back already resolved (no idle floor), so they need only a
+// range filter. The page is empty on some machines; where present its readings
+// are averaged with the SMC ones. SOC die sensors on this page are deliberately
+// skipped - they are not CPU-core temperatures.
 // ---------------------------------------------------------------------------
 
 constexpr int32_t kHIDEventTypeTemperature = 15;
