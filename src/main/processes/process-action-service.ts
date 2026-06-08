@@ -16,7 +16,9 @@ import {
   RunProcessActionResponse_Outcome as Outcome,
 } from "../gen/process_explorer";
 
-/** The action kinds the detail view exposes, in display order. */
+/**
+ * The action kinds the detail view exposes, in display order.
+ */
 const ACTION_KINDS: readonly ProcessActionKind[] = [
   ProcessActionKind.PROCESS_ACTION_KIND_REVEAL,
   ProcessActionKind.PROCESS_ACTION_KIND_QUIT,
@@ -24,17 +26,15 @@ const ACTION_KINDS: readonly ProcessActionKind[] = [
 ];
 
 /**
- * A small, deliberately narrow denylist of session-critical processes whose
- * termination would crash, log out, or visibly destabilize the macOS session.
- * These cannot be quit/force-quit regardless of who owns them.
+ * A deliberately narrow denylist of session-critical processes whose termination
+ * would crash, log out, or visibly destabilize the macOS session. These cannot be
+ * quit/force-quit regardless of who owns them.
  *
- * This is intentionally NOT a "block all Apple/system software" rule. Ordinary
- * apps - including Apple's bundled apps like Notes, Calculator, and Mail (which
- * live under /System/Applications) - are quittable; only this hardcoded set is
- * protected. Anything else is allowed to be signaled, and the OS itself is the
- * final backstop: a process owned by another user (e.g. a root daemon) rejects
- * an unprivileged signal with EPERM, which is reported as NOT_PERMITTED rather
- * than pre-emptively greyed out.
+ * This is intentionally NOT a "block all Apple/system software" rule: ordinary
+ * apps - including Apple's bundled apps like Notes - are quittable, and only this
+ * hardcoded set is protected. Anything else may be signaled, and the OS is the
+ * final backstop: a process owned by another user (e.g. a root daemon) rejects an
+ * unprivileged signal with EPERM, reported as NOT_PERMITTED rather than greyed out.
  */
 const CRITICAL_PROCESS_NAMES: ReadonlySet<string> = new Set([
   "kernel_task", // the kernel
@@ -49,7 +49,9 @@ const CRITICAL_PROCESS_NAMES: ReadonlySet<string> = new Set([
   "WindowManager", // Stage Manager / window management
 ]);
 
-/** Reads a string field only when it is explicitly OK and non-empty. */
+/**
+ * Reads a string field only when it is explicitly OK and non-empty.
+ */
 function okString(value: { status: FieldStatus; value: string } | undefined): string | undefined {
   if (value && value.status === FieldStatus.FIELD_STATUS_OK && value.value.length > 0) {
     return value.value;
@@ -59,15 +61,15 @@ function okString(value: { status: FieldStatus; value: string } | undefined): st
 
 /**
  * Finds the row in a snapshot that still matches a target identity. When the
- * target carries an exact start time, it must match too so a reused PID does not
- * match. A target without start time falls back to PID only; destructive actions
- * apply a separate stable-identity guard before signaling. Pure: inspects
+ * target carries an exact start time it must match too, so a reused PID does not
+ * match; a target without start time falls back to PID only (destructive actions
+ * apply a separate stable-identity guard before signaling). Pure: inspects
  * identity only, never a sensitive value.
  *
- * This `(pid, started_at)` identity match against the live cached snapshot is the
- * action path's staleness guard. Matching identity rejects an exited PID (not
- * found) and a reused PID (start time differs), without tying actions to the
- * snapshot revision that happened to be visible when the user clicked.
+ * This `(pid, started_at)` match against the live cached snapshot is the action
+ * path's staleness guard: it rejects an exited PID (not found) and a reused PID
+ * (start time differs), without tying actions to the snapshot revision the user
+ * happened to see when clicking.
  */
 export function findTargetRow(
   snapshot: ProcessSnapshot,
@@ -93,18 +95,19 @@ export function findTargetRow(
   return matches[0];
 }
 
-/** True when a renderer target carries a PID-reuse-safe process identity. */
+/**
+ * True when a renderer target carries a PID-reuse-safe process identity.
+ */
 function hasStableTargetIdentity(target: ProcessIdentity | undefined): boolean {
   return target?.startedAtStatus === FieldStatus.FIELD_STATUS_OK;
 }
 
 /**
  * True when a resolved row is a session-critical process that must never be
- * signaled. This is PID 0/1 plus a small name denylist
- * ({@link CRITICAL_PROCESS_NAMES}) - NOT a broad "is it system/Apple software"
- * check, so ordinary apps (including Apple's bundled apps) are not protected.
- * Matched against both the short command name and the executable name so a
- * process is caught regardless of which one macOS reported.
+ * signaled: PID 0/1 plus the {@link CRITICAL_PROCESS_NAMES} denylist - NOT a broad
+ * "is it system/Apple software" check, so ordinary apps are not protected. Matched
+ * against both the command name and the executable name so a process is caught
+ * regardless of which one macOS reported.
  */
 export function isCriticalProcess(row: ProcessRow): boolean {
   const pid = row.identity?.pid ?? 0;
@@ -122,10 +125,10 @@ export function isCriticalProcess(row: ProcessRow): boolean {
 /**
  * Computes the disabled reason for one action against an already-resolved,
  * non-stale row. Returns NONE when the action is allowed. Pure and side-effect
- * free so it can be unit tested in isolation (I15).
+ * free so it can be unit tested in isolation.
  *
- * - Reveal needs an OK executable path (NO_PATH otherwise); it is always allowed
- *   for self/critical processes because opening a file in Finder is harmless.
+ * - Reveal needs an OK executable path (NO_PATH otherwise); always allowed for
+ *   self/critical processes because opening a file in Finder is harmless.
  * - Quit / Force Quit require a known target start time (UNSTABLE_IDENTITY), then
  *   block MoStats itself (SELF) and session-critical processes (PROTECTED).
  *   Everything else is allowed; a root-owned daemon is not pre-emptively blocked
@@ -163,23 +166,21 @@ export function disabledReasonFor(
  * renderer-supplied state - so the renderer cannot drive a stale, critical, or
  * self target. Targets are matched by (pid, start time) identity; an exited or
  * reused-PID target resolves to STALE. Destructive actions are blocked only for
- * MoStats itself and a small session-critical denylist (see
- * {@link CRITICAL_PROCESS_NAMES}); ordinary apps - including Apple's bundled apps
- * like Notes - are quittable, and the OS is the final guard for root-owned
- * daemons (an unprivileged signal returns EPERM -> NOT_PERMITTED). Force Quit
- * (SIGKILL) requires an explicit native confirmation dialog (main-authoritative,
- * so the confirm step cannot be skipped by a direct IPC call) because it kills
- * immediately and loses unsaved work; Quit (SIGTERM) is graceful and proceeds
- * without a prompt.
+ * MoStats itself and the small {@link CRITICAL_PROCESS_NAMES} denylist; ordinary
+ * apps are quittable, and the OS is the final guard for root-owned daemons (an
+ * unprivileged signal returns EPERM -> NOT_PERMITTED). Force Quit (SIGKILL)
+ * requires a native confirmation dialog, main-authoritative so the confirm step
+ * cannot be skipped by a direct IPC call, because it kills immediately and loses
+ * unsaved work; Quit (SIGTERM) is graceful and proceeds without a prompt.
  *
  * Privacy: results are count-only. This service never logs or returns OS
  * diagnostics, executable paths, process names, bundle identifiers, or
- * command-line arguments. Technique reference (signals, self/system protections):
- * mo-activity ProcessActionService, re-implemented compact for MoStats' single
- * ProcessIdentity target rather than its multi-identity/group/classifier shape.
+ * command-line arguments.
  */
 export class ProcessActionService {
-  /** MoStats' own PID; destructive actions against it are always blocked. */
+  /**
+   * MoStats' own PID; destructive actions against it are always blocked.
+   */
   private readonly selfPid = process.pid;
 
   /**
@@ -195,9 +196,9 @@ export class ProcessActionService {
 
   /**
    * Returns per-action availability for a target, validated against the latest
-   * snapshot. When the target no longer matches (exited / reused PID), every
-   * action is disabled with STALE and target_valid is false. The target identity
-   * is used only for matching and is never logged.
+   * snapshot. When the target no longer matches (exited / reused PID), every action
+   * is disabled with STALE and target_valid is false. The target identity is used
+   * only for matching and is never logged.
    */
   getActionStates(request: GetProcessActionStatesRequest): GetProcessActionStatesResponse {
     const row = findTargetRow(this.getSnapshot(), request.target);
@@ -224,10 +225,9 @@ export class ProcessActionService {
    * stale), confirms Force Quit through a native dialog, then reveals or signals.
    * Returns a coarse, count-only outcome with no sensitive detail.
    *
-   * Confirmation policy: only Force Quit (SIGKILL) confirms, because it kills the
-   * process immediately and loses unsaved work. Quit (SIGTERM) is a graceful
-   * request the process can handle and save on, so it proceeds without a prompt to
-   * keep the common case fast for a developer tool.
+   * Confirmation policy: only Force Quit (SIGKILL) confirms, because it kills
+   * immediately and loses unsaved work. Quit (SIGTERM) is a graceful request the
+   * process can save on, so it proceeds without a prompt.
    */
   async runAction(request: RunProcessActionRequest): Promise<RunProcessActionResponse> {
     const row = findTargetRow(this.getSnapshot(), request.target);
@@ -278,7 +278,9 @@ export class ProcessActionService {
     return { outcome: Outcome.OUTCOME_NOT_ALLOWED, affectedCount: 0 };
   }
 
-  /** Builds one {@link ActionState} for an already-resolved, non-stale row. */
+  /**
+   * Builds one {@link ActionState} for an already-resolved, non-stale row.
+   */
   private actionState(
     kind: ProcessActionKind,
     row: ProcessRow,
@@ -293,7 +295,9 @@ export class ProcessActionService {
     };
   }
 
-  /** Reveals a resolved row's executable in Finder via the desktop shell. */
+  /**
+   * Reveals a resolved row's executable in Finder via the desktop shell.
+   */
   private reveal(row: ProcessRow): RunProcessActionResponse {
     const path = okString(row.executablePath);
     if (path === undefined) {
@@ -308,7 +312,9 @@ export class ProcessActionService {
     }
   }
 
-  /** Sends SIGTERM (Quit) or SIGKILL (Force Quit) to a resolved row's PID. */
+  /**
+   * Sends SIGTERM (Quit) or SIGKILL (Force Quit) to a resolved row's PID.
+   */
   private signal(action: ProcessActionKind, row: ProcessRow): RunProcessActionResponse {
     const pid = row.identity?.pid ?? 0;
     const signal = action === ProcessActionKind.PROCESS_ACTION_KIND_FORCE_QUIT ? "SIGKILL" : "SIGTERM";
@@ -330,11 +336,8 @@ export class ProcessActionService {
 
   /**
    * Shows the native Force Quit confirmation dialog and resolves to whether the
-   * user confirmed. The dialog is main-authoritative, so the confirm step cannot
-   * be bypassed by a direct IPC call. Only Force Quit confirms (SIGKILL kills
-   * immediately and loses unsaved work); Quit does not. It names the single
-   * process by display name only (no path/argv); a NSWorkspace-known app uses its
-   * localized name, else the executable/command name, else just the PID.
+   * user confirmed. Main-authoritative, so the confirm step cannot be bypassed by
+   * a direct IPC call. Names the process by display name only (no path/argv).
    */
   private async confirmForceQuit(row: ProcessRow): Promise<boolean> {
     const name = this.confirmationName(row);
@@ -352,8 +355,8 @@ export class ProcessActionService {
   }
 
   /**
-   * A non-sensitive display name for the confirmation dialog: localized app name,
-   * else executable name, else command name, else the PID. Never a path or argv.
+   * A display name for the confirmation dialog: localized app name, else executable
+   * name, else command name, else the PID. Never a path or argv.
    */
   private confirmationName(row: ProcessRow): string {
     return (

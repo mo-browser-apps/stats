@@ -18,7 +18,9 @@ import type {
   ProcessDetail,
 } from "@/domain/process-detail";
 
-/** Human label for the group total under the active metric. */
+/**
+ * Human label for the group total under the active metric.
+ */
 const TOTAL_LABEL: Record<SortMode, string> = {
   cpu: "CPU",
   memory: "RAM",
@@ -26,24 +28,21 @@ const TOTAL_LABEL: Record<SortMode, string> = {
 
 /**
  * The compact process detail view for one selected group (or one process, when a
- * group member is drilled into).
+ * group member is drilled into): identity, started-at, executable path (with
+ * copy), command-line arguments, parent PID, the group's CPU/memory totals, and,
+ * for a multi-process app, an expandable Members section whose rows drill into
+ * each member. `onBack` pops one navigation level (member -> group -> list) and
+ * `onOpenMember` drills into a member.
  *
- * Reached by opening a process row; it answers the debugging question directly -
- * identity, started-at, executable path (with copy), command-line arguments, the
- * parent PID, the group's CPU and memory totals so the user does not add member
- * usage by hand, and - for a multi-process app - an expandable Members section
- * whose rows drill into each member's own detail. `onBack` pops one navigation
- * level (member -> group -> list) and `onOpenMember` drills into a member. It is
- * presentation-only: every
- * field comes from the pure {@link ProcessDetail} model with explicit
- * availability, so unavailable/pending states render honestly instead of as
- * blanks or faked values. Command-line text is shown/copied only on user action
- * and is never logged or persisted.
+ * Presentation-only: every field comes from the pure {@link ProcessDetail} model
+ * with explicit availability, so unavailable/pending states render honestly.
+ * Command-line text is shown/copied only on user action and is never logged or
+ * persisted.
  *
- * The fixed bottom action row (Open / Quit / Force Quit) reflects main's
- * authoritative {@link ActionState} list; running an action just forwards the kind
- * to main via {@link onRunAction}. When a member is drilled into, the row targets
- * that member; otherwise it targets the group's representative.
+ * The fixed bottom action row reflects main's authoritative {@link ActionState}
+ * list; running an action just forwards the kind to main via {@link onRunAction}.
+ * When a member is drilled into, the row targets that member; otherwise the
+ * group's representative.
  */
 export function ProcessDetailView({
   detail,
@@ -156,8 +155,7 @@ export function ProcessDetailView({
 /**
  * The metric value for a single-process detail (no members): one row in the same
  * slot the group's Members header occupies, carrying the process's CPU/RAM value
- * on the right - like OneMenu's single-process hierarchy row. Non-collapsible and
- * not drillable (it is already the process you are viewing).
+ * on the right. Non-collapsible and not drillable.
  */
 function SingleProcessMetric({ detail }: { detail: ProcessDetail }) {
   return (
@@ -171,8 +169,7 @@ function SingleProcessMetric({ detail }: { detail: ProcessDetail }) {
 }
 
 /**
- * The compact secondary-stat strip under the header, each stat a small icon plus
- * its value.
+ * The compact secondary-stat strip under the header (user, threads, CPU time).
  */
 function HeaderStats({ detail, grouped }: { detail: ProcessDetail; grouped: boolean }) {
   const threadsText =
@@ -248,7 +245,9 @@ function HeaderStat({
   );
 }
 
-/** Renders a {@link DetailMetric}'s value with the ok/pending/unavailable rule. */
+/**
+ * Renders a {@link DetailMetric}'s value with the ok/pending/unavailable rule.
+ */
 function MetricValue({ metric, className }: { metric: DetailMetric; className?: string }) {
   return (
     <span
@@ -268,9 +267,8 @@ function MetricValue({ metric, className }: { metric: DetailMetric; className?: 
 }
 
 /**
- * A labeled detail field: a quiet uppercase label with the value content on the
- * line below. Used for the inline Started / Path / Command line stack; long
- * values manage their own horizontal scroll and copy affordance.
+ * A labeled detail field: a quiet uppercase label with the value on the line
+ * below. Used for the inline Started / Path / Command line stack.
  */
 function Field({
   label,
@@ -289,7 +287,9 @@ function Field({
   );
 }
 
-/** Renders a value's pending/unavailable state, or the provided OK text. */
+/**
+ * Renders a value's pending/unavailable state, or the provided OK text.
+ */
 function StateText({ state, text }: { state: DetailState; text?: string }) {
   if (state === "ok" && text !== undefined) {
     return <span className="text-[12px] text-foreground">{text}</span>;
@@ -303,14 +303,12 @@ function StateText({ state, text }: { state: DetailState; text?: string }) {
 
 /**
  * A long single-line value (executable path, command line) shown inline beneath
- * its label. Long values do not wrap - the mono text scrolls horizontally in a
- * hidden-scrollbar lane (the same affordance the header name uses) so a deep path
- * or a multi-flag command line stays on one readable line instead of breaking
- * mid-word. A copy button sits at the end when a real value exists; pending and
- * unavailable states render the muted placeholder with no copy affordance.
+ * its label. The mono text scrolls horizontally in a hidden-scrollbar lane
+ * rather than wrapping. A copy button sits at the end when a real value exists;
+ * pending and unavailable states render the muted placeholder with no copy.
  *
- * Sensitive process text (paths, argv) is copied only on explicit user action and
- * is never logged or persisted; copy routes through main (the renderer is
+ * Sensitive process text (paths, argv) is copied only on explicit user action
+ * and is never logged or persisted; copy routes through main (the renderer is
  * sandboxed).
  */
 function ScrollableValue({
@@ -349,8 +347,8 @@ function ScrollableValue({
 /**
  * The command-line field: a thin specialization of {@link ScrollableValue} with
  * command-line-specific placeholders (an OK-but-empty argv reads "No arguments",
- * a not-yet-collected one reads "..."). Command-line text is shown and copied only
- * on explicit user action and is never logged or persisted.
+ * a not-yet-collected one reads "..."). Command-line text is shown and copied
+ * only on explicit user action and is never logged or persisted.
  */
 function CommandLineValue({ commandLine }: { commandLine: DetailCommandLine }) {
   return (
@@ -366,13 +364,10 @@ function CommandLineValue({ commandLine }: { commandLine: DetailCommandLine }) {
 
 /**
  * The expandable Members section for a multi-process app. The disclosure header
- * row carries the group's selected-metric total on the right (OneMenu-style), so
- * there is no separate "Total" line; toggling it reveals the member processes
- * (representative first), each drillable into its own detail. Starts collapsed to
- * keep the detail short. The full list is shown - no cap - inside a bounded
- * scroll box so a large app (e.g. a browser with many helpers) stays scannable
- * without pushing other content off-screen. It is a compact context strip, not a
- * full process-tree browser.
+ * row carries the group's selected-metric total on the right, so there is no
+ * separate "Total" line; toggling it reveals the member processes (representative
+ * first), each drillable into its own detail. Starts collapsed. The full list is
+ * shown inside a bounded scroll box so a large app stays scannable.
  */
 function Members({
   members,
@@ -423,8 +418,8 @@ function Members({
 }
 
 /**
- * One member row in the expanded Members section: icon, name, and the active-metric
- * value (matching the list's sort).
+ * One member row in the expanded Members section: icon, name, and the
+ * active-metric value (matching the list's sort).
  */
 const MemberRow = memo(
   function MemberRow({

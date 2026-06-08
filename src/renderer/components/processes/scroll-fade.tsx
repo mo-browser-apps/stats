@@ -3,13 +3,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { cn } from "@/lib/utils";
 
 /**
- * A horizontally scrollable lane that fades the edge(s) with hidden content, so a
- * value that runs past the compact window width reads as scrollable rather than
- * simply clipped. Used by the detail header (name / metadata) and the inline
- * Path / Command line values.
- *
- * The scrollbar stays hidden (wheel/trackpad still scroll) to match the compact
- * panel's other scroll regions.
+ * A horizontally scrollable lane that fades the edge(s) with hidden content, so
+ * a value running past the window width reads as scrollable rather than simply
+ * clipped. The scrollbar stays hidden; wheel/trackpad still scroll.
  */
 export function ScrollFade({
   children,
@@ -18,7 +14,9 @@ export function ScrollFade({
 }: {
   children: ReactNode
   className?: string
-  /** Native tooltip for the full value, since the visible text may be clipped. */
+  /**
+   * Native tooltip for the full value, since the visible text may be clipped.
+   */
   title?: string
 }) {
   const ref = useRef<HTMLDivElement>(null);

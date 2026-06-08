@@ -11,7 +11,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { SortMode } from "@/domain/process-list";
 
-/** Compact dropdown trigger matching the search field's height and surface. */
+/**
+ * Compact dropdown trigger matching the search field's height and surface.
+ */
 const sortTrigger = cva(
   "no-drag flex h-9 shrink-0 items-center gap-1 rounded-lg border border-border bg-muted/40 pl-2.5 pr-1.5 text-[13px] text-foreground transition-colors hover:bg-muted/60 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted/60",
 );
@@ -20,9 +22,6 @@ const sortTrigger = cva(
  * Sort selector for the process list: a compact dropdown button on the search
  * row showing the active metric, opening a small CPU / RAM menu. Per-process
  * network is not a sort option because macOS has no reliable per-process source.
- * The dropdown keeps the only segmented control in the window the title-bar
- * Stats/Processes switch, so the sort no longer reads as a nested second row of
- * tabs.
  */
 const SORT_LABELS: Record<SortMode, string> = {
   cpu: "CPU",

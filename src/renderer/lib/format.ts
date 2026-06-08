@@ -6,7 +6,9 @@
  * IPC knowledge, so they stay easy to reason about and test.
  */
 
-/** Shown wherever a value cannot be read or has not arrived yet. */
+/**
+ * Shown wherever a value cannot be read or has not arrived yet.
+ */
 export const UNAVAILABLE_TEXT = "Unavailable";
 
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"] as const;
@@ -121,12 +123,16 @@ export function formatCpuTime(nanos: number): string {
   return `${seconds.toFixed(2)}s`;
 }
 
-/** Two-digit zero-padded integer, for the mm/ss fields. */
+/**
+ * Two-digit zero-padded integer, for the mm/ss fields.
+ */
 function pad2(value: number): string {
   return value.toString().padStart(2, "0");
 }
 
-/** The centiseconds (00-99) of a fractional second, zero-padded. */
+/**
+ * The centiseconds (00-99) of a fractional second, zero-padded.
+ */
 function centis(seconds: number): string {
   return Math.floor((seconds % 1) * 100)
     .toString()

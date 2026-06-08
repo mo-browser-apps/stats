@@ -6,17 +6,13 @@ import { ProcessIcon } from "@/components/processes/process-icon";
 import type { DetailSelection, ProcessGroup } from "@/domain/process-list";
 
 /**
- * One fixed-height process row: app icon (or a generic fallback), the process or
- * app name, an optional "+N" grouped-child badge, and the right-aligned active
- * metric. Height is fixed and the name truncates, so long names or large values
- * never reflow the list. The whole row is a button that opens the detail view
- * for the row's selection target; unsearched grouped rows target the group, while
- * searched grouped rows can target the matched member process.
+ * One fixed-height process row: app icon, name, an optional "+N" grouped-child
+ * badge, and the right-aligned active metric. The whole row is a button opening
+ * the detail view for the row's selection target.
  *
  * Wrapped in {@link memo} with a field-wise comparator: the projection rebuilds
- * fresh group objects every 2s tick, but most rows' displayed fields are
- * identical between ticks, so comparing the rendered fields lets an unchanged
- * row skip re-rendering entirely instead of reconciling on every snapshot.
+ * fresh group objects every 2s tick, so comparing the rendered fields lets an
+ * unchanged row skip re-rendering instead of reconciling on every snapshot.
  */
 export const ProcessRow = memo(function ProcessRow({
   group,
@@ -58,14 +54,10 @@ export const ProcessRow = memo(function ProcessRow({
 }, areGroupsEqual);
 
 /**
- * Equality check for the memoized row: a row only needs to re-render when one of
- * its visible fields changes. The projection produces new group objects every
- * tick, so a referential compare would always miss; comparing the displayed
- * fields lets a steady row skip rendering. `key` is the group identity and is
- * compared too so React never reuses a row across distinct groups. The row's
- * open target is also compared because a search can keep the same visible group
- * name while changing which matched member should open. `onOpen` is a stable
- * callback from the parent, so it does not need comparing.
+ * Equality check for the memoized row: compares the displayed fields plus the
+ * group `key` (so React never reuses a row across distinct groups) and the open
+ * target (a search can keep the visible name while changing which matched member
+ * opens). `onOpen` is a stable callback, so it is not compared.
  */
 function areGroupsEqual(
   previous: { group: ProcessGroup; onOpen: (selection: DetailSelection) => void },
@@ -85,7 +77,9 @@ function areGroupsEqual(
   );
 }
 
-/** True when two row open targets point to the same detail selection. */
+/**
+ * True when two row open targets point to the same detail selection.
+ */
 function areSelectionsEqual(left: DetailSelection, right: DetailSelection): boolean {
   if (left.kind === "group" && right.kind === "group") {
     return left.key === right.key;
@@ -98,9 +92,8 @@ function areSelectionsEqual(left: DetailSelection, right: DetailSelection): bool
 
 /**
  * The right-aligned value text for a row: the formatted value when OK, a quiet
- * `--` while the metric is still pending (e.g. a first-sample CPU delta), and the
- * explicit unavailable text only when the source was tried and could not be read.
- * Mirrors the overview's MetricRow so the two views read the same.
+ * `--` while the metric is still pending (e.g. a first-sample CPU delta), and
+ * the explicit unavailable text only when the source could not be read.
  */
 function metricText(group: ProcessGroup): string {
   switch (group.metricState) {

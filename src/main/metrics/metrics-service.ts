@@ -21,10 +21,14 @@ import {
   UptimeReading,
 } from "./metric-types";
 
-/** Interval between published snapshots, in milliseconds. */
+/**
+ * Interval between published snapshots, in milliseconds.
+ */
 const PUBLISH_INTERVAL_MS = 1000;
 
-/** Maps the sampler's internal status onto the generated wire enum. */
+/**
+ * Maps the sampler's internal status onto the generated wire enum.
+ */
 function toMetricStatus(status: ReadingStatus): MetricStatus {
   switch (status) {
     case "ok":
@@ -39,23 +43,17 @@ function toMetricStatus(status: ReadingStatus): MetricStatus {
 /**
  * Owns the renderer-facing metrics stream.
  *
- * Registers `MetricsService` as a broadcast (pub/sub fan-out) stream: every
- * subscribing renderer sees the same tick, so there is a single sampling cadence
- * in main rather than per-renderer timers. Each tick the {@link MetricsSampler}
- * is read once and the snapshot is fanned out to all subscribers, so adding
- * subscribers never triggers extra sampling work.
+ * Registers `MetricsService` as a broadcast stream: every subscriber sees the
+ * same tick, so there is a single sampling cadence in main. Each tick the
+ * {@link MetricsSampler} is read once and fanned out, so extra subscribers add no
+ * sampling work. Network counters and temperature come from native probes, so a
+ * tick is async.
  *
- * Samples CPU, memory, disk, network throughput, uptime/load, and optional CPU
- * temperature. Network counters and temperature come from the native probes, so a
- * tick is async. Temperature is best-effort and is published as explicit
- * unavailable when no trustworthy CPU sensor is readable.
- *
- * Lifecycle: the cadence runs only while the UI is active. {@link setActive}
- * pauses the interval (and the native probes it drives) while the window is
- * hidden and resumes it when shown. A tick is skipped while a prior async publish
- * is still in flight, so a slow probe cannot stack work, and `publish()` never
- * rejects (failures degrade to unavailable or are swallowed). {@link dispose},
- * called from the quit path, stops the interval and closes in-flight subscribers.
+ * The cadence runs only while the UI is active. {@link setActive} pauses the
+ * interval while the window is hidden and resumes when shown. A tick is skipped
+ * while a prior publish is in flight, so a slow probe cannot stack work, and
+ * `publish()` never rejects. {@link dispose} stops the interval and closes
+ * in-flight subscribers.
  */
 export class MetricsService {
   private readonly handle = ipc.registerService(MetricsServiceDescriptor);
@@ -64,22 +62,26 @@ export class MetricsService {
 
   private timer: ReturnType<typeof setInterval> | null = null;
 
-  /** Whether the UI is active and snapshots should be sampled and published. */
+  /**
+   * Whether the UI is active and snapshots should be sampled and published.
+   */
   private active = false;
 
-  /** Set while an async publish is in flight, to guard against overlap. */
+  /**
+   * Set while an async publish is in flight, to guard against overlap.
+   */
   private publishing = false;
 
-  /** Set once `dispose()` has run; blocks any further start or publish. */
+  /**
+   * Set once `dispose()` has run; blocks any further start or publish.
+   */
   private disposed = false;
 
   /**
    * Marks the service active or idle and (re)starts or pauses the cadence to
-   * match. Active means a renderer can see snapshots, i.e. the window is shown;
-   * idle means the window is hidden and there is nothing to display, so sampling
-   * the native probes every second would be wasted work. Resuming emits one
-   * snapshot immediately so a freshly shown window paints without waiting a full
-   * interval. Idempotent for repeated calls with the same state.
+   * match. Resuming emits one snapshot immediately so a freshly shown window
+   * paints without waiting a full interval. Idempotent for repeated calls with
+   * the same state.
    */
   setActive(active: boolean): void {
     if (this.disposed || active === this.active) {
@@ -126,15 +128,14 @@ export class MetricsService {
   }
 
   /**
-   * Samples once and publishes the snapshot to every subscriber. A no-op for
-   * delivery when nobody is subscribed; sampling still happens so the cadence
-   * stays consistent. Async because the network counters and temperature are
-   * read over native RPCs.
+   * Samples once and publishes the snapshot to every subscriber. Sampling still
+   * happens with no subscribers so the cadence stays consistent. Async because
+   * the network counters and temperature are read over native RPCs.
    *
-   * Never rejects: a tick that overlaps an in-flight publish is skipped (so a
-   * slow probe cannot stack work), and any delivery failure - including a stale
-   * publish racing a `dispose()`, which the runtime makes throw - is swallowed so
-   * the floating caller never produces an unhandled rejection.
+   * Never rejects: a tick overlapping an in-flight publish is skipped, and any
+   * delivery failure (including a stale publish racing a `dispose()`, which the
+   * runtime makes throw) is swallowed so the floating caller never produces an
+   * unhandled rejection.
    */
   private async publish(): Promise<void> {
     if (this.publishing || this.disposed) {

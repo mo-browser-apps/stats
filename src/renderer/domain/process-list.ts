@@ -15,7 +15,9 @@ import { formatBytes, formatCpuPercent } from "@/lib/format";
  * or persisted.
  */
 
-/** The metrics the list can rank by. */
+/**
+ * The metrics the list can rank by.
+ */
 export type SortMode = "cpu" | "memory";
 
 /**
@@ -44,26 +46,42 @@ export type ProcessMetricState = "ok" | "pending" | "unavailable";
  * rows so unrelated CLIs with the same executable name are not merged.
  */
 export interface ProcessGroup {
-  /** Stable key for React lists and selection. */
+  /**
+   * Stable key for React lists and selection.
+   */
   key: string;
   /**
    * Display name for the group: the owning `.app` bundle's name for an app,
    * else the representative member's name (localized/executable/command/PID).
    */
   name: string;
-  /** Representative PID (the lowest-PID member - the app's main process). */
+  /**
+   * Representative PID (the lowest-PID member - the app's main process).
+   */
   pid: number;
-  /** Base64 PNG app icon when a GUI app supplied one; absent -> fallback icon. */
+  /**
+   * Base64 PNG app icon when a GUI app supplied one; absent -> fallback icon.
+   */
   iconPngBase64?: string;
-  /** Number of processes in the group (>= 1). */
+  /**
+   * Number of processes in the group (>= 1).
+   */
   memberCount: number;
-  /** Extra members beyond the representative, shown as a "+N" badge when > 0. */
+  /**
+   * Extra members beyond the representative, shown as a "+N" badge when > 0.
+   */
   childCount: number;
-  /** Display state of the active metric (drives ok value vs `--` vs unavailable). */
+  /**
+   * Display state of the active metric (drives ok value vs `--` vs unavailable).
+   */
   metricState: ProcessMetricState;
-  /** Formatted active-metric value for the row; set only when metricState is ok. */
+  /**
+   * Formatted active-metric value for the row; set only when metricState is ok.
+   */
   metricText?: string;
-  /** Numeric active-metric magnitude used for ranking (0 when not ok). */
+  /**
+   * Numeric active-metric magnitude used for ranking (0 when not ok).
+   */
   sortValue: number;
   /**
    * Detail target for opening this list row. Group rows target the group;
@@ -89,13 +107,19 @@ export interface ProcessGroup {
  */
 export const DISPLAY_LIMIT = 50;
 
-/** Result of projecting a snapshot for the current sort/search. */
+/**
+ * Result of projecting a snapshot for the current sort/search.
+ */
 export interface ProcessListProjection {
-  /** The ranked rows to render, capped at {@link DISPLAY_LIMIT}. */
+  /**
+   * The ranked rows to render, capped at {@link DISPLAY_LIMIT}.
+   */
   groups: ProcessGroup[];
 }
 
-/** Reads a string field only when it is explicitly OK. */
+/**
+ * Reads a string field only when it is explicitly OK.
+ */
 export function okString(value: { status: FieldStatus; value: string } | undefined): string | undefined {
   if (value && value.status === FieldStatus.FIELD_STATUS_OK && value.value.length > 0) {
     return value.value;
@@ -127,12 +151,16 @@ export interface MetricCell {
   pending: boolean;
 }
 
-/** Whether a field status is the proto default UNKNOWN ("not yet determined"). */
+/**
+ * Whether a field status is the proto default UNKNOWN ("not yet determined").
+ */
 export function isPending(status: FieldStatus): boolean {
   return status === FieldStatus.FIELD_STATUS_UNKNOWN;
 }
 
-/** Per-process CPU percent with pending/unavailable distinction. */
+/**
+ * Per-process CPU percent with pending/unavailable distinction.
+ */
 export function rowCpu(row: ProcessRow): MetricCell {
   const cpu = row.cpu;
   if (cpu && cpu.status === FieldStatus.FIELD_STATUS_OK && Number.isFinite(cpu.usagePercent)) {
@@ -157,7 +185,9 @@ export function rowMemory(row: ProcessRow): MetricCell {
   return { pending: footprint === undefined || isPending(footprint.status) };
 }
 
-/** The active-metric reading for a single row under the current sort. */
+/**
+ * The active-metric reading for a single row under the current sort.
+ */
 export function rowMetric(row: ProcessRow, sort: SortMode): MetricCell {
   return sort === "cpu" ? rowCpu(row) : rowMemory(row);
 }
@@ -187,7 +217,9 @@ function rowGroupKey(row: ProcessRow): string {
   return rowIdentityKey(row);
 }
 
-/** Stable singleton key for one process row, independent of app grouping. */
+/**
+ * Stable singleton key for one process row, independent of app grouping.
+ */
 export function rowIdentityKey(row: ProcessRow): string {
   const pid = row.identity?.pid ?? 0;
   const startedAt =
@@ -253,15 +285,23 @@ function groupHaystack(group: ProcessGroup): string {
 interface GroupAccumulator {
   key: string;
   sortValueSum: number;
-  /** True once any member contributed a real (OK) metric value. */
+  /**
+   * True once any member contributed a real (OK) metric value.
+   */
   hasMetric: boolean;
-  /** True if any member's metric is pending (UNKNOWN); used when none is OK. */
+  /**
+   * True if any member's metric is pending (UNKNOWN); used when none is OK.
+   */
   anyPending: boolean;
-  /** All member rows, in snapshot order. */
+  /**
+   * All member rows, in snapshot order.
+   */
   members: ProcessRow[];
 }
 
-/** Starts a group accumulator with the first row that belongs to the group. */
+/**
+ * Starts a group accumulator with the first row that belongs to the group.
+ */
 function createGroupAccumulator(key: string, row: ProcessRow, sort: SortMode): GroupAccumulator {
   const metric = rowMetric(row, sort);
   return {
@@ -273,7 +313,9 @@ function createGroupAccumulator(key: string, row: ProcessRow, sort: SortMode): G
   };
 }
 
-/** Adds one row's active metric and identity to a group accumulator. */
+/**
+ * Adds one row's active metric and identity to a group accumulator.
+ */
 function addRowToGroup(group: GroupAccumulator, row: ProcessRow, sort: SortMode): void {
   const metric = rowMetric(row, sort);
   group.sortValueSum += metric.value ?? 0;
@@ -282,17 +324,23 @@ function addRowToGroup(group: GroupAccumulator, row: ProcessRow, sort: SortMode)
   group.members.push(row);
 }
 
-/** Formats a group's summed metric for the compact list under the active sort. */
+/**
+ * Formats a group's summed metric for the compact list under the active sort.
+ */
 function formatGroupMetric(sum: number, sort: SortMode): string {
   return sort === "cpu" ? formatCpuPercent(sum) : formatBytes(sum);
 }
 
-/** PID of a row, or 0 when the identity is missing. */
+/**
+ * PID of a row, or 0 when the identity is missing.
+ */
 export function rowPid(row: ProcessRow): number {
   return row.identity?.pid ?? 0;
 }
 
-/** Snapshot-stable process selection for one row. */
+/**
+ * Snapshot-stable process selection for one row.
+ */
 function rowSelection(row: ProcessRow): DetailSelection {
   const startedAtUnixMs =
     row.identity?.startedAtStatus === FieldStatus.FIELD_STATUS_OK
@@ -362,7 +410,9 @@ function buildGroups(rows: ProcessRow[], sort: SortMode, query: string): Process
   return grouped;
 }
 
-/** Builds the normal app-grouped list rows with no search filter applied. */
+/**
+ * Builds the normal app-grouped list rows with no search filter applied.
+ */
 function buildGroupedRows(rows: ProcessRow[], sort: SortMode): ProcessGroup[] {
   const groups = new Map<string, GroupAccumulator>();
 
@@ -413,7 +463,9 @@ function buildSearchGroups(
   return sortGroups(projected);
 }
 
-/** Sorts list groups by active metric, with stable cold-start behavior. */
+/**
+ * Sorts list groups by active metric, with stable cold-start behavior.
+ */
 function sortGroups(projected: ProcessGroup[]): ProcessGroup[] {
   // Rank by summed metric descending. The name tiebreak applies only between two
   // rows that both have a real value, so on a first-sample cold start (every row

@@ -16,17 +16,14 @@ namespace mostats {
  *
  * Backed by NSWorkspace.runningApplications, so it only covers processes that
  * macOS treats as user-facing GUI applications (Finder, Safari, Xcode, ...),
- * not every PID in the process table. The process collector merges this onto the
- * matching records; processes with no entry keep bundle id / localized name
- * unset (UNKNOWN downstream).
+ * not every PID in the process table. The collector merges this onto matching
+ * records; processes with no entry keep bundle id / localized name unset.
  *
  * Icon policy: only the running app that is also the outer `.app` MoStats groups
- * by gets its exact NSRunningApplication icon here. Nested helper apps keep
- * their identity metadata but no icon, so the collector can resolve the shared
- * owner icon from the executable path.
- *
- * Each field carries per-field availability, marked unavailable when missing
- * rather than faked.
+ * by gets its exact NSRunningApplication icon here. Nested helper apps keep their
+ * identity metadata but no icon, so the collector resolves the shared owner icon
+ * from the executable path. Each field is marked unavailable when missing rather
+ * than faked.
  */
 std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata();
 
@@ -36,22 +33,21 @@ std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata();
  *
  * Unlike {@link SnapshotRunningAppMetadata}, this is not limited to GUI apps. It
  * resolves the icon from the owning `.app` bundle when the executable lives
- * inside one (a browser helper resolves to the parent app's real icon, matching
- * how the renderer groups members by their outermost `.app`), and from the
- * executable itself otherwise (a plain daemon gets the generic system icon, as
- * Activity Monitor shows), via NSWorkspace's standard iconForFile:. The collector
- * uses it as an icon-only fallback for processes that the GUI-app enrichment did
- * not cover, so naming, bundle id, and localized name are left untouched.
+ * inside one (a browser helper resolves to the parent app's real icon), and from
+ * the executable itself otherwise (a plain daemon gets the generic system icon),
+ * via NSWorkspace's iconForFile:. The collector uses it as an icon-only fallback,
+ * leaving naming, bundle id, and localized name untouched.
  *
- * Performance: the encoded icon is cached per resolution path for the session
- * (the same cache used by GUI-app icons), so all members of one app bundle share
- * a single entry and a steady-state pass is a hash lookup with no AppKit drawing
- * - a bundle/executable is rasterized and encoded at most once. The icon is
- * volatile display-only data and is never logged or persisted.
+ * The encoded icon is cached per resolution path for the session, so members of
+ * one app bundle share a single entry and a steady-state pass is a hash lookup
+ * with no AppKit drawing. The icon is volatile display-only data and is never
+ * logged or persisted.
  */
 void IconForExecutablePath(const std::string& executable_path, NativeImage* out);
 
-/** Resolves an icon for an exact app/file path without applying app grouping. */
+/**
+ * Resolves an icon for an exact app/file path without applying app grouping.
+ */
 void IconForFilePath(const std::string& path, NativeImage* out);
 
 /**
@@ -62,8 +58,7 @@ void IconForFilePath(const std::string& path, NativeImage* out);
  * its helpers (which carry no bundle id of their own) resolve to the same
  * bundle. A path with no `.app` segment (a plain daemon) leaves `out` unset, so
  * grouping falls back to bundle id / name downstream. Reads only the path string
- * (no AppKit); the grouping key is identity, not presentation, so the renderer
- * just buckets by it.
+ * (no AppKit).
  */
 void FillAppBundle(const std::string& executable_path, NativeAppBundle* out);
 

@@ -10,20 +10,16 @@ import { ProcessSnapshotService } from "./process-snapshot-service";
 /**
  * Owns the renderer-facing process explorer service.
  *
- * Composes the small process explorer pieces, consistent with
- * {@link import('../metrics/metrics-service').MetricsService}: the
- * {@link ProcessSnapshotService} owns native collection, the cached snapshot, and
- * the streaming `StreamRevisions` broadcast; the {@link ProcessActionService} owns
- * the main-authoritative reveal/quit/force-quit actions (validated against that
- * cached snapshot); and this class registers the unary methods and routes them to
- * the right piece. `GetProcessSnapshot` is delegated to the snapshot service;
- * `GetProcessActionStates`/`RunProcessAction` are delegated to the action service.
+ * Composes the process explorer pieces: the {@link ProcessSnapshotService} owns
+ * native collection, the cached snapshot, and the streaming `StreamRevisions`
+ * broadcast; the {@link ProcessActionService} owns the main-authoritative
+ * reveal/quit/force-quit actions (validated against that cached snapshot); and
+ * this class registers the unary methods and routes each to the right piece.
  *
- * Lifecycle mirrors the metrics service: {@link setActive} gates the collection
- * cadence (driven by {@link import('../application').Application} when the
- * Processes view is the visible one), and {@link dispose} (called from the app
- * quit path) tears down the cadence, the broadcast stream, and the unary handlers
- * so nothing is left dangling.
+ * {@link setActive} gates the collection cadence (driven by main when the Processes
+ * view is the visible one), and {@link dispose} (called from the app quit path)
+ * tears down the cadence, the broadcast stream, and the unary handlers so nothing
+ * is left dangling.
  *
  * Privacy: command-line arguments are sensitive. This service never logs request
  * targets or any process data, and action results stay count-only with no OS
@@ -35,12 +31,11 @@ export class ProcessExplorerService {
   private readonly actions: ProcessActionService;
 
   /**
-   * The unary handlers, each a thin route to the owning piece (snapshot service
-   * or action service). Held as one object so {@link dispose} unregisters the
-   * exact implementation that was registered. The streaming `StreamRevisions`
-   * method is owned by the snapshot service's broadcast handle, so it is omitted
-   * here. Requests carry privacy-sensitive identity and are never logged; action
-   * results stay count-only.
+   * The unary handlers, each a thin route to the owning piece. Held as one object
+   * so {@link dispose} unregisters the exact implementation that was registered.
+   * The streaming `StreamRevisions` method is owned by the snapshot service's
+   * broadcast handle, so it is omitted here. Requests carry privacy-sensitive
+   * identity and are never logged; action results stay count-only.
    */
   private readonly unaryHandlers: Pick<
     ProcessExplorerServiceImpl,
@@ -64,10 +59,10 @@ export class ProcessExplorerService {
   }
 
   /**
-   * Activates or pauses process collection. Main calls this with `true` only when
-   * the Processes view is the visible one (the window is shown and Processes is
-   * the selected tab) and `false` otherwise, so the sensitive command-line reads
-   * run only while the user is looking at the process list.
+   * Activates or pauses process collection. Main calls this with `true` only while
+   * the Processes view is the visible one (window shown and Processes tab selected),
+   * so the sensitive command-line reads run only while the user is looking at the
+   * process list.
    */
   setActive(active: boolean): void {
     this.snapshots.setActive(active);

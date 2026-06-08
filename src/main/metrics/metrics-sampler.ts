@@ -11,27 +11,34 @@ import {
   UptimeReading,
 } from "./metric-types";
 
-/** Filesystem path of the main system volume on macOS. */
+/**
+ * Filesystem path of the main system volume on macOS.
+ */
 const SYSTEM_VOLUME_PATH = "/";
 
-/** Temperature values outside this Celsius range are treated as bad sensor data. */
+/**
+ * Temperature values outside this Celsius range are treated as bad sensor data.
+ */
 const MIN_PLAUSIBLE_TEMPERATURE_CELSIUS = 10;
 const MAX_PLAUSIBLE_TEMPERATURE_CELSIUS = 120;
 
 /**
  * Upper bound on a plausible per-interface throughput, in bytes per second
- * (100 Gbps). A single-tick delta implying more than this is treated as a
- * counter discontinuity (e.g. a reconnect handing back a fresh large counter)
- * and dropped to a 0 rate rather than reported as a spike. The ceiling sits
- * well above any current Mac NIC so it never clips real traffic.
+ * (100 Gbps). A single-tick delta above this is treated as a counter
+ * discontinuity and dropped to a 0 rate rather than reported as a spike. The
+ * ceiling sits well above any current Mac NIC so it never clips real traffic.
  */
 const MAX_PLAUSIBLE_BYTES_PER_SEC = 100_000_000_000 / 8;
 
-/** Cumulative interface byte counters captured at a point in time. */
+/**
+ * Cumulative interface byte counters captured at a point in time.
+ */
 interface NetworkCounters {
   rxBytes: number;
   txBytes: number;
-  /** `performance.now()`-style monotonic timestamp in milliseconds. */
+  /**
+   * `performance.now()`-style monotonic timestamp in milliseconds.
+   */
   atMs: number;
 }
 
@@ -40,9 +47,13 @@ interface NetworkCounters {
  * Mirrors the categories Node exposes per core via `os.cpus()[].times`.
  */
 interface CpuTicks {
-  /** user + nice + sys + irq: time the CPU was doing work. */
+  /**
+   * user + nice + sys + irq: time the CPU was doing work.
+   */
   busy: number;
-  /** busy + idle: total observed CPU time. */
+  /**
+   * busy + idle: total observed CPU time.
+   */
   total: number;
 }
 
@@ -53,18 +64,11 @@ interface CpuTicks {
  * throughput, and temperature come from native probes (Node cannot expose the
  * macOS VM cache breakdown, rx/tx byte counters, or thermal sensors).
  *
- * Both CPU usage and network throughput are deltas between successive samples
- * (no single call yields an instantaneous value), so this class is stateful: it
- * holds the previous CPU tick counters and the previous network byte counters.
- * The first sample of each has no delta and reports `unknown`; subsequent
- * samples report `ok`. Temperature is best-effort and frequently `unavailable`
- * on Apple Silicon (no documented public CPU sensor).
- *
- * Technique references (re-implemented over Node/native, no upstream code
- * copied): CPU tick-delta math follows exelban/stats `Modules/CPU/readers.swift`
- * host_cpu_load_info; network counter deltas, reset handling, and impossible-
- * jump rejection follow `Modules/Net/readers.swift`; the temperature probe's
- * sensor-selection rules follow `Modules/Sensors/readers.swift`.
+ * CPU usage and network throughput are deltas between successive samples, so
+ * this class is stateful: it holds the previous CPU tick counters and the
+ * previous network byte counters. The first sample of each has no delta and
+ * reports `unknown`; subsequent samples report `ok`. Temperature is best-effort
+ * and frequently `unavailable` on Apple Silicon (no documented public sensor).
  *
  * Every group is sampled defensively: a failure in one group degrades only that
  * group to `unavailable` and never throws, so one bad source cannot poison the
@@ -160,15 +164,10 @@ export class MetricsSampler {
    * Main system volume capacity via Node's built-in `fs.statfsSync` (no native
    * code). `bavail` is the space available to the current unprivileged user, so
    * it is the honest free figure for a user-facing monitor (it excludes the
-   * blocks the filesystem reserves for the superuser); `used` is derived from
-   * total minus that available space. A non-positive total degrades disk to
-   * `unavailable` to avoid a divide-by-zero, and any read/permission error is
-   * caught so only disk degrades, never the whole snapshot.
-   *
-   * Technique reference: exelban/stats `Modules/Disk/readers.swift` uses the
-   * same statfs block math for capacity; this is a scoped Node re-implementation
-   * for the single system volume only (no per-volume listing, SMART, or
-   * activity counters).
+   * blocks the filesystem reserves for the superuser); `used` is total minus
+   * that available space. A non-positive total degrades disk to `unavailable` to
+   * avoid a divide-by-zero, and any read/permission error is caught so only disk
+   * degrades, never the whole snapshot.
    */
   private sampleDisk(): DiskReading {
     try {
@@ -198,14 +197,10 @@ export class MetricsSampler {
    *
    * Counter discontinuities are handled instead of surfaced as spikes: a counter
    * that went backwards (interface reset/reconnect, or a different interface set)
-   * yields a 0 rate while the baseline re-arms, and a forward jump implying more
-   * than {@link MAX_PLAUSIBLE_BYTES_PER_SEC} is treated as a discontinuity and
-   * also dropped to 0. A non-positive elapsed time is ignored to avoid dividing
-   * by zero. Any native/read error degrades only this group to `unavailable`.
-   *
-   * Technique reference: exelban/stats `Modules/Net/readers.swift` reads the same
-   * getifaddrs / if_data counters, clamps negative deltas to 0, and rejects
-   * impossible jumps; re-implemented here over the native probe.
+   * yields a 0 rate while the baseline re-arms, and a forward jump above
+   * {@link MAX_PLAUSIBLE_BYTES_PER_SEC} is also dropped to 0. A non-positive
+   * elapsed time is ignored to avoid dividing by zero. Any native/read error
+   * degrades only this group to `unavailable`.
    */
   private async sampleNetwork(): Promise<NetworkReading> {
     try {
@@ -245,14 +240,12 @@ export class MetricsSampler {
   /**
    * Optional CPU temperature from the native sensor probe.
    *
-   * The native side averages the union of the per-core CPU temperatures from
-   * two CPU-core sources - AppleSMC core keys (holding the last in-range value
-   * per core so a parked core's idle floor does not skew the result) and the HID
-   * CPU-core sensors - and reports `available=false` when neither yields a
-   * plausible CPU-core reading (there is no die or approximate fallback). macOS
-   * has no documented public CPU temperature source on Apple Silicon, so
-   * `unavailable` is an honest, accepted outcome here rather than a guessed
-   * value. Any native/read error also degrades only this group to `unavailable`.
+   * The native side averages the per-core CPU temperatures from AppleSMC core
+   * keys and the HID CPU-core sensors, and reports `available=false` when
+   * neither yields a plausible reading. macOS has no documented public CPU
+   * temperature source on Apple Silicon, so `unavailable` is an honest outcome
+   * here rather than a guessed value. Any native/read error also degrades only
+   * this group to `unavailable`.
    */
   private async sampleTemperature(): Promise<TemperatureReading> {
     try {
@@ -266,7 +259,9 @@ export class MetricsSampler {
     }
   }
 
-  /** System uptime and load average from Node `os`. */
+  /**
+   * System uptime and load average from Node `os`.
+   */
   private sampleUptime(): UptimeReading {
     try {
       const uptimeSeconds = Math.max(0, Math.floor(os.uptime()));
@@ -279,7 +274,9 @@ export class MetricsSampler {
   }
 }
 
-/** Sums per-core CPU tick categories into a single busy/total pair. */
+/**
+ * Sums per-core CPU tick categories into a single busy/total pair.
+ */
 function aggregateCpuTicks(cores: os.CpuInfo[]): CpuTicks {
   let busy = 0;
   let idle = 0;
@@ -291,13 +288,17 @@ function aggregateCpuTicks(cores: os.CpuInfo[]): CpuTicks {
   return { busy, total: busy + idle };
 }
 
-/** Clamps a percentage into the 0-100 range; non-finite values become 0. */
+/**
+ * Clamps a percentage into the 0-100 range; non-finite values become 0.
+ */
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(100, Math.max(0, value));
 }
 
-/** Clamps a byte count to the 0-total range; non-finite values become 0. */
+/**
+ * Clamps a byte count to the 0-total range; non-finite values become 0.
+ */
 function clampBytes(value: number, totalBytes: number): number {
   if (!Number.isFinite(value) || !Number.isFinite(totalBytes)) return 0;
   return Math.min(Math.max(0, totalBytes), Math.max(0, value));

@@ -1,10 +1,8 @@
 /**
- * Main-internal metric domain types.
- *
- * These describe the sampler's output independently of the generated protobuf
- * shape. The metrics service maps them onto `MetricsSnapshot` for the renderer.
- * Keeping a separate domain type lets the sampler express "not yet determined"
- * vs "tried and unavailable" cleanly without depending on the wire enum.
+ * Main-internal metric domain types describing the sampler's output,
+ * independently of the generated protobuf shape. The metrics service maps them
+ * onto `MetricsSnapshot`. A separate domain type lets the sampler distinguish
+ * "not yet determined" from "tried and unavailable" without the wire enum.
  */
 
 /**
@@ -17,56 +15,90 @@
  */
 export type ReadingStatus = "unknown" | "ok" | "unavailable";
 
-/** Aggregate CPU usage plus static identity. */
+/**
+ * Aggregate CPU usage plus static identity.
+ */
 export interface CpuReading {
   status: ReadingStatus;
-  /** 0-100 aggregate usage across all logical cores. */
+  /**
+   * 0-100 aggregate usage across all logical cores.
+   */
   usagePercent: number;
-  /** CPU model string; empty when unknown. */
+  /**
+   * CPU model string; empty when unknown.
+   */
   model: string;
-  /** Logical core count; 0 when unknown. */
+  /**
+   * Logical core count; 0 when unknown.
+   */
   coreCount: number;
 }
 
-/** Physical memory usage in bytes plus derived percent. */
+/**
+ * Physical memory usage in bytes plus derived percent.
+ */
 export interface MemoryReading {
   status: ReadingStatus;
-  /** Memory in use after excluding reclaimable cache. */
+  /**
+   * Memory in use after excluding reclaimable cache.
+   */
   usedBytes: number;
   totalBytes: number;
-  /** Memory available to apps, including reclaimable cache. */
+  /**
+   * Memory available to apps, including reclaimable cache.
+   */
   availableBytes: number;
-  /** Reclaimable cached files/purgeable memory. */
+  /**
+   * Reclaimable cached files/purgeable memory.
+   */
   cachedBytes: number;
-  /** 0-100 used percentage. */
+  /**
+   * 0-100 used percentage.
+   */
   usedPercent: number;
 }
 
-/** Capacity of the main system volume in bytes plus derived percent. */
+/**
+ * Capacity of the main system volume in bytes plus derived percent.
+ */
 export interface DiskReading {
   status: ReadingStatus;
   usedBytes: number;
   totalBytes: number;
-  /** Space available to the current (unprivileged) user; see the sampler. */
+  /**
+   * Space available to the current (unprivileged) user.
+   */
   freeBytes: number;
-  /** 0-100 used percentage. */
+  /**
+   * 0-100 used percentage.
+   */
   usedPercent: number;
 }
 
-/** Instantaneous network throughput derived from interface counter deltas. */
+/**
+ * Instantaneous network throughput derived from interface counter deltas.
+ */
 export interface NetworkReading {
   status: ReadingStatus;
-  /** Receive (download) rate in bytes per second. */
+  /**
+   * Receive (download) rate in bytes per second.
+   */
   rxBytesPerSec: number;
-  /** Transmit (upload) rate in bytes per second. */
+  /**
+   * Transmit (upload) rate in bytes per second.
+   */
   txBytesPerSec: number;
 }
 
-/** System uptime in seconds plus the 1/5/15 minute load averages. */
+/**
+ * System uptime in seconds plus the 1/5/15 minute load averages.
+ */
 export interface UptimeReading {
   status: ReadingStatus;
   uptimeSeconds: number;
-  /** 1/5/15 minute averages when the platform provides them; otherwise empty. */
+  /**
+   * 1/5/15 minute averages when the platform provides them; otherwise empty.
+   */
   loadAverage: number[];
 }
 
@@ -76,7 +108,9 @@ export interface UptimeReading {
  */
 export interface TemperatureReading {
   status: ReadingStatus;
-  /** CPU-core temperature in degrees Celsius; 0 when not `ok`. */
+  /**
+   * CPU-core temperature in degrees Celsius; 0 when not `ok`.
+   */
   celsius: number;
 }
 

@@ -38,10 +38,14 @@ import {
  */
 export type DetailState = ProcessMetricState;
 
-/** A summed group metric with its display state. */
+/**
+ * A summed group metric with its display state.
+ */
 export interface DetailMetric {
   state: DetailState;
-  /** Formatted value; set only when state is `ok`. */
+  /**
+   * Formatted value; set only when state is `ok`.
+   */
   text?: string;
 }
 
@@ -52,14 +56,20 @@ export interface DetailMetric {
  */
 interface DetailStat {
   state: DetailState;
-  /** Formatted value; set only when state is `ok`. */
+  /**
+   * Formatted value; set only when state is `ok`.
+   */
   text?: string;
 }
 
-/** The command-line block's content with explicit availability. */
+/**
+ * The command-line block's content with explicit availability.
+ */
 export interface DetailCommandLine {
   state: DetailState;
-  /** Joined argument string for display/copy; set only when state is `ok`. */
+  /**
+   * Joined argument string for display/copy; set only when state is `ok`.
+   */
   text?: string;
 }
 
@@ -69,11 +79,17 @@ export interface DetailCommandLine {
  * under the active sort so the member list reads like the main list.
  */
 export interface DetailMember {
-  /** PID of this member, used as the React key and to drill in. */
+  /**
+   * PID of this member, used as the React key and to drill in.
+   */
   pid: number;
-  /** Start time (Unix ms) when known, to disambiguate a reused PID on drill-in. */
+  /**
+   * Start time (Unix ms) when known, to disambiguate a reused PID on drill-in.
+   */
   startedAtUnixMs?: number;
-  /** Member display name. */
+  /**
+   * Member display name.
+   */
   name: string;
   /**
    * Volatile base64 PNG icon when available; absent -> fallback glyph. App
@@ -81,17 +97,27 @@ export interface DetailMember {
    * a non-bundled member shows its executable's icon.
    */
   iconPngBase64?: string;
-  /** Active-metric display state for this member (ok / pending / unavailable). */
+  /**
+   * Active-metric display state for this member (ok / pending / unavailable).
+   */
   metricState: ProcessMetricState;
-  /** Formatted active-metric value; set only when metricState is `ok`. */
+  /**
+   * Formatted active-metric value; set only when metricState is `ok`.
+   */
   metricText?: string;
 }
 
-/** The selected process's parent context, shown above its identity. */
+/**
+ * The selected process's parent context, shown above its identity.
+ */
 interface DetailParent {
-  /** Whether a parent PID is known for the selected process. */
+  /**
+   * Whether a parent PID is known for the selected process.
+   */
   available: boolean;
-  /** Parent PID when available and > 0. */
+  /**
+   * Parent PID when available and > 0.
+   */
   pid?: number;
 }
 
@@ -102,29 +128,53 @@ interface DetailParent {
  * an explicit unavailable/pending line instead of a blank or a faked value.
  */
 export interface ProcessDetail {
-  /** Group identity key (matches {@link ProcessGroup.key}). */
+  /**
+   * Group identity key (matches {@link ProcessGroup.key}).
+   */
   key: string;
-  /** Representative display name (the app name for a group, else the process). */
+  /**
+   * Representative display name (the app name for a group, else the process).
+   */
   name: string;
-  /** Representative PID. */
+  /**
+   * Representative PID.
+   */
   pid: number;
-  /** Volatile base64 PNG icon when available; absent -> fallback glyph. */
+  /**
+   * Volatile base64 PNG icon when available; absent -> fallback glyph.
+   */
   iconPngBase64?: string;
-  /** Bundle identifier when known (e.g. com.apple.dt.Xcode). */
+  /**
+   * Bundle identifier when known (e.g. com.apple.dt.Xcode).
+   */
   bundleIdentifier?: string;
-  /** Executable name, shown as the secondary identity when no bundle id exists. */
+  /**
+   * Executable name, shown as the secondary identity when no bundle id exists.
+   */
   executableName?: string;
-  /** Parent-process context of the representative. */
+  /**
+   * Parent-process context of the representative.
+   */
   parent: DetailParent;
-  /** Started-at time of the representative. */
+  /**
+   * Started-at time of the representative.
+   */
   startedAt: DetailState;
-  /** Started-at value in Unix ms; set only when startedAt is `ok`. */
+  /**
+   * Started-at value in Unix ms; set only when startedAt is `ok`.
+   */
   startedAtUnixMs?: number;
-  /** Executable path of the representative. */
+  /**
+   * Executable path of the representative.
+   */
   path: DetailState;
-  /** Executable path value; set only when path is `ok` (drives copy). */
+  /**
+   * Executable path value; set only when path is `ok` (drives copy).
+   */
   pathText?: string;
-  /** Command line of the representative. */
+  /**
+   * Command line of the representative.
+   */
   commandLine: DetailCommandLine;
   /**
    * Thread count: summed across the group's members (an app's total threads),
@@ -147,9 +197,13 @@ export interface ProcessDetail {
    * when the CPU/RAM switch changes.
    */
   total: DetailMetric;
-  /** Which metric {@link total} reflects, for the "Total CPU"/"Total RAM" label. */
+  /**
+   * Which metric {@link total} reflects, for the "Total CPU"/"Total RAM" label.
+   */
   totalSort: SortMode;
-  /** Number of processes in the group (>= 1). */
+  /**
+   * Number of processes in the group (>= 1).
+   */
   memberCount: number;
   /**
    * All member rows for the expandable Members section (representative first).
@@ -168,7 +222,9 @@ function formatDetailMetric(value: number, sort: SortMode): string {
   return sort === "cpu" ? formatCpuPercentPrecise(value) : formatBytes(value, true);
 }
 
-/** Reads the started-at identity of a row with pending/unavailable distinction. */
+/**
+ * Reads the started-at identity of a row with pending/unavailable distinction.
+ */
 function rowStartedAt(row: ProcessRow): { state: DetailState; value?: number } {
   const identity = row.identity;
   if (identity && identity.startedAtStatus === FieldStatus.FIELD_STATUS_OK) {
@@ -177,7 +233,9 @@ function rowStartedAt(row: ProcessRow): { state: DetailState; value?: number } {
   return { state: isPending(identity?.startedAtStatus ?? FieldStatus.FIELD_STATUS_UNKNOWN) ? "pending" : "unavailable" };
 }
 
-/** Reads a StringValue field as a detail state plus optional text. */
+/**
+ * Reads a StringValue field as a detail state plus optional text.
+ */
 function detailString(
   value: { status: FieldStatus; value: string } | undefined,
 ): { state: DetailState; text?: string } {
@@ -188,7 +246,9 @@ function detailString(
   return { state: isPending(value?.status ?? FieldStatus.FIELD_STATUS_UNKNOWN) ? "pending" : "unavailable" };
 }
 
-/** Reads the representative's command line as a joined string with availability. */
+/**
+ * Reads the representative's command line as a joined string with availability.
+ */
 function detailCommandLine(row: ProcessRow): DetailCommandLine {
   const commandLine = row.commandLine;
   if (commandLine && commandLine.status === FieldStatus.FIELD_STATUS_OK) {
@@ -226,7 +286,9 @@ function sumGroup(
   return { state: anyPending ? "pending" : "unavailable" };
 }
 
-/** Per-process thread count with pending/unavailable distinction. */
+/**
+ * Per-process thread count with pending/unavailable distinction.
+ */
 function rowThreadCount(row: ProcessRow): MetricCell {
   const threads = row.threadCount;
   if (threads && threads.status === FieldStatus.FIELD_STATUS_OK) {
@@ -235,7 +297,9 @@ function rowThreadCount(row: ProcessRow): MetricCell {
   return { pending: threads === undefined || isPending(threads.status) };
 }
 
-/** Per-process cumulative CPU time (nanoseconds) with pending/unavailable. */
+/**
+ * Per-process cumulative CPU time (nanoseconds) with pending/unavailable.
+ */
 function rowCpuTime(row: ProcessRow): MetricCell {
   const cpuTime = row.cpuTime;
   if (cpuTime && cpuTime.status === FieldStatus.FIELD_STATUS_OK) {
@@ -257,7 +321,9 @@ function detailUser(row: ProcessRow): DetailStat {
   return { state: isPending(user?.status ?? FieldStatus.FIELD_STATUS_UNKNOWN) ? "pending" : "unavailable" };
 }
 
-/** Projects one member row into a {@link DetailMember} under the active sort. */
+/**
+ * Projects one member row into a {@link DetailMember} under the active sort.
+ */
 function buildMember(row: ProcessRow, sort: SortMode): DetailMember {
   const cell = rowMetric(row, sort);
   const metricState = cellState(cell);

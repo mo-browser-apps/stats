@@ -1,13 +1,19 @@
 import { ipc } from "@/gen/ipc";
 import type { MetricsSnapshot } from "@/gen/metrics";
 
-/** Called for each snapshot the main process pushes. */
+/**
+ * Called for each snapshot the main process pushes.
+ */
 type SnapshotListener = (snapshot: MetricsSnapshot) => void;
 
-/** Called once if the stream fails. The stream ends after an error. */
+/**
+ * Called once if the stream fails. The stream ends after an error.
+ */
 type StreamErrorListener = (error: unknown) => void;
 
-/** Tears down a subscription. Idempotent; safe to use as a cleanup callback. */
+/**
+ * Tears down a subscription. Idempotent; safe to use as a cleanup callback.
+ */
 type Unsubscribe = () => void;
 
 /**

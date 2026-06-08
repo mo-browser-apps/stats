@@ -10,31 +10,39 @@ import {
 } from "@/gen/process_explorer";
 import type { ProcessDetail } from "@/domain/process-detail";
 
-/** What {@link useProcessActions} exposes to the detail view's action row. */
+/**
+ * What {@link useProcessActions} exposes to the detail view's action row.
+ */
 interface ProcessActionsState {
-  /** Main's authoritative per-action availability for the current target. */
+  /**
+   * Main's authoritative per-action availability for the current target.
+   */
   actions: ActionState[];
-  /** True while an action is in flight; the whole row disables. */
+  /**
+   * True while an action is in flight; the whole row disables.
+   */
   actionsBusy: boolean;
-  /** Transient, non-sensitive message for an OS refusal / failure, else undefined. */
+  /**
+   * Transient, non-sensitive message for an OS refusal / failure, else undefined.
+   */
   actionMessage?: string;
-  /** Forwards a chosen action kind to main, then re-pulls and refreshes states. */
+  /**
+   * Forwards a chosen action kind to main, then re-pulls and refreshes states.
+   */
   runAction: (kind: ProcessActionKind) => Promise<void>;
 }
 
 /**
  * Owns the detail's process-action concerns: the action target, its
  * main-authoritative {@link ActionState} list, the in-flight flag, a transient
- * non-success message, and the action runner. Kept out of the view component so
- * the latter stays focused on the snapshot lifecycle and list/detail rendering.
+ * non-success message, and the action runner.
  *
  * The target is derived from the open `detail` but keyed on its primitive
- * identity (pid + start time) so it is stable across the 2s snapshot ticks (the
- * detail object is a fresh reference each tick) and does not refetch needlessly.
- * A `targetKey` guard drops out-of-order `getActionStates` responses. Action
- * requests do not carry a snapshot revision: main validates the target by
- * identity against its latest cached snapshot. `onActed` re-pulls the snapshot
- * after an action so a killed process drops promptly and the detail falls back.
+ * identity (pid + start time) so it stays stable across the 2s snapshot ticks
+ * (the detail object is a fresh reference each tick) and does not refetch
+ * needlessly. A `targetKey` guard drops out-of-order `getActionStates`
+ * responses. `onActed` re-pulls the snapshot after an action so a killed process
+ * drops promptly and the detail falls back.
  */
 export function useProcessActions(
   detail: ProcessDetail | undefined,
@@ -121,12 +129,10 @@ export function useProcessActions(
 }
 
 /**
- * Maps a coarse action outcome to a short, non-sensitive message for the detail's
- * action row, or undefined when nothing needs to be said. A succeeded action
- * drops the row (the detail falls back), and a stale target likewise resolves to
- * a different view, so neither shows a message; only an OS refusal or an
- * unspecified failure does. The message is derived from the outcome enum alone -
- * it never includes a process name, path, or argv.
+ * Maps a coarse action outcome to a short, non-sensitive message for the
+ * detail's action row, or undefined when nothing needs to be said. Only an OS
+ * refusal or an unspecified failure shows a message. The message is derived from
+ * the outcome enum alone - it never includes a process name, path, or argv.
  */
 function actionOutcomeMessage(outcome: Outcome): string | undefined {
   switch (outcome) {

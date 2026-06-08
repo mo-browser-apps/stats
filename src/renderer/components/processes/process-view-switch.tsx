@@ -1,6 +1,8 @@
 import { SegmentedControl, type SegmentedOption } from "@/components/ui/segmented-control";
 
-/** The two top-level views in the single window. */
+/**
+ * The two top-level views in the single window.
+ */
 export type AppView = "stats" | "processes";
 
 const VIEW_OPTIONS: ReadonlyArray<SegmentedOption<AppView>> = [
@@ -10,8 +12,7 @@ const VIEW_OPTIONS: ReadonlyArray<SegmentedOption<AppView>> = [
 
 /**
  * Title-bar segmented control switching between the Stats overview and the
- * Processes explorer in the same window. Replaces the former centered wordmark
- * and live dot.
+ * Processes explorer in the same window.
  */
 export function ProcessViewSwitch({
   view,

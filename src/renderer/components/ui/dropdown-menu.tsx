@@ -7,9 +7,9 @@ import { cn } from "@/lib/utils";
 /**
  * Compact dropdown menu primitives, a thin local wrapper over Radix so the menu
  * stays accessible (keyboard, focus, dismissal) while matching the app's quiet
- * dark panel look from DESIGN.md. Only the pieces the process sort control needs
- * are wrapped: the root, the trigger, a styled portaled content surface, and a
- * single-select radio group with a check indicator.
+ * dark panel look. Only the pieces the process sort control needs are wrapped:
+ * the root, the trigger, a styled portaled content surface, and a single-select
+ * radio group with a check indicator.
  */
 
 const DropdownMenu = DropdownMenuPrimitive.Root;
@@ -19,9 +19,8 @@ const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
 
 /**
- * Floating menu surface. Portaled to the body so it escapes the list's scroll
- * and clipping; styled as a small popover panel with a hairline border. Marked
- * `.no-drag` so clicks inside it never start a window drag.
+ * Floating menu surface, portaled to the body so it escapes the list's scroll
+ * and clipping. Marked `.no-drag` so clicks inside never start a window drag.
  */
 const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
@@ -42,9 +41,8 @@ const DropdownMenuContent = React.forwardRef<
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName;
 
 /**
- * One selectable row in a {@link DropdownMenuRadioGroup}. Shows a left check
- * slot that is filled only for the active value, so the menu reads as a clear
- * single-select without shifting the label.
+ * One selectable row in a {@link DropdownMenuRadioGroup}, with a left check slot
+ * filled only for the active value so the label never shifts.
  */
 const DropdownMenuRadioItem = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>,

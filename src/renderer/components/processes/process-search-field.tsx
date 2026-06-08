@@ -1,12 +1,16 @@
 import { Search, X } from "lucide-react";
 import { cva } from "class-variance-authority";
 
-/** Search input: full-width, hairline-bordered, with the native clear glyph hidden. */
+/**
+ * Search input: full-width, hairline-bordered, with the native clear glyph hidden.
+ */
 const searchInput = cva(
   "h-full w-full rounded-lg border border-border bg-muted/40 pl-9 pr-8 text-[13px] text-foreground placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring [&::-webkit-search-cancel-button]:hidden",
 );
 
-/** Custom clear affordance, shown only while the field is non-empty. */
+/**
+ * Custom clear affordance, shown only while the field is non-empty.
+ */
 const clearButton = cva(
   "absolute right-2 flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground",
 );
@@ -14,8 +18,7 @@ const clearButton = cva(
 /**
  * Compact search field above the process list. Matches process/app name, PID,
  * executable path, bundle id, and command-line arguments (the matching itself
- * lives in the pure projection). Fixed height with a clear affordance; no
- * instructional copy beyond the placeholder.
+ * lives in the pure projection).
  */
 export function ProcessSearchField({
   value,

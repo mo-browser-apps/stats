@@ -9,19 +9,18 @@ import { cn } from "@/lib/utils";
 import { ProcessExplorerView } from "@/components/processes/process-explorer-view";
 import { ProcessViewSwitch, type AppView } from "@/components/processes/process-view-switch";
 
-/** Maps the renderer view vocabulary onto the generated active-view enum. */
+/**
+ * Maps the renderer view vocabulary onto the generated active-view enum.
+ */
 const ACTIVE_VIEW_BY_VIEW: Record<AppView, ActiveView> = {
   stats: ActiveView.ACTIVE_VIEW_STATS,
   processes: ActiveView.ACTIVE_VIEW_PROCESSES,
 };
 
 /**
- * Renderer composition root.
- *
- * Owns the top-level view switch (Stats overview vs Processes explorer) inside
- * the single window and reports the active view to main. Each view owns its own
- * data lifecycle while mounted - the overview holds the metrics subscription and
- * the explorer its snapshot pull - so this root holds no metric/process state.
+ * Renderer composition root. Owns the top-level view switch (Stats vs
+ * Processes) and reports the active view to main. Each view owns its own data
+ * lifecycle while mounted, so this root holds no metric/process state.
  */
 function App() {
   const isMac = navigator.userAgent.includes("Mac");
@@ -55,19 +54,16 @@ function App() {
 }
 
 /**
- * Wraps one top-level view, keeping it mounted but hiding it with `display:none`
- * when it is not the active view. Mounted-but-hidden preserves the view's state
- * (and avoids the remount flicker) while taking it out of layout so it does not
- * affect the visible view.
+ * Wraps one top-level view, keeping it mounted but hidden when inactive so its
+ * state survives tab switches without a remount flicker.
  */
 function ViewPane({ active, children }: { active: boolean; children: ReactNode }) {
   return <div className={cn("flex-1 flex-col overflow-hidden", active ? "flex" : "hidden")}>{children}</div>;
 }
 
 /**
- * Title-bar "pin on top" toggle. Keeps the compact monitor above other windows
- * so it stays visible while working elsewhere. The visual state changes only
- * after the typed IPC command succeeds.
+ * Title-bar "pin on top" toggle, keeping the window above others. The visual
+ * state changes only after the typed IPC command succeeds.
  */
 function PinToggle() {
   const [pinned, setPinned] = useState(false);

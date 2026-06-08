@@ -4,10 +4,9 @@ import type { DetailSelection, ProcessListProjection } from "@/domain/process-li
 
 /**
  * The ranked, grouped process rows plus the loading/empty/unavailable/
- * permission-limited states. The states occupy the same scroll area so the
- * panel never resizes as data arrives or a search empties the list. Each row
- * opens the detail view via {@link onOpenSelection} (a stable callback, so the
- * memoized rows are not invalidated each tick).
+ * permission-limited states, all sharing one scroll area so the panel never
+ * resizes. Each row opens the detail view via {@link onOpenSelection} (a stable
+ * callback, so the memoized rows are not invalidated each tick).
  */
 export function ProcessList({
   projection,
@@ -40,10 +39,9 @@ export function ProcessList({
 }
 
 /**
- * Quiet centered message for the non-row states. Loading (before the first
- * snapshot), unavailable (collection failed), permission-limited with no rows,
- * an empty table, or a search with no matches each get an honest line rather
- * than a blank panel.
+ * Quiet centered message for the non-row states (loading, unavailable,
+ * permission-limited, empty, or a search with no matches), so the panel shows an
+ * honest line rather than a blank.
  */
 function ListPlaceholder({ status, hasQuery }: { status: SnapshotStatus; hasQuery: boolean }) {
   const message = placeholderMessage(status, hasQuery);
@@ -54,7 +52,9 @@ function ListPlaceholder({ status, hasQuery }: { status: SnapshotStatus; hasQuer
   );
 }
 
-/** Picks the placeholder line; search-with-no-matches takes priority over state. */
+/**
+ * Picks the placeholder line; search-with-no-matches takes priority over state.
+ */
 function placeholderMessage(status: SnapshotStatus, hasQuery: boolean): string {
   if (hasQuery) {
     return "No matching processes";

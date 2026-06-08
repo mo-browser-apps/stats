@@ -2,15 +2,17 @@ import process from "node:process";
 import { app, BrowserWindow } from "@mobrowser/api";
 import type { CloseBrowserWindowAction, CloseBrowserWindowParams } from "@mobrowser/api";
 
-/** The two top-level views; the window picks its height per view. */
+/**
+ * The two top-level views; the window picks its height per view.
+ */
 type WindowView = "stats" | "processes";
 
 /**
- * Compact window dimensions aligned with DESIGN.md. Width is constant; the height
- * follows the active view so neither view wastes vertical space - the Stats
- * overview is a tight stack of metric rows, while the Processes explorer needs
- * room for the sort control, search field, and a ranked list. Kept closer to a
- * menu-bar popover than a dashboard.
+ * Compact window dimensions. Width is constant; the height follows the active
+ * view so neither view wastes vertical space: the Stats overview is a tight stack
+ * of metric rows, while the Processes explorer needs room for the sort control,
+ * search field, and a ranked list. Kept closer to a menu-bar popover than a
+ * dashboard.
  */
 const WINDOW_WIDTH = 360;
 const VIEW_HEIGHT: Record<WindowView, number> = {
@@ -18,14 +20,15 @@ const VIEW_HEIGHT: Record<WindowView, number> = {
   processes: 560,
 };
 
-/** The view the window opens at (and re-shows at after a hide). */
+/**
+ * The view the window opens at (and re-shows at after a hide).
+ */
 const INITIAL_VIEW: WindowView = "stats";
 
 /**
  * Per-view resize animation. macOS has no documented animate flag on setBounds,
  * so a short eased loop in main gives a smooth grow/shrink without any content
- * reflow (both views stay mounted, so only the window frame moves). Kept in
- * DESIGN.md's 120-180ms motion range.
+ * reflow (both views stay mounted, so only the window frame moves).
  */
 const RESIZE_DURATION_MS = 160;
 const RESIZE_STEP_MS = 16; // ~60fps
@@ -47,10 +50,14 @@ const MAC_WINDOW_BUTTON_POSITION = { x: 16, y: 18 } as const;
 export class ApplicationWindow {
   private window: BrowserWindow | null = null;
 
-  /** Target height for the active view; used when creating or re-showing. */
+  /**
+   * Target height for the active view; used when creating or re-showing.
+   */
   private targetHeight = VIEW_HEIGHT[INITIAL_VIEW];
 
-  /** Active resize animation timer, if a grow/shrink is in flight. */
+  /**
+   * Active resize animation timer, if a grow/shrink is in flight.
+   */
   private resizeTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
@@ -243,7 +250,9 @@ export class ApplicationWindow {
     }, RESIZE_STEP_MS);
   }
 
-  /** Applies a bounded per-view height while preserving the chosen frame origin. */
+  /**
+   * Applies a bounded per-view height while preserving the chosen frame origin.
+   */
   private setWindowHeight(
     window: BrowserWindow,
     height: number,
@@ -255,7 +264,9 @@ export class ApplicationWindow {
     });
   }
 
-  /** Finishes any in-flight resize at the latest target while the frame is hidden. */
+  /**
+   * Finishes any in-flight resize at the latest target while the frame is hidden.
+   */
   private settleResize(window: BrowserWindow): void {
     this.stopResize();
     if (!window.isClosed && Math.round(window.size.height) !== this.targetHeight) {
@@ -263,7 +274,9 @@ export class ApplicationWindow {
     }
   }
 
-  /** Clears the resize animation timer if one is running. */
+  /**
+   * Clears the resize animation timer if one is running.
+   */
   private stopResize(): void {
     if (this.resizeTimer !== null) {
       clearInterval(this.resizeTimer);

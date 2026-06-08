@@ -16,14 +16,10 @@ import {
 } from "@/lib/format";
 
 /**
- * Live overview (the Stats view).
- *
- * Owns the metrics-stream subscription, but consumes it only while it is the
- * active view: the view stays mounted across tab switches (retaining its last
- * rows), and subscribes when `active` and unsubscribes when hidden. Main also
- * pauses the metrics cadence off the Stats view, so the stream is idle then.
- * After returning to Stats the rows show the last value until the next tick
- * (~1s). The renderer holds no sampling timer.
+ * Live overview (the Stats view). Owns the metrics-stream subscription but only
+ * while active: it subscribes when `active` and unsubscribes when hidden,
+ * retaining the last rows across tab switches. The renderer holds no sampling
+ * timer.
  */
 export function MetricsOverview({ active }: { active: boolean }) {
   const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null);
@@ -125,11 +121,9 @@ function NetworkRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
 }
 
 /**
- * Compact footer: Uptime in the left corner and CPU temperature in the right
- * corner.
- *
- * CPU temperature is best-effort on Apple Silicon, so it is shown only when a
- * sensor reading is actually available rather than as a dead placeholder.
+ * Compact footer: Uptime on the left, CPU temperature on the right. Temperature
+ * is best-effort on Apple Silicon, so it is shown only when a sensor reading is
+ * actually available rather than as a dead placeholder.
  */
 function FooterStats({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const uptime = snapshot?.uptime;
@@ -159,7 +153,9 @@ function FooterStats({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   );
 }
 
-/** A single footer stat: quiet icon + label, then the value. */
+/**
+ * A single footer stat: quiet icon + label, then the value.
+ */
 function FooterStat({
   icon: Icon,
   label,

@@ -8,10 +8,14 @@ import { ProcessExplorerService } from "./processes/process-explorer-service";
 import { ActiveView, CopyTextRequest, SetActiveViewRequest, SetAlwaysOnTopRequest } from "./gen/app";
 import { AppServiceDescriptor } from "./gen/ipc_service";
 
-/** Human-facing app name (macron-branded), per the MoBrowser apps branding guide. */
+/**
+ * Human-facing app name.
+ */
 const DISPLAY_NAME = "MōStats";
 
-/** Opened from the About dialog's button. */
+/**
+ * Opened from the About dialog's button.
+ */
 const REPOSITORY_URL = "https://github.com/mo-browser-apps/stats";
 
 /**
@@ -20,12 +24,12 @@ const REPOSITORY_URL = "https://github.com/mo-browser-apps/stats";
  * (metrics stream + process explorer).
  *
  * The window hides instead of closing, so the app keeps running in the tray.
- * Per-view background work is gated on two signals this class owns - window
- * visibility and the active view (reported via {@link ActiveView}) - combined in
- * {@link updateServiceActivation} so exactly the on-screen view's service runs,
- * and neither while hidden. This keeps the process collector's sensitive
- * command-line reads off until the user is on the Processes view. Quit is routed
- * through {@link quit} so the services and tray are torn down before exit.
+ * Per-view background work is gated on two signals this class owns, window
+ * visibility and the active view, combined in {@link updateServiceActivation} so
+ * exactly the on-screen view's service runs and neither while hidden. This keeps
+ * the process collector's sensitive command-line reads off until the user is on
+ * the Processes view. Quit is routed through {@link quit} so the services and
+ * tray are torn down before exit.
  */
 export class Application {
   private readonly window = new ApplicationWindow(() => {
@@ -51,9 +55,9 @@ export class Application {
    * Wires lifecycle handlers, registers IPC services, and shows the window.
    */
   initialize(): void {
-    // MoStats is a dark-only compact utility (DESIGN.md): fix the native theme
-    // to dark so the window chrome matches the renderer rather than following
-    // the OS appearance. There is no in-app theme switch.
+    // MoStats is dark-only: fix the native theme to dark so the window chrome
+    // matches the renderer rather than following the OS appearance. There is no
+    // in-app theme switch.
     app.setTheme("dark");
 
     // Install the macOS app menu so About sits under the app-name menu (the
@@ -87,13 +91,11 @@ export class Application {
   }
 
   /**
-   * Tears down runtime services and quits. Disposing the metrics and process
-   * explorer services stops the sampling interval and closes their broadcast
-   * streams/handlers, and destroying the tray releases the native status item, so
-   * no timer, stream subscriber, or native resource is left dangling when the
-   * process exits. This MoBrowser version has no before-quit/will-quit app event,
-   * so quit is funneled here (from the tray Quit action) rather than hooked after
-   * the fact.
+   * Tears down runtime services and quits. Disposing the services stops the
+   * sampling interval and closes their broadcast streams, and destroying the tray
+   * releases the native status item, so nothing is left dangling at exit. This
+   * MoBrowser version has no before-quit/will-quit app event, so quit is funneled
+   * here (from the menu/tray Quit actions) rather than hooked after the fact.
    */
   quit(): void {
     if (this.quitting) {
@@ -109,10 +111,9 @@ export class Application {
 
   /**
    * Shows the About dialog from the app menu. A native message dialog keeps the
-   * app single-window (no extra window or in-window overlay): it shows the
-   * branded name + live version + description, notes the MoBrowser framework and
-   * copyright, and offers a button that opens the GitHub repository. The version
-   * comes from app metadata (set in packaging), not a hardcoded string.
+   * app single-window: it shows the branded name, live version, and description,
+   * and offers a button that opens the GitHub repository. The version comes from
+   * app metadata, not a hardcoded string.
    */
   private async showAbout(): Promise<void> {
     const result = await app.showMessageDialog({
@@ -142,11 +143,10 @@ export class Application {
 
   /**
    * Activates exactly the service whose view is on screen, and neither while the
-   * window is hidden. This is the single place the two gates - window visibility
-   * and the active view - are combined, so both services follow the same rule:
-   * run iff the window is visible and this service's view is the active one.
-   * Both setActive calls are idempotent, so re-evaluating on every signal change
-   * is cheap.
+   * window is hidden. The single place the two gates, window visibility and the
+   * active view, are combined: each service runs iff the window is visible and
+   * its view is the active one. Both setActive calls are idempotent, so
+   * re-evaluating on every signal change is cheap.
    */
   private updateServiceActivation(): void {
     const visible = this.window.isVisible;
@@ -177,10 +177,9 @@ export class Application {
         return {};
       },
       async CopyText(request: CopyTextRequest) {
-        // The renderer is sandboxed and cannot reach the clipboard, so a manual
-        // copy of a path or command line is performed here. The text can be a
-        // sensitive command line, so it is written to the user's clipboard on
-        // request and never logged or persisted.
+        // The renderer is sandboxed and cannot reach the clipboard, so the copy
+        // happens here. The text may be a sensitive command line, so it is
+        // written to the clipboard on request and never logged or persisted.
         clipboard.write("text/plain", request.text);
         return {};
       },

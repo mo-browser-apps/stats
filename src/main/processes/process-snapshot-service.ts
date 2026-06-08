@@ -36,23 +36,26 @@ import { ProcessExplorerServiceDescriptor } from "../gen/ipc_service";
 
 /**
  * Interval between process collections, in milliseconds. Slower than the 1s
- * metrics cadence: a full process enumeration touches every PID with several
- * syscalls, and the list barely changes second to second, so a 2s cadence keeps
- * the overhead bounded while staying responsive.
+ * metrics cadence because a full enumeration touches every PID with several
+ * syscalls and the list barely changes second to second.
  */
 const COLLECT_INTERVAL_MS = 2000;
 
 /**
  * Logical-core count. Per-process CPU uses Activity Monitor semantics (a process
  * pegging one core reads ~100%), so usage is NOT divided by this; it only caps
- * the reported value at cores * 100 (a fully busy machine).
+ * the reported value at cores * 100.
  */
 const LOGICAL_CORE_COUNT = Math.max(1, os.cpus().length);
 
-/** Upper bound on reported per-process CPU percent: all cores fully busy. */
+/**
+ * Upper bound on reported per-process CPU percent: all cores fully busy.
+ */
 const MAX_CPU_PERCENT = LOGICAL_CORE_COUNT * 100;
 
-/** Identity key for matching a process across snapshots (pid + start time). */
+/**
+ * Identity key for matching a process across snapshots (pid + start time).
+ */
 type ProcessKey = string;
 
 /**
@@ -60,17 +63,21 @@ type ProcessKey = string;
  * derived from the cumulative-counter delta.
  */
 interface CpuBaseline {
-  /** Cumulative user+system CPU time in nanoseconds at the last collection. */
+  /**
+   * Cumulative user+system CPU time in nanoseconds at the last collection.
+   */
   cumulativeCpuTimeNs: number;
-  /** Monotonic clock (ms) when that counter was read. */
+  /**
+   * Monotonic clock (ms) when that counter was read.
+   */
   sampledAtMs: number;
 }
 
 /**
- * Maps a native per-field availability onto the renderer field status. The
- * shared codes line up one to one; the proto3 default (UNSPECIFIED) and the
- * native-only PARSE_FAILED both collapse to a renderer "unavailable" since the
- * renderer contract has no parse-failed state.
+ * Maps a native per-field availability onto the renderer field status. Shared
+ * codes line up one to one; the proto3 default (UNSPECIFIED) and native-only
+ * PARSE_FAILED collapse to "unavailable" since the renderer has no parse-failed
+ * state.
  */
 function toFieldStatus(status: NativeFieldStatus): FieldStatus {
   switch (status) {
@@ -89,7 +96,9 @@ function toFieldStatus(status: NativeFieldStatus): FieldStatus {
   }
 }
 
-/** Maps a native string field, preserving availability and value. */
+/**
+ * Maps a native string field, preserving availability and value.
+ */
 function toStringValue(value: NativeString | undefined): StringValue {
   if (value === undefined) {
     return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, value: "" };
@@ -100,7 +109,7 @@ function toStringValue(value: NativeString | undefined): StringValue {
 /**
  * Maps the optional GUI app icon (a native PNG payload) onto the renderer's
  * base64 string value, preserving availability. The base64 payload is volatile
- * display data forwarded for rendering only; it is never logged or persisted.
+ * display data forwarded for rendering only; never logged or persisted.
  */
 function toIconValue(icon: NativeImage | undefined): StringValue {
   if (icon === undefined) {
@@ -114,9 +123,9 @@ function toIconValue(icon: NativeImage | undefined): StringValue {
 }
 
 /**
- * Maps the owning `.app` bundle (path + name) the list groups by. Absent (the
- * native bundle, or its path, not AVAILABLE) maps to undefined so a non-bundled
- * process falls back to bundle-id/name grouping in the renderer.
+ * Maps the owning `.app` bundle (path + name) the list groups by. An absent
+ * bundle or non-AVAILABLE path maps to undefined so a non-bundled process falls
+ * back to bundle-id/name grouping in the renderer.
  */
 function toAppBundle(bundle: NativeAppBundle | undefined): AppBundle | undefined {
   if (
@@ -130,10 +139,9 @@ function toAppBundle(bundle: NativeAppBundle | undefined): AppBundle | undefined
 
 /**
  * Maps the optional GUI app metadata (bundle id, localized name, icon) plus the
- * owning app bundle. NSWorkspace-known GUI apps carry bundle id / localized name;
- * the bundle and icon are set for any process inside a `.app`. A record with no
- * app data maps every field to UNKNOWN so the UI falls back to a generic icon and
- * the command/executable name. Icons are volatile display data, never logged.
+ * owning app bundle. A record with no app data maps every field to UNKNOWN so the
+ * UI falls back to a generic icon and the command/executable name. Icons are
+ * volatile display data, never logged.
  */
 function toAppMetadata(app: NativeAppMetadata | undefined): AppMetadata {
   if (app === undefined) {
@@ -155,7 +163,7 @@ function toAppMetadata(app: NativeAppMetadata | undefined): AppMetadata {
 
 /**
  * Maps the per-process memory group. Each metric is a non-negative byte count;
- * a negative native value (should not happen) is clamped to a real zero.
+ * a negative native value is clamped to zero.
  */
 function toProcessMemory(memory: NativeProcessMemory | undefined): ProcessMemory {
   const footprint = memory?.physicalFootprintBytes;
@@ -176,7 +184,7 @@ function toProcessMemory(memory: NativeProcessMemory | undefined): ProcessMemory
 
 /**
  * Maps the thread count (a native int64 with availability) onto the renderer's
- * UInt64Value. A negative native value (should not happen) clamps to zero.
+ * UInt64Value. A negative native value clamps to zero.
  */
 function toThreadCount(threadCount: NativeInt64 | undefined): UInt64Value {
   if (threadCount === undefined) {
@@ -191,9 +199,9 @@ function toThreadCount(threadCount: NativeInt64 | undefined): UInt64Value {
 
 /**
  * Maps the cumulative CPU-time counter into the renderer's CpuTime display value.
- * This is the same native counter {@link deriveCpu} diffs for the percent, but
- * surfaced directly: it is shown as soon as it is read (no first-sample UNKNOWN),
- * since a cumulative total needs no delta. A negative value clamps to zero.
+ * Surfaced directly (no first-sample UNKNOWN) since a cumulative total needs no
+ * delta, unlike the percent {@link deriveCpu} computes. A negative value clamps
+ * to zero.
  */
 function toCpuTime(cpu: NativeProcessCpu | undefined): CpuTime {
   const counter = cpu?.cumulativeCpuTimeNs;
@@ -210,8 +218,7 @@ function toCpuTime(cpu: NativeProcessCpu | undefined): CpuTime {
 /**
  * Maps the owning user (uid + resolved name). uid and name share one
  * availability; an unmapped uid stays OK with the numeric value and an empty
- * name. The name is non-sensitive identity data (it is a login name, not argv),
- * so it is forwarded for display.
+ * name. The name is a login name, not argv, so it is forwarded for display.
  */
 function toProcessUser(user: NativeProcessUser | undefined): ProcessUser {
   if (user === undefined) {
@@ -227,8 +234,8 @@ function toProcessUser(user: NativeProcessUser | undefined): ProcessUser {
 
 /**
  * Maps the sensitive command-line group. Arguments are forwarded verbatim for
- * local display/search only; they are never logged or persisted here. Arguments
- * are dropped unless the vector is explicitly available.
+ * local display/search only and are never logged or persisted here; they are
+ * dropped unless the vector is explicitly available.
  */
 function toCommandLine(commandLine: NativeCommandLine | undefined): CommandLine {
   if (commandLine === undefined) {
@@ -242,7 +249,9 @@ function toCommandLine(commandLine: NativeCommandLine | undefined): CommandLine 
   };
 }
 
-/** Builds the snapshot-stable identity key for a record, or null if no PID. */
+/**
+ * Builds the snapshot-stable identity key for a record, or null if no PID.
+ */
 function recordKey(record: NativeProcessRecord): ProcessKey | null {
   const identity = record.identity;
   if (identity === undefined) {
@@ -259,35 +268,40 @@ function recordKey(record: NativeProcessRecord): ProcessKey | null {
  * Owns process collection and the renderer-facing snapshot for the process
  * explorer.
  *
- * Mirrors {@link import('../metrics/metrics-service').MetricsService}: it runs a
- * single visibility-gated, non-overlapping cadence in main (the lone consumer is
- * the one compact window), calls the native collector once per tick, maps the
- * raw records into a renderer {@link ProcessSnapshot}, caches it, bumps a
- * monotonic revision, and broadcasts a lightweight {@link ProcessSnapshotRevision}
- * ping so the renderer pulls the full snapshot only when it changes.
+ * Runs a single visibility-gated, non-overlapping cadence in main, calls the
+ * native collector once per tick, maps the raw records into a renderer
+ * {@link ProcessSnapshot}, caches it, bumps a monotonic revision, and broadcasts
+ * a lightweight {@link ProcessSnapshotRevision} ping so the renderer pulls the
+ * full snapshot only when it changes.
  *
  * Per-process CPU usage is derived here, not in native: the collector reports a
- * cumulative CPU-time counter, and this service diffs it across collections
- * against wall time using Activity Monitor semantics: one fully busy core reads
- * around 100%, multi-threaded processes can exceed 100%, and the value is capped
- * at all logical cores. A first sample, a restarted process (reused PID with a
- * new start time), a missing identity, or a non-positive interval yields an
- * UNKNOWN CPU value rather than a fabricated one.
+ * cumulative CPU-time counter that this service diffs across collections against
+ * wall time using Activity Monitor semantics (one fully busy core reads ~100%,
+ * multi-threaded processes can exceed 100%, capped at all logical cores). A first
+ * sample, a restarted process (reused PID with a new start time), a missing
+ * identity, or a non-positive interval yields an UNKNOWN CPU value rather than a
+ * fabricated one.
  *
  * Privacy: command-line arguments pass through to the renderer for local
- * display/search only. This service never logs request targets, argument
- * values, executable paths, or process names; warnings are count-only.
+ * display/search only. This service never logs request targets, argument values,
+ * executable paths, or process names; warnings are count-only.
  */
 export class ProcessSnapshotService {
-  /** Broadcast handle that owns the StreamRevisions subscriber set. */
+  /**
+   * Broadcast handle that owns the StreamRevisions subscriber set.
+   */
   private readonly revisionHandle = ipc.registerService(
     ProcessExplorerServiceDescriptor,
   );
 
-  /** CPU-time baselines from the previous collection, keyed by process identity. */
+  /**
+   * CPU-time baselines from the previous collection, keyed by process identity.
+   */
   private cpuBaselines = new Map<ProcessKey, CpuBaseline>();
 
-  /** The most recent snapshot, served from cache by GetProcessSnapshot. */
+  /**
+   * The most recent snapshot, served from cache by GetProcessSnapshot.
+   */
   private snapshot: ProcessSnapshot = {
     status: SnapshotStatus.SNAPSHOT_STATUS_LOADING,
     revision: 0,
@@ -296,26 +310,33 @@ export class ProcessSnapshotService {
     warnings: [],
   };
 
-  /** Monotonic revision id; advances each time a new snapshot is produced. */
+  /**
+   * Monotonic revision id; advances each time a new snapshot is produced.
+   */
   private revision = 0;
 
   private timer: ReturnType<typeof setInterval> | null = null;
 
-  /** Whether the process explorer view is on screen and collection should run. */
+  /**
+   * Whether the process explorer view is on screen and collection should run.
+   */
   private active = false;
 
-  /** Set while an async collection is in flight, to guard against overlap. */
+  /**
+   * Set while an async collection is in flight, to guard against overlap.
+   */
   private collecting = false;
 
-  /** Set once dispose() has run; blocks any further activation or collection. */
+  /**
+   * Set once dispose() has run; blocks any further activation or collection.
+   */
   private disposed = false;
 
   /**
-   * Activates or pauses collection. The caller (main) activates this service only
-   * when the Processes view is the one on screen and the window is visible, so the
-   * per-PID syscalls - and the sensitive command-line reads they perform - run
-   * only while the user is actually looking at the process list. Idempotent for
-   * repeated calls with the same state.
+   * Activates or pauses collection. Main activates this only while the Processes
+   * view is on screen, so the per-PID syscalls - and the sensitive command-line
+   * reads they perform - run only while the user is looking at the process list.
+   * Idempotent for repeated calls with the same state.
    */
   setActive(active: boolean): void {
     if (this.disposed || active === this.active) {
@@ -331,8 +352,8 @@ export class ProcessSnapshotService {
   }
 
   /**
-   * Returns the latest cached snapshot. The renderer pulls this after a revision
-   * ping (or once for first paint). Returns a LOADING snapshot until the first
+   * Returns the latest cached snapshot, pulled by the renderer after a revision
+   * ping or once for first paint. Returns a LOADING snapshot until the first
    * collection completes.
    */
   getSnapshot(): ProcessSnapshot {
@@ -369,12 +390,11 @@ export class ProcessSnapshotService {
       clearInterval(this.timer);
       this.timer = null;
     }
-    // CPU baselines are intentionally kept across a pause (like the metrics
-    // sampler's tick counters), so re-entering the Processes view computes a real
-    // per-process CPU delta on the first tick instead of a cold valueless start.
-    // The delta stays correct: CPU-time and wall deltas span the same elapsed gap.
-    // A reused PID is a different (pid, started_at) key, so it still reports
-    // UNKNOWN rather than diffing against an unrelated process.
+    // CPU baselines are kept across a pause so re-entering the Processes view
+    // computes a real per-process CPU delta on the first tick instead of a cold
+    // valueless start. The delta stays correct because CPU-time and wall deltas
+    // span the same elapsed gap. A reused PID is a different (pid, started_at)
+    // key, so it still reports UNKNOWN rather than diffing an unrelated process.
   }
 
   /**
@@ -408,7 +428,9 @@ export class ProcessSnapshotService {
     }
   }
 
-  /** Broadcasts the current snapshot's revision/status (no rows) to subscribers. */
+  /**
+   * Broadcasts the current snapshot's revision/status (no rows) to subscribers.
+   */
   private publishRevision(): void {
     if (this.disposed) {
       return;
@@ -445,9 +467,8 @@ export class ProcessSnapshotService {
       const cpu = this.deriveCpu(record.cpu, key, sampledAtMs, nextBaselines);
       const commandLine = toCommandLine(record.commandLine);
 
-      // Count a process as permission-limited if macOS denied ANY of its fields,
-      // not just the task-info read - argv, path, memory, and CPU can each be
-      // denied independently while task info is readable.
+      // Permission-limited if macOS denied ANY field, not just the task-info read:
+      // argv, path, memory, and CPU can each be denied while task info is readable.
       if (hasDeniedField(record)) {
         permissionLimited = true;
         permissionDeniedCount += 1;
@@ -473,7 +494,9 @@ export class ProcessSnapshotService {
     };
   }
 
-  /** An explicit unavailable snapshot (no rows) that still advances the revision. */
+  /**
+   * An explicit unavailable snapshot (no rows) that still advances the revision.
+   */
   private buildUnavailableSnapshot(): ProcessSnapshot {
     this.cpuBaselines.clear();
     this.revision += 1;
@@ -486,7 +509,9 @@ export class ProcessSnapshotService {
     };
   }
 
-  /** Assembles one renderer row from a native record and the derived fields. */
+  /**
+   * Assembles one renderer row from a native record and the derived fields.
+   */
   private toProcessRow(
     record: NativeProcessRecord,
     cpu: CpuUsage,
@@ -520,15 +545,14 @@ export class ProcessSnapshotService {
   }
 
   /**
-   * Derives a per-process CPU usage percent from the cumulative-counter delta
-   * and records the new baseline. The result is UNKNOWN on a first sample, a
-   * missing identity, a missing/!available counter, a process restart (the
-   * key resets), or a non-positive elapsed interval, so a fresh or ambiguous row
-   * never shows a fabricated value. Uses Activity Monitor semantics: the percent
-   * is CPU time over wall time without dividing by core count, so one fully busy
-   * core reads ~100% and a multi-threaded process can exceed 100% (capped at
-   * cores * 100). The native counter is in real nanoseconds (mach ticks are
-   * converted in the collector).
+   * Derives a per-process CPU usage percent from the cumulative-counter delta and
+   * records the new baseline. The result is UNKNOWN on a first sample, a missing
+   * identity, a missing/unavailable counter, a process restart (the key resets),
+   * or a non-positive elapsed interval, so a fresh or ambiguous row never shows a
+   * fabricated value. Activity Monitor semantics: CPU time over wall time without
+   * dividing by core count, so one fully busy core reads ~100% and a multi-threaded
+   * process can exceed 100% (capped at cores * 100). The native counter is in real
+   * nanoseconds.
    */
   private deriveCpu(
     cpu: NativeProcessCpu | undefined,
@@ -570,17 +594,19 @@ export class ProcessSnapshotService {
   }
 }
 
-/** True when a native field status is an explicit macOS permission denial. */
+/**
+ * True when a native field status is an explicit macOS permission denial.
+ */
 function isFieldDenied(status: NativeFieldStatus): boolean {
   return status === NativeFieldStatus.NATIVE_FIELD_STATUS_PERMISSION_DENIED;
 }
 
 /**
  * True when macOS denied any independently-readable field on the record, used to
- * mark the snapshot permission-limited and tally the count-only permission
- * warning. macOS can deny argv, executable path, memory, or CPU separately even
- * when the task-info read (parent) succeeds, so every such field is checked, not
- * just the parent. No field value is read here - only the per-field status.
+ * mark the snapshot permission-limited and tally the count-only warning. macOS can
+ * deny argv, path, memory, or CPU separately even when the task-info read (parent)
+ * succeeds, so every such field is checked. No field value is read here - only the
+ * per-field status.
  */
 function hasDeniedField(record: NativeProcessRecord): boolean {
   return (
@@ -595,7 +621,9 @@ function hasDeniedField(record: NativeProcessRecord): boolean {
   );
 }
 
-/** Builds the count-only snapshot warnings from per-pass tallies. */
+/**
+ * Builds the count-only snapshot warnings from per-pass tallies.
+ */
 function buildWarnings(
   permissionDeniedCount: number,
   commandLinePartialCount: number,

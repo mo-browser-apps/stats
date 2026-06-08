@@ -9,13 +9,19 @@ import {
   SnapshotStatus,
 } from "@/gen/process_explorer";
 
-/** Called for each revision ping the main process publishes. */
+/**
+ * Called for each revision ping the main process publishes.
+ */
 type RevisionListener = (revision: ProcessSnapshotRevision) => void;
 
-/** Called once if the revision stream fails. The stream ends after an error. */
+/**
+ * Called once if the revision stream fails. The stream ends after an error.
+ */
 type StreamErrorListener = (error: unknown) => void;
 
-/** Tears down a subscription. Idempotent; safe to use as a cleanup callback. */
+/**
+ * Tears down a subscription. Idempotent; safe to use as a cleanup callback.
+ */
 type Unsubscribe = () => void;
 
 /**
@@ -46,10 +52,14 @@ function emptySnapshot(): ProcessSnapshot {
  * must never be logged or persisted by callers.
  */
 export const processExplorerGateway = {
-  /** An explicit empty/loading snapshot for first paint before any pull. */
+  /**
+   * An explicit empty/loading snapshot for first paint before any pull.
+   */
   emptySnapshot,
 
-  /** Pulls the latest cached process snapshot from main. */
+  /**
+   * Pulls the latest cached process snapshot from main.
+   */
   async getSnapshot(): Promise<ProcessSnapshot> {
     return ipc.processExplorer.GetProcessSnapshot({});
   },

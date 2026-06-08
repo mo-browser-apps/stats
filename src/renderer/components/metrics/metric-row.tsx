@@ -10,13 +10,21 @@ import { UNAVAILABLE_TEXT } from "@/lib/format";
 interface MetricRowProps {
   icon: LucideIcon;
   label: string;
-  /** Presentation state; drives value color and meter fill. */
+  /**
+   * Presentation state; drives value color and meter fill.
+   */
   state: MetricState;
-  /** Primary value string, already formatted. Ignored when not live. */
+  /**
+   * Primary value string, already formatted. Ignored when not live.
+   */
   value?: string;
-  /** Optional detail line (e.g. "10.2 / 16 GB" or a CPU model). */
+  /**
+   * Optional detail line (e.g. "10.2 / 16 GB" or a CPU model).
+   */
   detail?: string;
-  /** When provided, a hairline meter is shown with a marker dot at value% (0-100). */
+  /**
+   * When provided, a hairline meter is shown with a marker dot at value% (0-100).
+   */
   percent?: number;
 }
 
@@ -64,9 +72,8 @@ export function MetricRow({ icon: Icon, label, state, value, detail, percent }: 
 }
 
 /**
- * 1px track with an absolutely positioned fill and a marker dot straddling the
- * fill end. The value is mirrored onto ARIA so the usage reads without depending
- * on color.
+ * 1px track with a fill and a marker dot at the fill end. The value is mirrored
+ * onto ARIA so usage reads without depending on color.
  */
 function Meter({ label, state, percent }: { label: string; state: MetricState; percent?: number }) {
   const live = isLive(state);

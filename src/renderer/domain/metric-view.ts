@@ -18,7 +18,9 @@ import { MetricStatus } from "@/gen/metrics";
  */
 export type MetricState = "pending" | "ok" | "elevated" | "critical" | "unavailable";
 
-/** Maps the generated {@link MetricStatus} enum to a base presentation state. */
+/**
+ * Maps the generated {@link MetricStatus} enum to a base presentation state.
+ */
 export function baseState(status: MetricStatus): MetricState {
   switch (status) {
     case MetricStatus.METRIC_STATUS_OK:
@@ -33,7 +35,7 @@ export function baseState(status: MetricStatus): MetricState {
 
 /**
  * Refines an OK metric to `ok` / `elevated` / `critical` by percent used. Non-OK
- * states pass through unchanged. Thresholds follow DESIGN.md metric guidance.
+ * states pass through unchanged (elevated at 70%, critical at 90%).
  */
 export function usageState(
   status: MetricStatus,
@@ -49,7 +51,9 @@ export function usageState(
   return "ok";
 }
 
-/** Whether a state has a live, meaningful value to display. */
+/**
+ * Whether a state has a live, meaningful value to display.
+ */
 export function isLive(state: MetricState): boolean {
   return state === "ok" || state === "elevated" || state === "critical";
 }

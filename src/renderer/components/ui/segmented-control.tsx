@@ -8,15 +8,19 @@ import { cn } from "@/lib/utils";
 export interface SegmentedOption<T extends string> {
   value: T;
   label: string;
-  /** Disabled options stay visible but unselectable (e.g. an unsupported sort). */
+  /**
+   * Disabled options stay visible but unselectable (e.g. an unsupported sort).
+   */
   disabled?: boolean;
-  /** Tooltip, used to explain a disabled option's reason. */
+  /**
+   * Tooltip, used to explain a disabled option's reason.
+   */
   title?: string;
 }
 
 /**
  * One segment's classes. The active segment gets a subtle elevated surface
- * rather than a loud accent pill (DESIGN.md); `disabled` dims and freezes hover.
+ * rather than a loud accent pill; `disabled` dims and freezes hover.
  */
 const segment = cva("rounded-md font-medium transition-colors", {
   variants: {
@@ -42,8 +46,8 @@ const segment = cva("rounded-md font-medium transition-colors", {
 
 /**
  * Compact macOS-style segmented control: a quiet track with a subtle elevated
- * surface marking the active segment (not a loud accent pill, per DESIGN.md).
- * Used for the title-bar Stats/Processes switch and the list CPU/Memory sort.
+ * surface marking the active segment (not a loud accent pill). Used for the
+ * title-bar Stats/Processes switch.
  */
 export function SegmentedControl<T extends string>({
   options,

@@ -2,7 +2,9 @@ import { app, Menu, MenuItem, Tray } from "@mobrowser/api";
 import type { MouseButton } from "@mobrowser/api";
 import type { ApplicationWindow } from "./application-window";
 
-/** Human-facing app name (macron-branded), per the MoBrowser apps branding guide. */
+/**
+ * Human-facing app name.
+ */
 const DISPLAY_NAME = "MōStats";
 
 /**
