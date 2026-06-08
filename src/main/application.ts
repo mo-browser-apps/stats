@@ -1,11 +1,18 @@
 import process from "node:process";
-import { app, clipboard, ipc } from "@mobrowser/api";
+import { app, clipboard, desktop, ipc } from "@mobrowser/api";
 import { ApplicationWindow } from "./application-window";
 import { TrayController } from "./tray-controller";
+import { buildApplicationMenu } from "./application-menu";
 import { MetricsService } from "./metrics/metrics-service";
 import { ProcessExplorerService } from "./processes/process-explorer-service";
 import { ActiveView, CopyTextRequest, SetActiveViewRequest, SetAlwaysOnTopRequest } from "./gen/app";
 import { AppServiceDescriptor } from "./gen/ipc_service";
+
+/** Human-facing app name (macron-branded), per the MoBrowser apps branding guide. */
+const DISPLAY_NAME = "MōStats";
+
+/** Opened from the About dialog's button. */
+const REPOSITORY_URL = "https://github.com/mo-browser-apps/stats";
 
 /**
  * Composition root for the MoStats main process: owns the single compact window,
@@ -25,9 +32,7 @@ export class Application {
     this.handleWindowVisibilityChange();
   });
 
-  private readonly tray = new TrayController(this.window, () => {
-    this.quit();
-  });
+  private readonly tray = new TrayController(this.window, () => this.quit());
 
   private readonly metrics = new MetricsService();
 
@@ -50,6 +55,11 @@ export class Application {
     // to dark so the window chrome matches the renderer rather than following
     // the OS appearance. There is no in-app theme switch.
     app.setTheme("dark");
+
+    // Install the macOS app menu so About sits under the app-name menu (the
+    // native location) with standard Hide/Quit, Edit, and Window items. Quit is
+    // routed through quit() so it disposes services like the tray Quit does.
+    app.setMenu(buildApplicationMenu(() => this.showAbout(), () => this.quit()));
 
     this.registerAppService();
 
@@ -95,6 +105,29 @@ export class Application {
     this.processExplorer.dispose();
     this.tray.destroy();
     app.quit();
+  }
+
+  /**
+   * Shows the About dialog from the app menu. A native message dialog keeps the
+   * app single-window (no extra window or in-window overlay): it shows the
+   * branded name + live version + description, notes the MoBrowser framework and
+   * copyright, and offers a button that opens the GitHub repository. The version
+   * comes from app metadata (set in packaging), not a hardcoded string.
+   */
+  private async showAbout(): Promise<void> {
+    const result = await app.showMessageDialog({
+      parentWindow: this.window.instance ?? undefined,
+      type: "info",
+      message: `${DISPLAY_NAME} ${app.version}`,
+      informativeText: `${app.description}\n\nPowered by MōBrowser.\n\n${app.copyright}`,
+      buttons: [
+        { label: "Close", type: "primary" },
+        { label: "Open GitHub Repository...", type: "secondary" },
+      ],
+    });
+    if (result.button.type === "secondary") {
+      desktop.openUrl(REPOSITORY_URL);
+    }
   }
 
   /**

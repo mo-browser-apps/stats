@@ -128,7 +128,7 @@ function destructiveTitle(verb: string, action: ActionState | undefined): string
   }
   switch (action?.disabledReason) {
     case ActionDisabledReason.ACTION_DISABLED_REASON_SELF:
-      return `Cannot ${verb.toLowerCase()} MoStats itself`;
+      return `Cannot ${verb.toLowerCase()} MōStats itself`;
     case ActionDisabledReason.ACTION_DISABLED_REASON_PROTECTED:
       return `Cannot ${verb.toLowerCase()} a critical system process`;
     case ActionDisabledReason.ACTION_DISABLED_REASON_STALE:

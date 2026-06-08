@@ -7,7 +7,7 @@ import { UNAVAILABLE_TEXT } from "@/lib/format";
 /**
  * One metric as a horizontal row.
  */
-export interface MetricRowProps {
+interface MetricRowProps {
   icon: LucideIcon;
   label: string;
   /** Presentation state; drives value color and meter fill. */

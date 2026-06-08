@@ -3,7 +3,7 @@ import { app, BrowserWindow } from "@mobrowser/api";
 import type { CloseBrowserWindowAction, CloseBrowserWindowParams } from "@mobrowser/api";
 
 /** The two top-level views; the window picks its height per view. */
-export type WindowView = "stats" | "processes";
+type WindowView = "stats" | "processes";
 
 /**
  * Compact window dimensions aligned with DESIGN.md. Width is constant; the height

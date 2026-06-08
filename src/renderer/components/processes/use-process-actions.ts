@@ -11,7 +11,7 @@ import {
 import type { ProcessDetail } from "@/domain/process-detail";
 
 /** What {@link useProcessActions} exposes to the detail view's action row. */
-export interface ProcessActionsState {
+interface ProcessActionsState {
   /** Main's authoritative per-action availability for the current target. */
   actions: ActionState[];
   /** True while an action is in flight; the whole row disables. */

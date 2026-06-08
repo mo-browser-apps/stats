@@ -2,13 +2,13 @@ import { ipc } from "@/gen/ipc";
 import type { MetricsSnapshot } from "@/gen/metrics";
 
 /** Called for each snapshot the main process pushes. */
-export type SnapshotListener = (snapshot: MetricsSnapshot) => void;
+type SnapshotListener = (snapshot: MetricsSnapshot) => void;
 
 /** Called once if the stream fails. The stream ends after an error. */
-export type StreamErrorListener = (error: unknown) => void;
+type StreamErrorListener = (error: unknown) => void;
 
 /** Tears down a subscription. Idempotent; safe to use as a cleanup callback. */
-export type Unsubscribe = () => void;
+type Unsubscribe = () => void;
 
 /**
  * Renderer-side wrapper over the generated metrics streaming client.

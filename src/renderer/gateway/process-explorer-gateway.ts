@@ -10,13 +10,13 @@ import {
 } from "@/gen/process_explorer";
 
 /** Called for each revision ping the main process publishes. */
-export type RevisionListener = (revision: ProcessSnapshotRevision) => void;
+type RevisionListener = (revision: ProcessSnapshotRevision) => void;
 
 /** Called once if the revision stream fails. The stream ends after an error. */
-export type StreamErrorListener = (error: unknown) => void;
+type StreamErrorListener = (error: unknown) => void;
 
 /** Tears down a subscription. Idempotent; safe to use as a cleanup callback. */
-export type Unsubscribe = () => void;
+type Unsubscribe = () => void;
 
 /**
  * An explicit empty snapshot for the loading state before the first pull. Shaped
@@ -42,11 +42,8 @@ function emptySnapshot(): ProcessSnapshot {
  * lightweight revision pings so a component can pull only when the revision
  * advances. Action helpers are thin unary calls; main validates every target.
  *
- * As of I10 the service answers with explicit not-yet-implemented states (a
- * LOADING snapshot, disabled actions). This wrapper just forwards them; mapping
- * to view state and the actual UI land in later iterations. Command-line
- * arguments that arrive on rows are display/search data only and must never be
- * logged or persisted by callers.
+ * Command-line arguments that arrive on rows are display/search data only and
+ * must never be logged or persisted by callers.
  */
 export const processExplorerGateway = {
   /** An explicit empty/loading snapshot for first paint before any pull. */

@@ -50,7 +50,7 @@ export interface DetailMetric {
  * owning user), with explicit availability so an unreadable one renders a muted
  * placeholder rather than a blank.
  */
-export interface DetailStat {
+interface DetailStat {
   state: DetailState;
   /** Formatted value; set only when state is `ok`. */
   text?: string;
@@ -88,7 +88,7 @@ export interface DetailMember {
 }
 
 /** The selected process's parent context, shown above its identity. */
-export interface DetailParent {
+interface DetailParent {
   /** Whether a parent PID is known for the selected process. */
   available: boolean;
   /** Parent PID when available and > 0. */

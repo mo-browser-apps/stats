@@ -2,14 +2,18 @@ import { app, Menu, MenuItem, Tray } from "@mobrowser/api";
 import type { MouseButton } from "@mobrowser/api";
 import type { ApplicationWindow } from "./application-window";
 
+/** Human-facing app name (macron-branded), per the MoBrowser apps branding guide. */
+const DISPLAY_NAME = "MōStats";
+
 /**
  * Owns the macOS menu-bar tray item and its menu.
  *
  * The tray is the primary way to bring the compact window back after it has
  * been hidden, and to quit the app. A left click toggles the window; a right
- * click opens the menu with explicit Show/Hide and Quit actions. Quit is routed
- * through the injected callback (rather than calling `app.quit()` directly) so
- * the owner can tear down runtime services before the process exits.
+ * click opens the menu with Show/Hide and Quit actions. Quit is routed through
+ * the injected callback (rather than calling `app.quit()` directly) so the owner
+ * can tear down runtime services before the process exits. (About lives in the
+ * macOS app menu, the native location, not here.)
  */
 export class TrayController {
   private readonly tray: Tray;
@@ -34,7 +38,7 @@ export class TrayController {
     });
     this.quitItem = new MenuItem({
       id: "quit",
-      label: "Quit MoStats",
+      label: `Quit ${DISPLAY_NAME}`,
       shortcut: "CommandOrControl+Q",
       action: () => {
         this.onQuit();
@@ -42,7 +46,7 @@ export class TrayController {
     });
 
     this.tray = new Tray({
-      tooltip: app.name,
+      tooltip: DISPLAY_NAME,
       imagePath: `${app.getPath("appResources")}/imageTemplate.png`,
       menu: this.buildMenu(),
     });
@@ -90,6 +94,6 @@ export class TrayController {
   }
 
   private getToggleLabel(): string {
-    return this.window.isVisible ? "Hide MoStats" : "Show MoStats";
+    return this.window.isVisible ? `Hide ${DISPLAY_NAME}` : `Show ${DISPLAY_NAME}`;
   }
 }

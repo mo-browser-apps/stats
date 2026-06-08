@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(PROJECT_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 cmake_path(ABSOLUTE_PATH PROJECT_ROOT_DIR NORMALIZE)
 
-# Imports the MōBrowser app configuration and setups the auxiliary targets, resources, etc.
+# Imports the MoBrowser app configuration and sets up the auxiliary targets, resources, etc.
 # Important: Do not move this include above the project declaration.
 include(${PROJECT_ROOT_DIR}/node_modules/@mobrowser/native/cmake/MoBrowser.cmake)
 
