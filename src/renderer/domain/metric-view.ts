@@ -32,9 +32,8 @@ export function baseState(status: MetricStatus): MetricState {
 }
 
 /**
- * Refines an OK metric to `ok` / `elevated` / `critical` by percent used.
- * Non-OK states pass through unchanged. Defaults follow DESIGN.md metric color
- * guidance (green normal, amber elevated, red critical).
+ * Refines an OK metric to `ok` / `elevated` / `critical` by percent used. Non-OK
+ * states pass through unchanged. Thresholds follow DESIGN.md metric guidance.
  */
 export function usageState(
   status: MetricStatus,

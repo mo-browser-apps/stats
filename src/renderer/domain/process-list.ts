@@ -344,16 +344,13 @@ function buildGroupRow(group: GroupAccumulator, sort: SortMode): ProcessGroup {
 }
 
 /**
- * Folds the snapshot rows into ranked display groups for the given sort and
- * (optional) search query. Buckets rows by their native app key (the owning
- * `.app` bundle or bundle id), sums each app group's metric, and keeps non-app
- * processes as singleton rows. Search keeps app/group matches grouped (so the
- * Members section remains available), but returns helper/member-specific matches
- * as singleton rows so the visible result name matches the opened process.
- * Returns every matched group, ranked by summed metric descending with a stable
- * name tiebreak, with no display cap applied - callers cap for the list, while
- * the detail lookup needs the full set so a selected group stays findable even
- * when it ranks past the list cap.
+ * Folds snapshot rows into ranked display groups for the sort and optional search
+ * query: buckets by native app key (owning `.app` bundle or bundle id), sums each
+ * group's metric, and keeps non-app processes as singletons. Search keeps
+ * app/group matches grouped but returns member-specific matches as singletons, so
+ * the visible result name matches the process that opens. Ranked by summed metric
+ * descending with a stable name tiebreak; no display cap - callers cap for the
+ * list, but the detail lookup needs the full set to keep a selection findable.
  */
 function buildGroups(rows: ProcessRow[], sort: SortMode, query: string): ProcessGroup[] {
   const trimmed = query.trim().toLowerCase();

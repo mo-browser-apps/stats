@@ -198,28 +198,29 @@ function detailCommandLine(row: ProcessRow): DetailCommandLine {
 }
 
 /**
- * Sums one metric across the group's members into a {@link DetailMetric}.
- * `ok` when at least one member has a real value (others contribute 0); `pending`
- * when none is OK but some are still being computed; `unavailable` otherwise.
+ * Sums one value across the group's members for either a metric total or a header
+ * stat (DetailMetric and DetailStat share the same `{ state, text }` shape). `ok`
+ * when at least one member has a real value (others contribute 0); `pending` when
+ * none is OK but some are still being computed; `unavailable` otherwise.
  */
-function sumGroupMetric(
+function sumGroup(
   members: ProcessRow[],
   read: (row: ProcessRow) => MetricCell,
   format: (value: number) => string,
 ): DetailMetric {
   let sum = 0;
-  let hasMetric = false;
+  let hasValue = false;
   let anyPending = false;
   for (const row of members) {
     const cell = read(row);
     if (cell.value !== undefined) {
       sum += cell.value;
-      hasMetric = true;
+      hasValue = true;
     } else if (cell.pending) {
       anyPending = true;
     }
   }
-  if (hasMetric) {
+  if (hasValue) {
     return { state: "ok", text: format(sum) };
   }
   return { state: anyPending ? "pending" : "unavailable" };
@@ -241,35 +242,6 @@ function rowCpuTime(row: ProcessRow): MetricCell {
     return { value: cpuTime.nanos, pending: false };
   }
   return { pending: cpuTime === undefined || isPending(cpuTime.status) };
-}
-
-/**
- * Sums one stat across the group's members into a {@link DetailStat}, mirroring
- * {@link sumGroupMetric}: `ok` when at least one member has a real value (others
- * contribute 0), `pending` when none is OK but some are still pending, else
- * `unavailable`.
- */
-function sumGroupStat(
-  members: ProcessRow[],
-  read: (row: ProcessRow) => MetricCell,
-  format: (value: number) => string,
-): DetailStat {
-  let sum = 0;
-  let hasValue = false;
-  let anyPending = false;
-  for (const row of members) {
-    const cell = read(row);
-    if (cell.value !== undefined) {
-      sum += cell.value;
-      hasValue = true;
-    } else if (cell.pending) {
-      anyPending = true;
-    }
-  }
-  if (hasValue) {
-    return { state: "ok", text: format(sum) };
-  }
-  return { state: anyPending ? "pending" : "unavailable" };
 }
 
 /**
@@ -306,13 +278,10 @@ function buildMember(row: ProcessRow, sort: SortMode): DetailMember {
 /**
  * Projects a selected {@link ProcessGroup} into its {@link ProcessDetail} display
  * model. Identity/path/argv/started-at come from the representative (the row the
- * collapsed list already shows); CPU and memory are summed across all members so
- * a grouped app reports its whole footprint, which the user would otherwise have
- * to add up by hand. For a multi-process group all members (representative first)
- * are projected for the expandable Members section, which scrolls within a
- * bounded box rather than being capped; a single-process detail has no member
- * list. The active `sort` sets each member's displayed value so the section reads
- * like the main list.
+ * collapsed list shows); CPU and memory are summed across all members so a grouped
+ * app reports its whole footprint. A multi-process group projects all members
+ * (representative first) for the Members section; a single-process detail has no
+ * member list. The active `sort` sets each member's displayed value.
  */
 export function buildProcessDetail(group: ProcessGroup, sort: SortMode): ProcessDetail {
   const representative = group.members[0];
@@ -347,15 +316,15 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode): Process
 
   // Only the selected metric's total is shown (the CPU/RAM switch picks which),
   // formatted with detail precision.
-  const total = sumGroupMetric(group.members, read, (value) => formatDetailMetric(value, sort));
+  const total = sumGroup(group.members, read, (value) => formatDetailMetric(value, sort));
 
   // Secondary header stats. Thread count and CPU time sum across the group (an
   // app's whole footprint); the user comes from the representative (members
   // share it). Thread count uses no decimals.
-  const threadCount = sumGroupStat(group.members, rowThreadCount, (value) =>
+  const threadCount = sumGroup(group.members, rowThreadCount, (value) =>
     Math.round(value).toString(),
   );
-  const cpuTime = sumGroupStat(group.members, rowCpuTime, formatCpuTime);
+  const cpuTime = sumGroup(group.members, rowCpuTime, formatCpuTime);
   const user = detailUser(representative);
 
   return {
