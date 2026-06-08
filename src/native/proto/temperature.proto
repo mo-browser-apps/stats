@@ -5,13 +5,15 @@ import "google/protobuf/empty.proto";
 // Native CPU temperature probe (main <- native C++).
 //
 // No Node API exposes thermal sensors, and macOS has no documented public CPU
-// temperature source on Apple Silicon. This probe reads the private IOKit HID
-// temperature sensors and reports a CPU temperature only when it can validate a
-// trustworthy CPU-cluster sensor by Apple's performance/efficiency core naming
-// convention (pACC/eACC). When no such sensor exists, or its readings are
-// implausible (common on Apple Silicon, where many machines only expose
-// undocumented PMU die sensors), the probe reports available=false and the card
-// degrades to an explicit unavailable state rather than showing a guessed value.
+// temperature source on Apple Silicon. This probe averages the union of every
+// in-range per-core reading from two CPU-core sources (the same sources Stats
+// averages for its "Average CPU" value): generation-specific AppleSMC core keys
+// (holding the last in-range value per core so a parked core's idle floor does
+// not skew the result) and the HID CPU-core sensors ("pACC/eACC MTR Temp", which
+// are absent on some machines). Both measure CPU cores; there is no die or
+// approximate fallback. When neither source yields a plausible CPU-core reading,
+// the probe reports available=false and the card degrades to an explicit
+// unavailable state rather than showing a guessed value.
 
 // A single CPU temperature reading. Optional by design: temperature is a
 // best-effort metric because public macOS APIs do not guarantee a stable CPU
@@ -20,7 +22,7 @@ message CpuTemperature {
   // False when no trustworthy CPU sensor could be read; celsius is then 0 and
   // the sampler degrades only the temperature card to unavailable.
   bool available = 1;
-  double celsius = 2; // Average CPU-cluster temperature in degrees Celsius.
+  double celsius = 2; // Average CPU die temperature in degrees Celsius.
 }
 
 service TemperatureService {

@@ -20,7 +20,7 @@
 #include "gen/process_collector.rpc.h"
 #include "gen/temperature.rpc.h"
 #include "processes/process_collector.h"
-#include "temperature_probe.h"
+#include "temperature/temperature_probe.h"
 
 using google::protobuf::Empty;
 using mo::rpc::Callback;
@@ -275,13 +275,16 @@ class NetworkServiceImpl : public NetworkService {
 /**
  * Narrow macOS CPU-temperature probe.
  *
- * Delegates to ReadCpuTemperature(), which reads the private IOKit HID
- * temperature sensors and returns a CPU temperature only when it can validate a
- * trustworthy CPU-cluster sensor (Apple's pACC/eACC performance/efficiency core
- * naming); otherwise it reports available=false. No Node API exposes thermal
- * sensors and macOS has no documented public CPU temperature source on Apple
- * Silicon, so unavailable is an honest, accepted outcome rather than a guessed
- * value. See temperature_probe.cc for the validation rules.
+ * Delegates to ReadCpuTemperature(), which averages the union of every in-range
+ * per-core reading from two CPU-core sources (the same sources Stats averages):
+ * generation-specific AppleSMC core keys (holding the last in-range value per
+ * core so a parked core's idle floor does not skew the result) and the HID
+ * CPU-core sensors ("pACC/eACC MTR Temp"). Both measure CPU cores; there is no
+ * die or approximate fallback, so it reports available=false rather than a
+ * guessed value when neither source yields a plausible CPU-core reading. No Node
+ * API exposes thermal sensors and macOS has no documented public CPU temperature
+ * source on Apple Silicon, so unavailable is an honest, accepted outcome. See
+ * temperature_probe.cc for the decode and validation rules.
  */
 class TemperatureServiceImpl : public TemperatureService {
  public:

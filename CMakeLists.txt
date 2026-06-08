@@ -16,8 +16,8 @@ include(${PROJECT_ROOT_DIR}/node_modules/@mobrowser/native/cmake/MoBrowser.cmake
 # The source files of your app.
 set(APP_SOURCES
         src/native/main.cc
-        src/native/temperature_probe.h
-        src/native/temperature_probe.cc
+        src/native/temperature/temperature_probe.h
+        src/native/temperature/temperature_probe.cc
         src/native/processes/process_collector.h
         src/native/processes/process_collector.cc
         src/native/processes/app_metadata.h
@@ -39,9 +39,10 @@ target_include_directories(mobrowser_lib PUBLIC
         ${protobuf_SOURCE_DIR}/third_party/utf8_range
         ${absl_SOURCE_DIR})
 
-# Framework links: IOKit + CoreFoundation for the CPU-temperature HID sensor
-# probe, and AppKit for the NSWorkspace GUI-app icon/metadata enrichment in the
-# process collector. The network probe uses only libSystem (POSIX).
+# Framework links: IOKit + CoreFoundation for the CPU-temperature probe (AppleSMC
+# core keys plus the HID CPU-core sensors), and AppKit for the NSWorkspace
+# GUI-app icon/metadata enrichment in the process collector. The network probe
+# uses only libSystem (POSIX).
 target_link_libraries(mobrowser_lib PRIVATE
         "-framework IOKit"
         "-framework CoreFoundation"

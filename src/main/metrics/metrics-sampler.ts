@@ -14,6 +14,10 @@ import {
 /** Filesystem path of the main system volume on macOS. */
 const SYSTEM_VOLUME_PATH = "/";
 
+/** Temperature values outside this Celsius range are treated as bad sensor data. */
+const MIN_PLAUSIBLE_TEMPERATURE_CELSIUS = 10;
+const MAX_PLAUSIBLE_TEMPERATURE_CELSIUS = 120;
+
 /**
  * Upper bound on a plausible per-interface throughput, in bytes per second
  * (100 Gbps). A single-tick delta implying more than this is treated as a
@@ -239,23 +243,21 @@ export class MetricsSampler {
   }
 
   /**
-   * Optional CPU temperature from the native HID sensor probe.
+   * Optional CPU temperature from the native sensor probe.
    *
-   * The native side returns a temperature only when it can validate a
-   * trustworthy CPU-cluster sensor (Apple's pACC/eACC core naming) with a
-   * plausible reading; otherwise it reports `available=false`. macOS has no
-   * documented public CPU temperature source on Apple Silicon, so `unavailable`
-   * is an honest, accepted outcome here rather than a guessed value. Any
-   * native/read error also degrades only this group to `unavailable`.
-   *
-   * Technique reference: exelban/stats `Modules/Sensors/readers.swift` reads the
-   * same IOKit HID temperature sensors and filters implausible values; the
-   * sensor-selection and validation are re-implemented in the native probe.
+   * The native side averages the union of the per-core CPU temperatures from
+   * two CPU-core sources - AppleSMC core keys (holding the last in-range value
+   * per core so a parked core's idle floor does not skew the result) and the HID
+   * CPU-core sensors - and reports `available=false` when neither yields a
+   * plausible CPU-core reading (there is no die or approximate fallback). macOS
+   * has no documented public CPU temperature source on Apple Silicon, so
+   * `unavailable` is an honest, accepted outcome here rather than a guessed
+   * value. Any native/read error also degrades only this group to `unavailable`.
    */
   private async sampleTemperature(): Promise<TemperatureReading> {
     try {
       const result = await native.temperature.ReadCpuTemperature({});
-      if (!result.available || !Number.isFinite(result.celsius)) {
+      if (!result.available || !isPlausibleTemperature(result.celsius)) {
         return { status: "unavailable", celsius: 0 };
       }
       return { status: "ok", celsius: result.celsius };
@@ -299,6 +301,12 @@ function clampPercent(value: number): number {
 function clampBytes(value: number, totalBytes: number): number {
   if (!Number.isFinite(value) || !Number.isFinite(totalBytes)) return 0;
   return Math.min(Math.max(0, totalBytes), Math.max(0, value));
+}
+
+function isPlausibleTemperature(celsius: number): boolean {
+  return Number.isFinite(celsius) &&
+    celsius >= MIN_PLAUSIBLE_TEMPERATURE_CELSIUS &&
+    celsius <= MAX_PLAUSIBLE_TEMPERATURE_CELSIUS;
 }
 
 /**

@@ -248,6 +248,51 @@ describe("temperature", () => {
     h.readTemp.mockResolvedValue({ available: true, celsius: Number.NaN });
     expect((await new MetricsSampler().sample()).temperature.status).toBe("unavailable");
   });
+
+  it("is unavailable when the probe returns an implausible value", async () => {
+    h.readTemp.mockResolvedValue({ available: true, celsius: 300 });
+    expect((await new MetricsSampler().sample()).temperature.status).toBe("unavailable");
+  });
+
+  it("reads ok temperature live on every tick (no caching)", async () => {
+    h.readTemp
+      .mockResolvedValueOnce({ available: true, celsius: 57.3 })
+      .mockResolvedValueOnce({ available: true, celsius: 64.1 });
+
+    const sampler = new MetricsSampler();
+    expect((await sampler.sample()).temperature.celsius).toBeCloseTo(57.3);
+    expect(h.readTemp).toHaveBeenCalledTimes(1);
+
+    // Same tick clock, but an ok reading is never cached: the next sample probes
+    // again and reflects the latest value.
+    expect((await sampler.sample()).temperature.celsius).toBeCloseTo(64.1);
+    expect(h.readTemp).toHaveBeenCalledTimes(2);
+  });
+
+  it("recovers to ok on the very next tick after a transient unavailable", async () => {
+    h.readTemp
+      .mockResolvedValueOnce({ available: false, celsius: 0 })
+      .mockResolvedValueOnce({ available: true, celsius: 48.2 });
+
+    const sampler = new MetricsSampler();
+    expect((await sampler.sample()).temperature.status).toBe("unavailable");
+    expect(h.readTemp).toHaveBeenCalledTimes(1);
+
+    const reading = await sampler.sample();
+    expect(reading.temperature.status).toBe("ok");
+    expect(reading.temperature.celsius).toBeCloseTo(48.2);
+    expect(h.readTemp).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-probes every tick while unavailable (no caching of unavailable)", async () => {
+    h.readTemp.mockResolvedValue({ available: false, celsius: 0 });
+
+    const sampler = new MetricsSampler();
+    expect((await sampler.sample()).temperature.status).toBe("unavailable");
+    expect((await sampler.sample()).temperature.status).toBe("unavailable");
+    expect((await sampler.sample()).temperature.status).toBe("unavailable");
+    expect(h.readTemp).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe("uptime and load", () => {
