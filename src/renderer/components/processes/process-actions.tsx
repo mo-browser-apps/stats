@@ -98,10 +98,10 @@ function ActionButton({
       aria-label={label}
       title={title}
       className={cn(
-        "no-drag flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
+        "no-drag flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
         destructive
-          ? "border-destructive/40 text-destructive/80 hover:bg-destructive/10"
-          : "border-border text-foreground hover:bg-muted/60",
+          ? "text-destructive/80 enabled:hover:bg-destructive/10 enabled:hover:text-destructive enabled:focus-visible:bg-destructive/10 enabled:focus-visible:text-destructive"
+          : "text-foreground enabled:hover:bg-muted/60",
       )}
     >
       {icon}
