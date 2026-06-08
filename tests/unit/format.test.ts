@@ -74,6 +74,17 @@ describe("formatBytes", () => {
     expect(formatBytes(15.63 * 1024 * 1024 * 1024, true)).toBe("15.63 GB");
   });
 
+  it("scales into TB and PB with one decimal", () => {
+    expect(formatBytes(3 * 1024 ** 4)).toBe("3.0 TB");
+    expect(formatBytes(5 * 1024 ** 5)).toBe("5.0 PB");
+  });
+
+  it("caps at the largest unit instead of overflowing past PB", () => {
+    // 2048 PB has no larger unit; the loop must stop at PB rather than index
+    // past BYTE_UNITS into an undefined suffix.
+    expect(formatBytes(2048 * 1024 ** 5)).toBe("2048.0 PB");
+  });
+
   it("is unavailable for negative or non-finite input", () => {
     expect(formatBytes(-1)).toBe(UNAVAILABLE_TEXT);
     expect(formatBytes(Number.NaN)).toBe(UNAVAILABLE_TEXT);

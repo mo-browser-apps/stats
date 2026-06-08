@@ -130,3 +130,72 @@ describe("MetricsService lifecycle gating", () => {
     expect(h.sample).not.toHaveBeenCalled();
   });
 });
+
+describe("MetricsService publish robustness", () => {
+  /** A promise plus its resolver, so a test can hold a sample pending. */
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  it("skips a tick while a previous publish is still in flight", async () => {
+    const service = new MetricsService();
+    const pending = deferred<ReturnType<typeof emptyReading>>();
+    // First sample never resolves during the window, so it stays in flight.
+    h.sample.mockReturnValueOnce(pending.promise);
+
+    service.setActive(true);
+    await flush();
+    expect(h.sample).toHaveBeenCalledTimes(1); // immediate publish started
+
+    // A full interval elapses while the first publish is unresolved: the overlap
+    // guard must skip rather than stack a second concurrent sample.
+    await vi.advanceTimersByTimeAsync(PUBLISH_INTERVAL_MS);
+    expect(h.sample).toHaveBeenCalledTimes(1);
+
+    // Once it resolves, the cadence resumes on the next tick.
+    pending.resolve(emptyReading());
+    await flush();
+    await vi.advanceTimersByTimeAsync(PUBLISH_INTERVAL_MS);
+    expect(h.sample).toHaveBeenCalledTimes(2);
+  });
+
+  it("survives a delivery failure and keeps the cadence (never rejects)", async () => {
+    const service = new MetricsService();
+    // The first StreamSnapshots throws; the floating publish must swallow it.
+    h.streamSnapshots.mockImplementationOnce(() => {
+      throw new Error("delivery boom");
+    });
+
+    service.setActive(true);
+    await flush();
+    expect(h.streamSnapshots).toHaveBeenCalledTimes(1);
+
+    // The next tick still samples and delivers - no dead cadence, no unhandled
+    // rejection from the swallowed error.
+    await vi.advanceTimersByTimeAsync(PUBLISH_INTERVAL_MS);
+    expect(h.sample).toHaveBeenCalledTimes(2);
+    expect(h.streamSnapshots).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not deliver a publish that resolves after dispose", async () => {
+    const service = new MetricsService();
+    const pending = deferred<ReturnType<typeof emptyReading>>();
+    h.sample.mockReturnValueOnce(pending.promise);
+
+    service.setActive(true);
+    await flush();
+    expect(h.sample).toHaveBeenCalledTimes(1);
+
+    // Dispose while the sample is still pending, then let it resolve.
+    service.dispose();
+    pending.resolve(emptyReading());
+    await flush();
+
+    // The post-dispose resolution must not reach the (disposed) stream.
+    expect(h.streamSnapshots).not.toHaveBeenCalled();
+  });
+});

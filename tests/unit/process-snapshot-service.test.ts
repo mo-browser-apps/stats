@@ -370,6 +370,59 @@ describe("ProcessSnapshotService", () => {
     });
   });
 
+  it("reports UNKNOWN when a same-key cumulative counter goes backwards", async () => {
+    const service = makeService();
+
+    clockMs = 1_000;
+    await collectByActivation(service, response([
+      record({ pid: 70, startedAtUnixMs: 5_000, cpuTimeNs: 5_000_000_000 }),
+    ]));
+
+    // Same (pid, started_at) but the cumulative counter decreased (counter reset):
+    // the delta is negative, so CPU re-arms to UNKNOWN rather than a bogus value.
+    clockMs = 3_000;
+    await collectByActivation(service, response([
+      record({ pid: 70, startedAtUnixMs: 5_000, cpuTimeNs: 1_000_000_000 }),
+    ]));
+
+    expect(service.getSnapshot().processes[0].cpu).toEqual({
+      status: FieldStatus.FIELD_STATUS_UNKNOWN,
+      usagePercent: 0,
+    });
+  });
+
+  it("caps per-process CPU at logical-core-count * 100", async () => {
+    const service = makeService(); // mocked os.cpus() reports 4 cores -> cap 400%
+
+    clockMs = 1_000;
+    await collectByActivation(service, response([
+      record({ pid: 71, startedAtUnixMs: 5_000, cpuTimeNs: 0 }),
+    ]));
+
+    // 10s of CPU time over a 1s wall window would be 1000%, far past the cap.
+    clockMs = 2_000;
+    await collectByActivation(service, response([
+      record({ pid: 71, startedAtUnixMs: 5_000, cpuTimeNs: 10_000_000_000 }),
+    ]));
+
+    const row = service.getSnapshot().processes[0];
+    expect(row.cpu?.status).toBe(FieldStatus.FIELD_STATUS_OK);
+    expect(row.cpu?.usagePercent).toBe(400);
+  });
+
+  it("degrades a successful collect with available:false to an unavailable snapshot", async () => {
+    const service = makeService();
+
+    // Distinct from the rejected-promise path: the collector returns normally but
+    // reports the list itself unavailable.
+    await collectByActivation(service, response([], false));
+
+    const snapshot = service.getSnapshot();
+    expect(snapshot.status).toBe(SnapshotStatus.SNAPSHOT_STATUS_UNAVAILABLE);
+    expect(snapshot.revision).toBe(1);
+    expect(snapshot.processes).toEqual([]);
+  });
+
   it("maps denied fields to explicit statuses and count-only warnings", async () => {
     const service = makeService();
 
@@ -430,5 +483,59 @@ describe("ProcessSnapshotService", () => {
         status: SnapshotStatus.SNAPSHOT_STATUS_UNAVAILABLE,
       }),
     );
+  });
+});
+
+describe("ProcessSnapshotService field mapping", () => {
+  it("maps a record with no app metadata to all-UNKNOWN app fields and no bundle", async () => {
+    const service = makeService();
+
+    // A non-GUI process carries no NSWorkspace metadata; the collector leaves the
+    // whole app group unset, which must map to UNKNOWN (renderer uses a fallback
+    // icon and the command/executable name) rather than OK-empty.
+    const bare: NativeProcessRecord = { ...record({ pid: 200 }), app: undefined };
+    await collectByActivation(service, response([bare]));
+
+    const app = service.getSnapshot().processes[0].app;
+    expect(app?.bundleIdentifier?.status).toBe(FieldStatus.FIELD_STATUS_UNKNOWN);
+    expect(app?.localizedName?.status).toBe(FieldStatus.FIELD_STATUS_UNKNOWN);
+    expect(app?.iconPngBase64?.status).toBe(FieldStatus.FIELD_STATUS_UNKNOWN);
+    expect(app?.bundle).toBeUndefined();
+  });
+
+  it("drops the app bundle to undefined when its path is not AVAILABLE", async () => {
+    const service = makeService();
+
+    // App metadata exists, but the owning .app path could not be read: the bundle
+    // must be dropped so the renderer groups by bundle id, not a phantom path.
+    const base = record({ pid: 201 });
+    const withUnreadableBundlePath: NativeProcessRecord = {
+      ...base,
+      app: {
+        ...base.app!,
+        bundle: {
+          path: nativeString("", UNAVAILABLE),
+          name: nativeString("", UNAVAILABLE),
+        },
+      },
+    };
+    await collectByActivation(service, response([withUnreadableBundlePath]));
+
+    expect(service.getSnapshot().processes[0].app?.bundle).toBeUndefined();
+  });
+
+  it("clamps negative native byte/count values to zero", async () => {
+    const service = makeService();
+
+    // Negative values should not happen, but a garbage native value must not
+    // surface as a negative size/count downstream.
+    await collectByActivation(service, response([
+      record({ pid: 202, footprintBytes: -1, residentBytes: -5, threadCount: -3 }),
+    ]));
+
+    const row = service.getSnapshot().processes[0];
+    expect(row.memory?.physicalFootprintBytes?.value).toBe(0);
+    expect(row.memory?.residentBytes?.value).toBe(0);
+    expect(row.threadCount?.value).toBe(0);
   });
 });

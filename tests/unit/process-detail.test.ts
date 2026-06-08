@@ -175,3 +175,36 @@ describe("buildProcessDetail - availability", () => {
     expect(detail.user).toEqual({ state: "ok", text: "uid 501" });
   });
 });
+
+describe("buildProcessDetail - group total mixed states", () => {
+  it("sums OK members and ignores a pending member (no NaN)", () => {
+    const rows = [
+      makeRow({ pid: 10, bundlePath: "/Applications/App.app", bundleName: "App", cpuPercent: 6 }),
+      // A member still being computed contributes 0, not NaN, and does not block
+      // the OK total from the member that does have a value.
+      makeRow({ pid: 20, bundlePath: "/Applications/App.app", cpuStatus: FieldStatus.FIELD_STATUS_UNKNOWN }),
+    ];
+    const detail = buildProcessDetail(groupOf(rows, "app:/Applications/App.app"), "cpu");
+    expect(detail.total.state).toBe("ok");
+    expect(detail.total.text).toBe("6.00%");
+  });
+
+  it("reports the total pending when no member is OK but one is still pending", () => {
+    const rows = [
+      makeRow({ pid: 10, bundlePath: "/Applications/App.app", bundleName: "App", cpuStatus: FieldStatus.FIELD_STATUS_UNKNOWN }),
+      makeRow({ pid: 20, bundlePath: "/Applications/App.app", cpuStatus: FieldStatus.FIELD_STATUS_UNAVAILABLE }),
+    ];
+    // pending beats unavailable: at least one member may still resolve.
+    const detail = buildProcessDetail(groupOf(rows, "app:/Applications/App.app"), "cpu");
+    expect(detail.total.state).toBe("pending");
+  });
+
+  it("reports the total unavailable when every member was tried and failed", () => {
+    const rows = [
+      makeRow({ pid: 10, bundlePath: "/Applications/App.app", bundleName: "App", cpuStatus: FieldStatus.FIELD_STATUS_UNAVAILABLE }),
+      makeRow({ pid: 20, bundlePath: "/Applications/App.app", cpuStatus: FieldStatus.FIELD_STATUS_UNAVAILABLE }),
+    ];
+    const detail = buildProcessDetail(groupOf(rows, "app:/Applications/App.app"), "cpu");
+    expect(detail.total.state).toBe("unavailable");
+  });
+});

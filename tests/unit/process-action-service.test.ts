@@ -248,4 +248,72 @@ describe("ProcessActionService.runAction", () => {
     expect(result.outcome).toBe(Outcome.OUTCOME_NOT_ALLOWED);
     expect(killSpy).not.toHaveBeenCalled();
   });
+
+  it("maps a non-ESRCH/EPERM kill failure to FAILED", async () => {
+    const row = makeRow({ pid: SOME_PID, startedAtUnixMs: 1, commandName: "App" });
+    const einval: NodeJS.ErrnoException = Object.assign(new Error("invalid"), { code: "EINVAL" });
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      throw einval;
+    });
+    const service = new ProcessActionService(() => makeSnapshot([row]), () => null);
+    const result = await service.runAction({ action: QUIT, target: makeTarget(SOME_PID, 1) });
+    expect(result.outcome).toBe(Outcome.OUTCOME_FAILED);
+  });
+
+  it("maps a reveal that throws to FAILED without leaking the path", async () => {
+    const row = makeRow({ pid: SOME_PID, startedAtUnixMs: 1, commandName: "App", executablePath: "/x" });
+    h.showPath.mockImplementation(() => {
+      throw new Error("shell boom");
+    });
+    const service = new ProcessActionService(() => makeSnapshot([row]), () => null);
+    const result = await service.runAction({ action: REVEAL, target: makeTarget(SOME_PID, 1) });
+    expect(result.outcome).toBe(Outcome.OUTCOME_FAILED);
+    expect(result.affectedCount).toBe(0);
+  });
+
+  it("aborts Force Quit when the target exits between confirm and signal (STALE)", async () => {
+    h.showMessageDialog.mockResolvedValue({ button: { type: "primary" } });
+    const row = makeRow({ pid: SOME_PID, startedAtUnixMs: 1, commandName: "App" });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    // First resolve (pre-confirm validation) finds the row; the post-confirm
+    // re-resolve sees an empty snapshot - the process exited during the dialog.
+    const snapshots = [makeSnapshot([row]), makeSnapshot([])];
+    let call = 0;
+    const getSnapshot = () => snapshots[Math.min(call++, snapshots.length - 1)];
+    const service = new ProcessActionService(getSnapshot, () => null);
+
+    const result = await service.runAction({ action: FORCE_QUIT, target: makeTarget(SOME_PID, 1) });
+    expect(h.showMessageDialog).toHaveBeenCalledOnce();
+    expect(result.outcome).toBe(Outcome.OUTCOME_STALE_TARGET);
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  it("aborts Force Quit when the target becomes protected between confirm and signal", async () => {
+    h.showMessageDialog.mockResolvedValue({ button: { type: "primary" } });
+    // Pre-confirm the PID is an ordinary app; post-confirm the same PID resolves
+    // to a critical process (e.g. PID reused by WindowServer) - the re-check must
+    // block the kill the renderer's stale states would otherwise have allowed.
+    const ordinary = makeRow({ pid: SOME_PID, startedAtUnixMs: 1, commandName: "App" });
+    const critical = makeRow({ pid: SOME_PID, startedAtUnixMs: 1, commandName: "WindowServer" });
+    const snapshots = [makeSnapshot([ordinary]), makeSnapshot([critical])];
+    let call = 0;
+    const getSnapshot = () => snapshots[Math.min(call++, snapshots.length - 1)];
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const service = new ProcessActionService(getSnapshot, () => null);
+
+    const result = await service.runAction({ action: FORCE_QUIT, target: makeTarget(SOME_PID, 1) });
+    expect(result.outcome).toBe(Outcome.OUTCOME_NOT_ALLOWED);
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a PID-only confirmation name when the row has no names", async () => {
+    h.showMessageDialog.mockResolvedValue({ button: { type: "secondary" } });
+    const row = makeRow({ pid: SOME_PID, startedAtUnixMs: 1 }); // no command/exec/app names
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    const service = new ProcessActionService(() => makeSnapshot([row]), () => null);
+    await service.runAction({ action: FORCE_QUIT, target: makeTarget(SOME_PID, 1) });
+    expect(h.showMessageDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ message: `Force Quit PID ${SOME_PID}?` }),
+    );
+  });
 });
