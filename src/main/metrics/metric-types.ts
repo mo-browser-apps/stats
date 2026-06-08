@@ -76,7 +76,7 @@ export interface UptimeReading {
  */
 export interface TemperatureReading {
   status: ReadingStatus;
-  /** CPU-cluster temperature in degrees Celsius; 0 when not `ok`. */
+  /** CPU-core temperature in degrees Celsius; 0 when not `ok`. */
   celsius: number;
 }
 

@@ -369,15 +369,12 @@ export class ProcessSnapshotService {
       clearInterval(this.timer);
       this.timer = null;
     }
-    // CPU baselines are intentionally kept across a pause (matching the metrics
-    // sampler, which keeps its CPU tick counters), so re-entering the Processes
-    // view computes a real per-process CPU delta on the first collection instead
-    // of a cold start that sorts alphabetically with no values. The delta math
-    // stays correct: both the CPU-time delta and the wall delta span the same
-    // real elapsed gap, so the first post-resume tick reports true average usage
-    // across the absence (it converges to instantaneous on the next tick). A
-    // reused PID is a different (pid, started_at) key, so it still reports UNKNOWN
-    // rather than diffing against an unrelated process.
+    // CPU baselines are intentionally kept across a pause (like the metrics
+    // sampler's tick counters), so re-entering the Processes view computes a real
+    // per-process CPU delta on the first tick instead of a cold valueless start.
+    // The delta stays correct: CPU-time and wall deltas span the same elapsed gap.
+    // A reused PID is a different (pid, started_at) key, so it still reports
+    // UNKNOWN rather than diffing against an unrelated process.
   }
 
   /**

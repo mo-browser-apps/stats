@@ -50,16 +50,12 @@ function toMetricStatus(status: ReadingStatus): MetricStatus {
  * tick is async. Temperature is best-effort and is published as explicit
  * unavailable when no trustworthy CPU sensor is readable.
  *
- * Lifecycle hardening (I09): the cadence runs only while the UI is active. The
- * sole consumer is the single compact window, so {@link setActive} pauses the
- * interval (and the two native probes it drives) while the window is hidden and
- * resumes it when shown. A tick is skipped if the previous async publish has not
- * finished, so a slow or hung probe cannot stack overlapping work. `publish()`
- * never rejects: the sampler degrades per-group failures to unavailable, and a
- * delivery error (e.g. a stale publish after `dispose()`) is swallowed rather
- * than left as an unhandled rejection. `dispose()` stops the interval and closes
- * any in-flight subscribers; it is called from the app quit path so the process
- * exits cleanly.
+ * Lifecycle: the cadence runs only while the UI is active. {@link setActive}
+ * pauses the interval (and the native probes it drives) while the window is
+ * hidden and resumes it when shown. A tick is skipped while a prior async publish
+ * is still in flight, so a slow probe cannot stack work, and `publish()` never
+ * rejects (failures degrade to unavailable or are swallowed). {@link dispose},
+ * called from the quit path, stops the interval and closes in-flight subscribers.
  */
 export class MetricsService {
   private readonly handle = ipc.registerService(MetricsServiceDescriptor);

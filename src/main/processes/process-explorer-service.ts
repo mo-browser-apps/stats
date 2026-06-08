@@ -1,13 +1,6 @@
 import { ipc } from "@mobrowser/api";
 import type { BrowserWindow } from "@mobrowser/api";
 import {
-  GetProcessActionStatesRequest,
-  GetProcessActionStatesResponse,
-  ProcessSnapshot,
-  RunProcessActionRequest,
-  RunProcessActionResponse,
-} from "../gen/process_explorer";
-import {
   ProcessExplorerService as ProcessExplorerServiceImpl,
   ProcessExplorerServiceDescriptor,
 } from "../gen/ipc_service";
@@ -42,18 +35,20 @@ export class ProcessExplorerService {
   private readonly actions: ProcessActionService;
 
   /**
-   * The unary handlers. Held as one object so {@link dispose} unregisters the
+   * The unary handlers, each a thin route to the owning piece (snapshot service
+   * or action service). Held as one object so {@link dispose} unregisters the
    * exact implementation that was registered. The streaming `StreamRevisions`
    * method is owned by the snapshot service's broadcast handle, so it is omitted
-   * here.
+   * here. Requests carry privacy-sensitive identity and are never logged; action
+   * results stay count-only.
    */
   private readonly unaryHandlers: Pick<
     ProcessExplorerServiceImpl,
     "GetProcessSnapshot" | "GetProcessActionStates" | "RunProcessAction"
   > = {
-    GetProcessSnapshot: () => this.getProcessSnapshot(),
-    GetProcessActionStates: (request) => this.getProcessActionStates(request),
-    RunProcessAction: (request) => this.runProcessAction(request),
+    GetProcessSnapshot: async () => this.snapshots.getSnapshot(),
+    GetProcessActionStates: async (request) => this.actions.getActionStates(request),
+    RunProcessAction: (request) => this.actions.runAction(request),
   };
 
   private disposed = false;
@@ -91,36 +86,5 @@ export class ProcessExplorerService {
     this.disposed = true;
     this.snapshots.dispose();
     ipc.unregisterService(ProcessExplorerServiceDescriptor, this.unaryHandlers);
-  }
-
-  /**
-   * Returns the latest cached process snapshot from the snapshot service. Before
-   * the first collection (or while the view is idle) this is an explicit
-   * loading/unavailable snapshot, so the list view never renders fabricated rows.
-   */
-  private async getProcessSnapshot(): Promise<ProcessSnapshot> {
-    return this.snapshots.getSnapshot();
-  }
-
-  /**
-   * Returns per-action availability for a target, validated in the action service
-   * against the latest snapshot. The request target carries privacy-sensitive
-   * identity and is never logged.
-   */
-  private async getProcessActionStates(
-    request: GetProcessActionStatesRequest,
-  ): Promise<GetProcessActionStatesResponse> {
-    return this.actions.getActionStates(request);
-  }
-
-  /**
-   * Runs a validated action against a target through the action service (reveal /
-   * confirmed quit / confirmed force quit). The request is never logged and the
-   * result is count-only.
-   */
-  private async runProcessAction(
-    request: RunProcessActionRequest,
-  ): Promise<RunProcessActionResponse> {
-    return this.actions.runAction(request);
   }
 }

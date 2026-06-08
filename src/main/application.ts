@@ -8,27 +8,17 @@ import { ActiveView, CopyTextRequest, SetActiveViewRequest, SetAlwaysOnTopReques
 import { AppServiceDescriptor } from "./gen/ipc_service";
 
 /**
- * Composition root for the MoStats main process.
+ * Composition root for the MoStats main process: owns the single compact window,
+ * the menu-bar tray, app lifecycle wiring, and the renderer-facing IPC services
+ * (metrics stream + process explorer).
  *
- * Owns the single compact window, the menu-bar tray, app lifecycle wiring, and
- * registration of renderer-facing IPC services, including the metrics stream.
- * The metrics service samples CPU, memory, disk, network, uptime/load, and
- * optional CPU temperature in main and streams them to the renderer. The process
- * explorer service collects live process snapshots in main, serves them on its
- * own IPC service, and runs the main-authoritative reveal/quit/force-quit actions
- * (validated against the latest snapshot, with native confirmation for the
- * destructive ones).
- *
- * Lifecycle: the window hides instead of closing, so the app keeps running in the
- * background with only the tray present. Per-view background work is gated on two
- * signals this class owns: window visibility (from the window callback) and the
- * active view (reported by the renderer via {@link ActiveView}). Exactly the one
- * service whose view is on screen runs, and neither runs while the window is
- * hidden - so metrics sample only on the visible Stats view, and the process
- * collector (which reads sensitive command-line data) collects only on the
- * visible Processes view. Both gates are combined in {@link updateServiceActivation}.
- * Quit is routed through {@link quit} so the metrics interval/stream, the process
- * explorer cadence/stream, and the tray are torn down before the process exits.
+ * The window hides instead of closing, so the app keeps running in the tray.
+ * Per-view background work is gated on two signals this class owns - window
+ * visibility and the active view (reported via {@link ActiveView}) - combined in
+ * {@link updateServiceActivation} so exactly the on-screen view's service runs,
+ * and neither while hidden. This keeps the process collector's sensitive
+ * command-line reads off until the user is on the Processes view. Quit is routed
+ * through {@link quit} so the services and tray are torn down before exit.
  */
 export class Application {
   private readonly window = new ApplicationWindow(() => {
