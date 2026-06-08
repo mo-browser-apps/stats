@@ -16,8 +16,12 @@ include(${PROJECT_ROOT_DIR}/node_modules/@mobrowser/native/cmake/MoBrowser.cmake
 # The source files of your app.
 set(APP_SOURCES
         src/native/main.cc
-        src/native/temperature/temperature_probe.h
-        src/native/temperature/temperature_probe.cc
+        src/native/metrics/memory_probe.h
+        src/native/metrics/memory_probe.cc
+        src/native/metrics/network_probe.h
+        src/native/metrics/network_probe.cc
+        src/native/metrics/temperature_probe.h
+        src/native/metrics/temperature_probe.cc
         src/native/processes/process_collector.h
         src/native/processes/process_collector.cc
         src/native/processes/app_metadata.h

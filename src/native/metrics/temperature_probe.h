@@ -1,5 +1,5 @@
-#ifndef MOSTATS_TEMPERATURE_PROBE_H_
-#define MOSTATS_TEMPERATURE_PROBE_H_
+#ifndef MOSTATS_METRICS_TEMPERATURE_PROBE_H_
+#define MOSTATS_METRICS_TEMPERATURE_PROBE_H_
 
 // Narrow CPU-temperature probe over private macOS sensor APIs.
 //
@@ -37,4 +37,4 @@ CpuTemperatureReading ReadCpuTemperature();
 
 }  // namespace mostats
 
-#endif  // MOSTATS_TEMPERATURE_PROBE_H_
+#endif  // MOSTATS_METRICS_TEMPERATURE_PROBE_H_

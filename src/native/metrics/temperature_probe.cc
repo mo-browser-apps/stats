@@ -1,4 +1,4 @@
-#include "temperature/temperature_probe.h"
+#include "metrics/temperature_probe.h"
 
 #include <IOKit/hidsystem/IOHIDEventSystemClient.h>
 #include <IOKit/IOKitLib.h>
