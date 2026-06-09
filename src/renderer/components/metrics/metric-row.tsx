@@ -37,13 +37,13 @@ const VALUE_COLOR_BY_STATE: Record<MetricState, string> = {
 };
 
 /**
- * Meter fill + marker color, mirroring the value color so state never relies on
- * the meter alone.
+ * Meter fill color, mirroring the value color so state never relies on the meter
+ * alone.
  */
 const FILL_BY_STATE: Record<MetricState, string> = {
-  ok: "bg-success shadow-[0_0_4px_var(--success)]",
-  elevated: "bg-warning shadow-[0_0_4px_var(--warning)]",
-  critical: "bg-destructive shadow-[0_0_4px_var(--destructive)]",
+  ok: "bg-success",
+  elevated: "bg-warning",
+  critical: "bg-destructive",
   pending: "bg-muted-foreground/30",
   unavailable: "bg-muted-foreground/30",
 };
@@ -72,8 +72,8 @@ export function MetricRow({ icon: Icon, label, state, value, detail, percent }: 
 }
 
 /**
- * 1px track with a fill and a marker dot at the fill end. The value is mirrored
- * onto ARIA so usage reads without depending on color.
+ * Rounded 4px track with a fill whose width encodes the value. The value is
+ * mirrored onto ARIA so usage reads without depending on color.
  */
 function Meter({ label, state, percent }: { label: string; state: MetricState; percent?: number }) {
   const live = isLive(state);
@@ -81,12 +81,12 @@ function Meter({ label, state, percent }: { label: string; state: MetricState; p
   const clamped = hasValue ? Math.min(100, Math.max(0, percent)) : 0;
 
   if (!hasValue) {
-    return <div className="relative h-px w-full" aria-hidden="true" />;
+    return <div className="relative h-1 w-full" aria-hidden="true" />;
   }
 
   return (
     <div
-      className="relative h-px w-full bg-track"
+      className="relative h-1 w-full overflow-hidden rounded-full bg-track"
       role="progressbar"
       aria-label={`${label} usage`}
       aria-valuemin={0}
@@ -94,13 +94,11 @@ function Meter({ label, state, percent }: { label: string; state: MetricState; p
       aria-valuenow={Math.round(clamped)}
     >
       <div
-        className={cn("absolute inset-y-0 left-0 transition-[width] duration-150 ease-out", FILL_BY_STATE[state])}
+        className={cn(
+          "absolute inset-y-0 left-0 rounded-full transition-[width] duration-150 ease-out",
+          FILL_BY_STATE[state],
+        )}
         style={{ width: `${clamped}%` }}
-      />
-      <span
-        className={cn("absolute top-1/2 h-1 w-1 -translate-y-1/2 rounded-full", FILL_BY_STATE[state])}
-        style={{ left: `calc(${clamped}% - 2px)` }}
-        aria-hidden="true"
       />
     </div>
   );
