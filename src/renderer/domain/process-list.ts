@@ -21,6 +21,14 @@ import { formatBytes, formatCpuPercent } from "@/lib/format";
 export type SortMode = "cpu" | "memory";
 
 /**
+ * The snapshot's deduplicated icon table: content-key -> base64 PNG. A row
+ * carries only an `app.iconKey` into this table (icons are sent once per distinct
+ * image, not once per row), so the projection resolves a row's icon through
+ * {@link rowIcon} rather than reading bytes off the row.
+ */
+export type IconTable = { [key: string]: string };
+
+/**
  * A detail-view selection: either an app group (by its key) or one specific
  * process (drilled into from a group's member list, or opened from a search
  * result that matched a member rather than the whole app group).
@@ -125,6 +133,22 @@ export function okString(value: { status: FieldStatus; value: string } | undefin
     return value.value;
   }
   return undefined;
+}
+
+/**
+ * Resolves a row's display icon (base64 PNG) from the snapshot's {@link IconTable}
+ * by the row's `app.iconKey`, or undefined when the row has no icon. Icons are
+ * carried once per distinct image in the table, not on each row, so this is the
+ * single place that turns a key back into bytes. A missing/empty key or a key
+ * absent from the table yields undefined and the UI shows its fallback glyph.
+ */
+export function rowIcon(row: ProcessRow, icons: IconTable): string | undefined {
+  const key = row.app?.iconKey;
+  if (key === undefined || key.length === 0) {
+    return undefined;
+  }
+  const bytes = icons[key];
+  return bytes !== undefined && bytes.length > 0 ? bytes : undefined;
 }
 
 /**
@@ -360,13 +384,13 @@ function representativeOf(members: ProcessRow[]): ProcessRow {
  * so the detail header reads its identity; the icon prefers the representative's,
  * falling back to any member that has one (an `.app` group shares one icon).
  */
-function buildGroupRow(group: GroupAccumulator, sort: SortMode): ProcessGroup {
+function buildGroupRow(group: GroupAccumulator, sort: SortMode, icons: IconTable): ProcessGroup {
   const representative = representativeOf(group.members);
   const isGroup = group.members.length > 1;
   const metricState: ProcessMetricState = group.hasMetric ? "ok" : group.anyPending ? "pending" : "unavailable";
   const icon =
-    okString(representative.app?.iconPngBase64) ??
-    group.members.map((row) => okString(row.app?.iconPngBase64)).find(Boolean);
+    rowIcon(representative, icons) ??
+    group.members.map((row) => rowIcon(row, icons)).find(Boolean);
   // A multi-process group shows the owning `.app` name; a single process (incl. a
   // drilled-in member) shows its own display name, not its app's.
   const appName = isGroup ? okString(representative.app?.bundle?.name) : undefined;
@@ -394,11 +418,11 @@ function buildGroupRow(group: GroupAccumulator, sort: SortMode): ProcessGroup {
  * descending with a stable name tiebreak; no display cap - callers cap for the
  * list, but the detail lookup needs the full set to keep a selection findable.
  */
-function buildGroups(rows: ProcessRow[], sort: SortMode, query: string): ProcessGroup[] {
+function buildGroups(rows: ProcessRow[], sort: SortMode, query: string, icons: IconTable): ProcessGroup[] {
   const trimmed = query.trim().toLowerCase();
-  const grouped = buildGroupedRows(rows, sort);
+  const grouped = buildGroupedRows(rows, sort, icons);
   if (trimmed.length > 0) {
-    return buildSearchGroups(grouped, sort, trimmed);
+    return buildSearchGroups(grouped, sort, trimmed, icons);
   }
 
   return grouped;
@@ -407,7 +431,7 @@ function buildGroups(rows: ProcessRow[], sort: SortMode, query: string): Process
 /**
  * Builds the normal app-grouped list rows with no search filter applied.
  */
-function buildGroupedRows(rows: ProcessRow[], sort: SortMode): ProcessGroup[] {
+function buildGroupedRows(rows: ProcessRow[], sort: SortMode, icons: IconTable): ProcessGroup[] {
   const groups = new Map<string, GroupAccumulator>();
 
   for (const row of rows) {
@@ -423,7 +447,7 @@ function buildGroupedRows(rows: ProcessRow[], sort: SortMode): ProcessGroup[] {
   }
 
   const projected: ProcessGroup[] = Array.from(groups.values()).map((group) =>
-    buildGroupRow(group, sort),
+    buildGroupRow(group, sort, icons),
   );
 
   return sortGroups(projected);
@@ -437,6 +461,7 @@ function buildSearchGroups(
   groups: ProcessGroup[],
   sort: SortMode,
   query: string,
+  icons: IconTable,
 ): ProcessGroup[] {
   const projected: ProcessGroup[] = [];
 
@@ -449,7 +474,7 @@ function buildSearchGroups(
 
     for (const member of group.members) {
       if (rowHaystack(member).includes(query)) {
-        projected.push(singleProcessGroup(member, sort));
+        projected.push(singleProcessGroup(member, sort, icons));
       }
     }
   }
@@ -492,7 +517,10 @@ export function projectProcessList(
   query: string,
 ): ProcessListProjection {
   return {
-    groups: buildGroups(snapshot.processes, sort, query).slice(0, DISPLAY_LIMIT),
+    groups: buildGroups(snapshot.processes, sort, query, snapshot.icons).slice(
+      0,
+      DISPLAY_LIMIT,
+    ),
   };
 }
 
@@ -525,7 +553,9 @@ export function findGroupByKey(
     }
   }
 
-  return group === undefined ? undefined : buildGroupRow(group, sort);
+  return group === undefined
+    ? undefined
+    : buildGroupRow(group, sort, snapshot.icons);
 }
 
 /**
@@ -552,7 +582,7 @@ function representativeFirst(members: ProcessRow[], representative: ProcessRow):
  * {@link buildGroupRow} path as list groups; the key is the row's PID/start-time
  * singleton identity, distinct from any app-bundle group key.
  */
-export function singleProcessGroup(row: ProcessRow, sort: SortMode): ProcessGroup {
+export function singleProcessGroup(row: ProcessRow, sort: SortMode, icons: IconTable): ProcessGroup {
   const cell = rowMetric(row, sort);
   const group = buildGroupRow(
     {
@@ -563,6 +593,7 @@ export function singleProcessGroup(row: ProcessRow, sort: SortMode): ProcessGrou
       members: [row],
     },
     sort,
+    icons,
   );
   return { ...group, openSelection: rowSelection(row) };
 }
@@ -599,8 +630,8 @@ export function resolveSelection(
     );
     // No exact (pid, started_at) match: the selected process is gone (its PID may
     // have been reused). Return undefined rather than a different process.
-    return exact ? singleProcessGroup(exact, sort) : undefined;
+    return exact ? singleProcessGroup(exact, sort, snapshot.icons) : undefined;
   }
 
-  return singleProcessGroup(matches[0], sort);
+  return singleProcessGroup(matches[0], sort, snapshot.icons);
 }

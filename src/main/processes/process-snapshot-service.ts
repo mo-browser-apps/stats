@@ -107,19 +107,25 @@ function toStringValue(value: NativeString | undefined): StringValue {
 }
 
 /**
- * Maps the optional GUI app icon (a native PNG payload) onto the renderer's
- * base64 string value, preserving availability. The base64 payload is volatile
- * display data forwarded for rendering only; never logged or persisted.
+ * Maps the native deduplicated icon table onto the renderer's. The native table
+ * keys identical icons once (by content hash); here it becomes a plain
+ * key -> base64 map (a table entry is always an available icon, so the per-entry
+ * status is dropped). The renderer gateway rehydrates each row's icon from this
+ * table by key. Base64 payloads are volatile display data, never logged.
  */
-function toIconValue(icon: NativeImage | undefined): StringValue {
-  if (icon === undefined) {
-    return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, value: "" };
+function toIconTable(icons: { [key: string]: NativeImage }): {
+  [key: string]: string;
+} {
+  const table: { [key: string]: string } = {};
+  for (const [key, icon] of Object.entries(icons)) {
+    if (
+      icon.status === NativeFieldStatus.NATIVE_FIELD_STATUS_AVAILABLE &&
+      icon.pngBase64.length > 0
+    ) {
+      table[key] = icon.pngBase64;
+    }
   }
-  const status = toFieldStatus(icon.status);
-  return {
-    status,
-    value: status === FieldStatus.FIELD_STATUS_OK ? icon.pngBase64 : "",
-  };
+  return table;
 }
 
 /**
@@ -138,10 +144,11 @@ function toAppBundle(bundle: NativeAppBundle | undefined): AppBundle | undefined
 }
 
 /**
- * Maps the optional GUI app metadata (bundle id, localized name, icon) plus the
- * owning app bundle. A record with no app data maps every field to UNKNOWN so the
- * UI falls back to a generic icon and the command/executable name. Icons are
- * volatile display data, never logged.
+ * Maps the optional GUI app metadata (bundle id, localized name, icon key) plus
+ * the owning app bundle. A record with no app data maps name fields to UNKNOWN
+ * and leaves the icon key empty so the UI falls back to a generic icon and the
+ * command/executable name. The icon bytes are not on the row: they live once in
+ * the snapshot's icon table, keyed by `iconKey`.
  */
 function toAppMetadata(app: NativeAppMetadata | undefined): AppMetadata {
   if (app === undefined) {
@@ -149,14 +156,14 @@ function toAppMetadata(app: NativeAppMetadata | undefined): AppMetadata {
     return {
       bundleIdentifier: { ...unknown },
       localizedName: { ...unknown },
-      iconPngBase64: { ...unknown },
+      iconKey: "",
       bundle: undefined,
     };
   }
   return {
     bundleIdentifier: toStringValue(app.bundleIdentifier),
     localizedName: toStringValue(app.localizedName),
-    iconPngBase64: toIconValue(app.iconPng),
+    iconKey: app.iconKey,
     bundle: toAppBundle(app.bundle),
   };
 }
@@ -308,6 +315,7 @@ export class ProcessSnapshotService {
     timestampMs: 0,
     processes: [],
     warnings: [],
+    icons: {},
   };
 
   /**
@@ -414,7 +422,11 @@ export class ProcessSnapshotService {
       if (this.disposed) {
         return;
       }
-      this.snapshot = this.buildSnapshot(response.available, response.records);
+      this.snapshot = this.buildSnapshot(
+        response.available,
+        response.records,
+        response.icons,
+      );
       this.publishRevision();
     } catch {
       // Degrade silently to an unavailable snapshot; the next tick retries. No
@@ -451,6 +463,7 @@ export class ProcessSnapshotService {
   private buildSnapshot(
     available: boolean,
     records: NativeProcessRecord[],
+    icons: { [key: string]: NativeImage },
   ): ProcessSnapshot {
     if (!available) {
       return this.buildUnavailableSnapshot();
@@ -491,6 +504,7 @@ export class ProcessSnapshotService {
       timestampMs: Date.now(),
       processes,
       warnings: buildWarnings(permissionDeniedCount, commandLinePartialCount),
+      icons: toIconTable(icons),
     };
   }
 
@@ -506,6 +520,7 @@ export class ProcessSnapshotService {
       timestampMs: Date.now(),
       processes: [],
       warnings: [],
+      icons: {},
     };
   }
 

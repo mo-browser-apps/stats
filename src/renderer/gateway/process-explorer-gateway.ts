@@ -36,6 +36,7 @@ function emptySnapshot(): ProcessSnapshot {
     timestampMs: 0,
     processes: [],
     warnings: [],
+    icons: {},
   };
 }
 

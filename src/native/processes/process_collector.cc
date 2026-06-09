@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <limits>
@@ -73,6 +74,39 @@ int64_t SaturatingInt64(uint64_t value) {
       static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
   return value > max_int64 ? std::numeric_limits<int64_t>::max()
                            : static_cast<int64_t>(value);
+}
+
+// Content key for an icon's base64 bytes: 64-bit FNV-1a as hex. Non-cryptographic
+// is fine - the key only has to collapse identical icons to one table entry and
+// tell different ones apart within a pass. A collision would at worst show one
+// wrong icon for a tick; nothing crashes.
+std::string IconContentKey(const std::string& base64) {
+  uint64_t hash = 0xcbf29ce484222325ULL;
+  for (const unsigned char byte : base64) {
+    hash ^= byte;
+    hash *= 0x100000001b3ULL;
+  }
+  char out[17];
+  std::snprintf(out, sizeof(out), "%016llx",
+                static_cast<unsigned long long>(hash));
+  return std::string(out, 16);
+}
+
+// Interns a resolved icon into the response's dedup table and returns its key
+// (empty when the icon is unavailable). Identical bytes collapse to one entry,
+// so a shared icon is carried once per pass instead of once per record.
+std::string InternIcon(CollectProcessesResponse* response,
+                       const NativeImage& icon) {
+  if (icon.status() != NATIVE_FIELD_STATUS_AVAILABLE ||
+      icon.png_base64().empty()) {
+    return std::string();
+  }
+  std::string key = IconContentKey(icon.png_base64());
+  auto& table = *response->mutable_icons();
+  if (table.find(key) == table.end()) {
+    table[key] = icon;
+  }
+  return key;
 }
 
 // Enumerates all PIDs. proc_listallpids reports a PID count, not a byte count,
@@ -472,9 +506,11 @@ void FillUser(const proc_taskallinfo& task, bool task_ok,
 // availability so a single denied/exited read degrades that field, not the row.
 // app_metadata holds GUI-app metadata keyed by PID (from NSWorkspace); a record
 // with no entry keeps its app fields unset and falls back to a generic icon.
+// The resolved icon is interned into `response`'s dedup table and referenced by
+// key, so a shared icon is stored once for the whole pass.
 void FillRecord(
     pid_t pid, int arg_max, std::vector<char>* args_buffer,
-    NativeProcessRecord* record,
+    CollectProcessesResponse* response, NativeProcessRecord* record,
     const std::unordered_map<int32_t, NativeAppMetadata>& app_metadata) {
   NativeProcessIdentity* identity = record->mutable_identity();
   identity->set_pid(pid);
@@ -524,26 +560,28 @@ void FillRecord(
     *record->mutable_app() = match->second;
   }
 
-  const bool has_app_icon =
-      record->has_app() &&
-      record->app().icon_png().status() == NATIVE_FIELD_STATUS_AVAILABLE;
+  // Resolve the icon into a local image, then intern it and store only the key on
+  // the record. Every process resolves the same way: from the executable path
+  // (the owning `.app` icon for a bundled app/helper, the generic icon for a
+  // daemon), with the NSWorkspace bundle path as a fallback when the executable
+  // path is unavailable. The per-resolution-path cache in IconForFilePath means a
+  // steady pass does no AppKit work; InternIcon then de-dupes identical bytes.
+  NativeImage icon;
+  icon.set_status(NATIVE_FIELD_STATUS_UNAVAILABLE);
 
   if (record->executable_path().status() == NATIVE_FIELD_STATUS_AVAILABLE) {
     FillAppBundle(record->executable_path().value(),
                   record->mutable_app()->mutable_bundle());
-    if (!has_app_icon) {
-      IconForExecutablePath(record->executable_path().value(),
-                            record->mutable_app()->mutable_icon_png());
-    }
+    IconForExecutablePath(record->executable_path().value(), &icon);
   } else if (
-      !has_app_icon &&
       record->has_app() &&
       record->app().bundle().path().status() == NATIVE_FIELD_STATUS_AVAILABLE) {
-    // If the executable path itself is unavailable, fall back to NSWorkspace's
-    // exact app bundle when present. Without a path we cannot identify an
-    // outermost owner for nested bundles.
-    IconForFilePath(record->app().bundle().path().value(),
-                    record->mutable_app()->mutable_icon_png());
+    IconForFilePath(record->app().bundle().path().value(), &icon);
+  }
+
+  std::string icon_key = InternIcon(response, icon);
+  if (!icon_key.empty()) {
+    record->mutable_app()->set_icon_key(std::move(icon_key));
   }
 }
 
@@ -584,7 +622,7 @@ void CollectProcesses(CollectProcessesResponse* response) {
   std::vector<char> args_buffer(arg_max > 0 ? static_cast<size_t>(arg_max) : 0);
 
   for (const pid_t pid : pids) {
-    FillRecord(pid, arg_max, &args_buffer, response->add_records(),
+    FillRecord(pid, arg_max, &args_buffer, response, response->add_records(),
                app_metadata);
   }
 }

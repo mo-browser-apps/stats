@@ -51,7 +51,9 @@ message NativeInt64 {
 }
 
 // A native PNG image payload with explicit availability. Volatile display-only
-// app icon data: it must not be logged or persisted.
+// app icon data: it must not be logged or persisted. Carried once per distinct
+// image in CollectProcessesResponse.icons (keyed by content hash); records point
+// at an entry via NativeAppMetadata.icon_key instead of embedding the bytes.
 message NativeImage {
   NativeFieldStatus status = 1;
   // Base64-encoded PNG bytes when AVAILABLE.
@@ -123,8 +125,9 @@ message NativeAppBundle {
 message NativeAppMetadata {
   NativeString bundle_identifier = 1;
   NativeString localized_name = 2;
-  // Volatile display-only app icon PNG (see NativeImage).
-  NativeImage icon_png = 3;
+  // Key into CollectProcessesResponse.icons for this process's icon, or empty
+  // when none was resolved. The bytes live once in that deduplicated table.
+  string icon_key = 3;
   // Owning `.app` bundle for grouping; absent for non-bundled processes.
   NativeAppBundle bundle = 4;
 }
@@ -192,6 +195,11 @@ message CollectProcessesResponse {
   repeated NativeProcessRecord records = 3;
   // Safe, count-only warnings (no sensitive text).
   repeated NativeCollectorWarning warnings = 4;
+  // Deduplicated app icons for this pass, keyed by a content hash of the PNG
+  // bytes. Records reference an entry via NativeAppMetadata.icon_key; an icon
+  // shared by many processes (a multi-process app, or the generic daemon icon)
+  // is carried once here instead of once per record. Volatile display-only data.
+  map<string, NativeImage> icons = 5;
 }
 
 // Main-to-native process collection API. Inspection-only: no actions here.

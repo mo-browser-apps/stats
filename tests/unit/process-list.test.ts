@@ -290,10 +290,35 @@ describe("resolveSelection", () => {
 describe("singleProcessGroup", () => {
   it("wraps one row as a one-member group targeting that process", () => {
     const row = makeRow({ pid: 321, commandName: "tool", startedAtUnixMs: 5, cpuPercent: 7 });
-    const group = singleProcessGroup(row, "cpu");
+    const group = singleProcessGroup(row, "cpu", {});
     expect(group.memberCount).toBe(1);
     expect(group.childCount).toBe(0);
     expect(group.openSelection).toEqual({ kind: "process", pid: 321, startedAtUnixMs: 5 });
     expect(rowPid(row)).toBe(321);
+  });
+});
+
+describe("projectProcessList - icon resolution", () => {
+  it("resolves a group's icon from the snapshot's icon table by key", () => {
+    // makeSnapshot tables the row's icon key (the base64 itself, in fixtures), so
+    // the projection resolves the row's icon back through the table by its key.
+    const rows = [makeRow({ pid: 1, commandName: "tool", iconPngBase64: "ICON-BYTES" })];
+    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "");
+    expect(groups[0].iconPngBase64).toBe("ICON-BYTES");
+  });
+
+  it("shares one icon across a multi-process group's members", () => {
+    const rows = [
+      makeRow({ pid: 100, bundlePath: "/Applications/App.app", bundleName: "App", iconPngBase64: "APP-ICON", cpuPercent: 1 }),
+      makeRow({ pid: 200, bundlePath: "/Applications/App.app", iconPngBase64: "APP-ICON", cpuPercent: 1 }),
+    ];
+    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "");
+    expect(groups).toHaveLength(1);
+    expect(groups[0].iconPngBase64).toBe("APP-ICON");
+  });
+
+  it("leaves the icon undefined when the row has no icon key", () => {
+    const { groups } = projectProcessList(makeSnapshot([makeRow({ pid: 1, commandName: "tool" })]), "cpu", "");
+    expect(groups[0].iconPngBase64).toBeUndefined();
   });
 });

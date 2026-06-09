@@ -126,7 +126,9 @@ function appMetadata(options: RecordOptions): NativeAppMetadata {
   return {
     bundleIdentifier: nativeString(options.bundleIdentifier ?? "com.example.FakeApp"),
     localizedName: nativeString(options.localizedName ?? "Fake App"),
-    iconPng: nativeImage(options.iconPngBase64 ?? "fake-icon-png"),
+    // The native record carries an icon key; the bytes live in the response's
+    // icons table (see response()). In fixtures the key doubles as the bytes.
+    iconKey: options.iconPngBase64 ?? "fake-icon-png",
     bundle: {
       path: nativeString(options.bundlePath ?? "/Applications/FakeApp.app"),
       name: nativeString(options.bundleName ?? "Fake App"),
@@ -198,11 +200,22 @@ function record(options: RecordOptions = {}): NativeProcessRecord {
 }
 
 function response(records: NativeProcessRecord[], available = true): CollectProcessesResponse {
+  // Build the dedup icon table from the records' keys, mirroring native: each
+  // record's icon key maps to a NativeImage whose bytes are the key itself (the
+  // fixture convention), so toIconTable produces a matching renderer table.
+  const icons: { [key: string]: NativeImage } = {};
+  for (const record of records) {
+    const key = record.app?.iconKey;
+    if (key !== undefined && key.length > 0) {
+      icons[key] = nativeImage(key);
+    }
+  }
   return {
     available,
     collectedAtUnixMs: 0,
     records,
     warnings: [],
+    icons,
   };
 }
 
@@ -505,8 +518,26 @@ describe("ProcessSnapshotService field mapping", () => {
     const app = service.getSnapshot().processes[0].app;
     expect(app?.bundleIdentifier?.status).toBe(FieldStatus.FIELD_STATUS_UNKNOWN);
     expect(app?.localizedName?.status).toBe(FieldStatus.FIELD_STATUS_UNKNOWN);
-    expect(app?.iconPngBase64?.status).toBe(FieldStatus.FIELD_STATUS_UNKNOWN);
+    // No app -> empty icon key (the gateway then leaves the icon as a fallback).
+    expect(app?.iconKey).toBe("");
     expect(app?.bundle).toBeUndefined();
+  });
+
+  it("maps the deduplicated icon table and keys each row into it", async () => {
+    const service = makeService();
+
+    // Two records share one icon: main passes the table through (one entry) and
+    // each row references it by the same key. The bytes stay in the table; the
+    // row's iconPngBase64 is filled later by the renderer gateway.
+    const a = record({ pid: 301, iconPngBase64: "SHARED-ICON" });
+    const b = record({ pid: 302, iconPngBase64: "SHARED-ICON" });
+    await collectByActivation(service, response([a, b]));
+
+    const snapshot = service.getSnapshot();
+    expect(snapshot.icons["SHARED-ICON"]).toBe("SHARED-ICON");
+    expect(Object.keys(snapshot.icons)).toHaveLength(1);
+    expect(snapshot.processes[0].app?.iconKey).toBe("SHARED-ICON");
+    expect(snapshot.processes[1].app?.iconKey).toBe("SHARED-ICON");
   });
 
   it("drops the app bundle to undefined when its path is not AVAILABLE", async () => {

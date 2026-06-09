@@ -96,7 +96,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     for (let depth = selectionStack.length - 1; depth >= 0; depth -= 1) {
       const group = resolveSelection(snapshot, sort, selectionStack[depth]);
       if (group) {
-        return buildProcessDetail(group, sort);
+        return buildProcessDetail(group, sort, snapshot.icons);
       }
     }
     return undefined;

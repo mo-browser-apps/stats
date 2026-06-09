@@ -6,9 +6,11 @@ import {
   okString,
   rowCpu,
   rowDisplayName,
+  rowIcon,
   rowMemory,
   rowMetric,
   rowPid,
+  type IconTable,
   type MetricCell,
   type ProcessGroup,
   type ProcessMetricState,
@@ -322,9 +324,11 @@ function detailUser(row: ProcessRow): DetailStat {
 }
 
 /**
- * Projects one member row into a {@link DetailMember} under the active sort.
+ * Projects one member row into a {@link DetailMember} under the active sort. The
+ * icon is resolved from the snapshot's icon table via {@link rowIcon} (the row
+ * carries only a key).
  */
-function buildMember(row: ProcessRow, sort: SortMode): DetailMember {
+function buildMember(row: ProcessRow, sort: SortMode, icons: IconTable): DetailMember {
   const cell = rowMetric(row, sort);
   const metricState = cellState(cell);
   const startedAt =
@@ -335,7 +339,7 @@ function buildMember(row: ProcessRow, sort: SortMode): DetailMember {
     pid: rowPid(row),
     startedAtUnixMs: startedAt,
     name: rowDisplayName(row),
-    iconPngBase64: okString(row.app?.iconPngBase64),
+    iconPngBase64: rowIcon(row, icons),
     metricState,
     metricText: metricState === "ok" ? formatDetailMetric(cell.value ?? 0, sort) : undefined,
   };
@@ -349,7 +353,7 @@ function buildMember(row: ProcessRow, sort: SortMode): DetailMember {
  * (representative first) for the Members section; a single-process detail has no
  * member list. The active `sort` sets each member's displayed value.
  */
-export function buildProcessDetail(group: ProcessGroup, sort: SortMode): ProcessDetail {
+export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: IconTable): ProcessDetail {
   const representative = group.members[0];
   const started = rowStartedAt(representative);
   const path = detailString(representative.executablePath);
@@ -377,7 +381,7 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode): Process
           }
           return (left.identity?.pid ?? 0) - (right.identity?.pid ?? 0);
         })
-        .map((row) => buildMember(row, sort))
+        .map((row) => buildMember(row, sort, icons))
       : [];
 
   // Only the selected metric's total is shown (the CPU/RAM switch picks which),

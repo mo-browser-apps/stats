@@ -120,14 +120,21 @@ message AppBundle {
 // owning app bundle for grouping. The icon is volatile display-only data: it
 // must not be logged or persisted.
 message AppMetadata {
+  // Field 3 was icon_png_base64 (the icon bytes inline on every row); icons are
+  // now deduplicated into ProcessSnapshot.icons and referenced by icon_key, so a
+  // shared icon is sent once per snapshot instead of once per row.
+  reserved 3;
+  reserved "icon_png_base64";
   // Application bundle identifier (e.g. com.apple.dt.Xcode) when found.
   StringValue bundle_identifier = 1;
   // User-facing localized application name when found.
   StringValue localized_name = 2;
-  // Volatile display-only base64 PNG icon payload when available.
-  StringValue icon_png_base64 = 3;
   // Owning `.app` bundle for grouping; absent for non-bundled processes.
   AppBundle bundle = 4;
+  // Key into ProcessSnapshot.icons for this process's icon, or empty when none.
+  // The icon bytes live once in that table; presentation code resolves the icon
+  // by this key. Volatile display-only data.
+  string icon_key = 5;
 }
 
 // Sensitive command-line arguments for one process. Display/search data only:
@@ -215,6 +222,12 @@ message ProcessSnapshot {
   repeated ProcessRow processes = 4;
   // Safe, count-only warnings (no sensitive text).
   repeated SnapshotWarning warnings = 5;
+  // Deduplicated base64 PNG app icons for this snapshot, keyed by content hash.
+  // A row references its icon via AppMetadata.icon_key; an icon shared by many
+  // processes is carried once here, so the snapshot stays small even though most
+  // rows show an icon. Presentation code resolves a row's icon by looking its
+  // icon_key up here. Volatile display-only data: never logged or persisted.
+  map<string, string> icons = 6;
 }
 
 // Reserved for future read parameters (e.g. a field-detail level). Empty for

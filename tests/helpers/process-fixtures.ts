@@ -97,7 +97,10 @@ function makeApp(options: RowOptions): AppMetadata | undefined {
   return {
     bundleIdentifier: options.bundleIdentifier !== undefined ? okStr(options.bundleIdentifier) : undefined,
     localizedName: options.localizedName !== undefined ? okStr(options.localizedName) : undefined,
-    iconPngBase64: options.iconPngBase64 !== undefined ? okStr(options.iconPngBase64) : undefined,
+    // Icons live in the snapshot's table, not on the row; the row carries a key.
+    // In fixtures the test's iconPngBase64 value doubles as both key and bytes
+    // (see makeSnapshot), so rowIcon resolves back to the value the test set.
+    iconKey: options.iconPngBase64 ?? "",
     bundle: hasBundle
       ? {
         path: options.bundlePath !== undefined ? okStr(options.bundlePath) : undefined,
@@ -194,14 +197,27 @@ export function makeRow(options: RowOptions = {}): ProcessRow {
   };
 }
 
-/** Wraps rows in an OK {@link ProcessSnapshot} for projection/lookup tests. */
+/**
+ * Wraps rows in an OK {@link ProcessSnapshot} for projection/lookup tests,
+ * rebuilding the icon table from the rows' keys so {@link rowIcon} resolves. Each
+ * row's icon key (the test's iconPngBase64 value) maps to itself, so a row with
+ * iconPngBase64 set resolves back to that value through the snapshot table.
+ */
 export function makeSnapshot(rows: ProcessRow[], revision = 1): ProcessSnapshot {
+  const icons: { [key: string]: string } = {};
+  for (const row of rows) {
+    const key = row.app?.iconKey;
+    if (key !== undefined && key.length > 0) {
+      icons[key] = key;
+    }
+  }
   return {
     status: SnapshotStatus.SNAPSHOT_STATUS_OK,
     revision,
     timestampMs: 0,
     processes: rows,
     warnings: [],
+    icons,
   };
 }
 

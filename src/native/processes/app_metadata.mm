@@ -31,26 +31,6 @@ std::unordered_map<std::string, std::string>& IconCache() {
   return cache;
 }
 
-// Stable cache key for a foreground GUI app's icon. Prefer the bundle path so
-// helper fallback lookups by owner `.app` path reuse the owner's exact
-// NSRunningApplication.icon instead of depending on iconForFile:. Fall back to
-// bundle id / executable path only when there is no bundle path.
-std::string RunningApplicationIconCacheKey(NSRunningApplication* application) {
-  NSString* bundle_path = application.bundleURL.path;
-  if (bundle_path.length > 0) {
-    return bundle_path.UTF8String;
-  }
-  NSString* bundle_id = application.bundleIdentifier;
-  if (bundle_id.length > 0) {
-    return bundle_id.UTF8String;
-  }
-  NSString* executable_path = application.executableURL.path;
-  if (executable_path.length > 0) {
-    return executable_path.UTF8String;
-  }
-  return {};
-}
-
 // Fills a NativeString from an NSString, marking it unavailable when empty so an
 // absent value is never confused with a real empty string.
 void FillString(NativeString* out, NSString* value) {
@@ -109,7 +89,7 @@ std::string EncodeIconBase64(NSImage* icon) {
 // field is filled from the stored base64 with no drawing. A successful first
 // encode is cached; a failed encode degrades the field to unavailable and is not
 // cached, so a transiently missing icon can still resolve on a later pass. The
-// cache key must be stable for the icon (bundle id / executable path).
+// cache key must be stable for the icon (the resolution path).
 void FillIcon(NativeImage* out, NSImage* icon, const std::string& cache_key) {
   if (!cache_key.empty()) {
     const auto cached = IconCache().find(cache_key);
@@ -183,19 +163,6 @@ AppBundle AppBundleForPath(const std::string& executable_path) {
   return {path, name};
 }
 
-// Whether this running app is the same outer `.app` MoStats groups by. Nested
-// helper apps are grouped under the outer app, so they use the owner icon
-// resolved later from the executable path.
-bool IsGroupedOwnerApplication(NSRunningApplication* application) {
-  NSString* bundle_path = application.bundleURL.path;
-  NSString* executable_path = application.executableURL.path;
-  if (bundle_path.length == 0 || executable_path.length == 0) {
-    return true;  // No path to prove it is nested; treat it as its own owner.
-  }
-  const AppBundle owner = AppBundleForPath(executable_path.UTF8String);
-  return owner.path.empty() || owner.path == bundle_path.UTF8String;
-}
-
 }  // namespace
 
 void FillAppBundle(const std::string& executable_path, NativeAppBundle* out) {
@@ -263,15 +230,14 @@ std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata() {
       FillString(metadata.mutable_bundle_identifier(),
                  application.bundleIdentifier);
       FillString(metadata.mutable_localized_name(), application.localizedName);
+      // Icon is resolved by the collector from the executable path (uniformly for
+      // GUI apps and daemons), not here - so NSRunningApplication.icon is never
+      // touched. Only the cheap identity fields come from NSWorkspace.
       if (application.activationPolicy !=
           NSApplicationActivationPolicyProhibited) {
         NSString* bundle_path = application.bundleURL.path;
         if (bundle_path.length > 0) {
           FillBundle(bundle_path.UTF8String, metadata.mutable_bundle());
-        }
-        if (IsGroupedOwnerApplication(application)) {
-          FillIcon(metadata.mutable_icon_png(), application.icon,
-                   RunningApplicationIconCacheKey(application));
         }
       }
       by_pid.emplace(static_cast<int32_t>(application.processIdentifier),
