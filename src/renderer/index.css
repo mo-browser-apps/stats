@@ -85,9 +85,9 @@
   /* Unfilled meter rail; faint, but a step stronger than dividers. */
   --track:            oklch(0% 0 0deg / 8%);
 
-  /* Metric status — soft blue normal, violet moderate, pink-red critical. */
+  /* Metric status — soft blue normal, amber elevated, pink-red critical. */
   --success:                oklch(58% 0.130 258deg);
-  --warning:                oklch(56% 0.190 300deg);
+  --warning:                oklch(60% 0.140 75deg);
   --destructive:            oklch(57% 0.235 12deg);
   --destructive-foreground: oklch(98.5% 0 0deg);
 
@@ -123,9 +123,12 @@
      and the row separators read as different elements (DESIGN.md track token). */
   --track:            oklch(100% 0 0deg / 9%);
 
-  /* Metric status — soft blue normal, violet moderate, pink-red critical. */
+  /* Metric status — soft blue normal, amber elevated, pink-red critical.
+     Blue keeps the resting panel quiet (a monitor should not celebrate idle);
+     amber is the universal caution hue and, unlike the former violet, stays
+     distinguishable from the blue ok state under red-deficient color vision. */
   --success:                oklch(72% 0.130 258deg);
-  --warning:                oklch(70% 0.180 300deg);
+  --warning:                oklch(75% 0.155 75deg);
   --destructive:            oklch(68% 0.230 12deg);
   --destructive-foreground: oklch(90% 0 0deg);
 }
