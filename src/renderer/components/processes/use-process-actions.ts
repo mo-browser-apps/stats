@@ -40,7 +40,7 @@ interface ProcessActionsState {
 export function useProcessActions(
   detail: ProcessDetail | undefined,
   onActed: () => Promise<void>,
-  onTerminated: () => void,
+  onTerminated: (terminatedPid: number) => void,
 ): ProcessActionsState {
   const targetPid = detail?.pid;
   const targetStartedAt = detail?.startedAt === "ok" ? detail.startedAtUnixMs : undefined;
@@ -115,7 +115,7 @@ export function useProcessActions(
       }
       await onActed();
       if (terminated) {
-        onTerminated();
+        onTerminated(target.pid);
       }
       await refreshActionStates();
     },

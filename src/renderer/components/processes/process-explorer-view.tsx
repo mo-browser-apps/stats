@@ -96,14 +96,18 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     [],
   );
   const goBack = useCallback(() => setSelectionStack((stack) => stack.slice(0, -1)), []);
-  const popAfterTerminate = useCallback(() => {
+  const popAfterTerminate = useCallback((terminatedPid: number) => {
     setSelectionStack((stack) => {
       const next = stack.slice(0, -1);
-      while (
-        next.length > 0 &&
-        resolveSelection(snapshotRef.current, sortRef.current, next[next.length - 1]) ===
-          undefined
-      ) {
+      while (next.length > 0) {
+        const resolved = resolveSelection(
+          snapshotRef.current,
+          sortRef.current,
+          next[next.length - 1],
+        );
+        if (resolved !== undefined && resolved.pid !== terminatedPid) {
+          break;
+        }
         next.pop();
       }
       return next;
