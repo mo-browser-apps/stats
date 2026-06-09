@@ -211,6 +211,7 @@ async function collectByActivation(
   next: CollectProcessesResponse,
 ): Promise<void> {
   const callIndex = h.collect.mock.calls.length;
+  const revisionCallIndex = h.revisionHandle.StreamRevisions.mock.calls.length;
   h.collect.mockResolvedValueOnce(next);
 
   service.setActive(true);
@@ -221,7 +222,9 @@ async function collectByActivation(
     throw new Error("collector fixture did not return a promise");
   }
   await result.value;
-  await Promise.resolve();
+  await vi.waitFor(() => {
+    expect(h.revisionHandle.StreamRevisions).toHaveBeenCalledTimes(revisionCallIndex + 1);
+  });
   service.setActive(false);
 }
 
@@ -230,6 +233,7 @@ async function collectRejectedByActivation(
   error: Error,
 ): Promise<void> {
   const callIndex = h.collect.mock.calls.length;
+  const revisionCallIndex = h.revisionHandle.StreamRevisions.mock.calls.length;
   h.collect.mockRejectedValueOnce(error);
 
   service.setActive(true);
@@ -240,7 +244,9 @@ async function collectRejectedByActivation(
     throw new Error("collector fixture did not return a promise");
   }
   await result.value.catch(() => undefined);
-  await Promise.resolve();
+  await vi.waitFor(() => {
+    expect(h.revisionHandle.StreamRevisions).toHaveBeenCalledTimes(revisionCallIndex + 1);
+  });
   service.setActive(false);
 }
 
@@ -507,7 +513,8 @@ describe("ProcessSnapshotService field mapping", () => {
     const service = makeService();
 
     // App metadata exists, but the owning .app path could not be read: the bundle
-    // must be dropped so the renderer groups by bundle id, not a phantom path.
+    // must be dropped so the renderer keeps the row singleton, not grouped by a
+    // phantom path.
     const base = record({ pid: 201 });
     const withUnreadableBundlePath: NativeProcessRecord = {
       ...base,

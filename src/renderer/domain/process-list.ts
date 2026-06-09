@@ -42,8 +42,8 @@ export type ProcessMetricState = "ok" | "pending" | "unavailable";
 
 /**
  * One display row in the list. A group collapses an app's processes by owning
- * `.app` bundle path or bundle id; processes without app identity stay singleton
- * rows so unrelated CLIs with the same executable name are not merged.
+ * `.app` bundle path; processes without that app-bundle identity stay singleton
+ * rows so unrelated CLIs and per-host XPC services are not merged.
  */
 export interface ProcessGroup {
   /**
@@ -201,18 +201,12 @@ export function cellState(cell: MetricCell): ProcessMetricState {
 }
 
 /**
- * Group key. Only real app identity groups rows; non-app processes stay as
- * PID/start-time singletons so unrelated `node`/`python`/shell processes do not
- * get summed into one misleading row.
+ * Group key. Only an owning `.app` path groups rows.
  */
 function rowGroupKey(row: ProcessRow): string {
   const bundlePath = okString(row.app?.bundle?.path);
   if (bundlePath) {
     return `app:${bundlePath}`;
-  }
-  const bundleId = okString(row.app?.bundleIdentifier);
-  if (bundleId) {
-    return `bundle:${bundleId}`;
   }
   return rowIdentityKey(row);
 }
@@ -257,7 +251,7 @@ function rowHaystack(row: ProcessRow): string {
 /**
  * Lowercased search haystack for the grouped app identity. It intentionally
  * excludes member argv so a helper-specific query can open that helper, while an
- * app-name/bundle-id query keeps the group and its Members section.
+ * app identity query keeps a real app-bundle group and its Members section.
  */
 function groupHaystack(group: ProcessGroup): string {
   const representative = group.members[0];
@@ -393,7 +387,7 @@ function buildGroupRow(group: GroupAccumulator, sort: SortMode): ProcessGroup {
 
 /**
  * Folds snapshot rows into ranked display groups for the sort and optional search
- * query: buckets by native app key (owning `.app` bundle or bundle id), sums each
+ * query: buckets by native app key (owning `.app` bundle path), sums each
  * group's metric, and keeps non-app processes as singletons. Search keeps
  * app/group matches grouped but returns member-specific matches as singletons, so
  * the visible result name matches the process that opens. Ranked by summed metric

@@ -92,14 +92,26 @@ describe("projectProcessList - grouping", () => {
     expect(chrome.sortValue).toBeCloseTo(9);
   });
 
-  it("groups by bundle identifier when there is no bundle path", () => {
+  it("keeps bundle-identifier-only XPC app services as separate singleton rows", () => {
     const rows = [
-      makeRow({ pid: 10, bundleIdentifier: "com.example.App", footprintBytes: 50 * MB }),
-      makeRow({ pid: 11, bundleIdentifier: "com.example.App", footprintBytes: 30 * MB }),
+      makeRow({
+        pid: 10,
+        startedAtUnixMs: 10,
+        localizedName: "AutoFill (Chrome)",
+        bundleIdentifier: "com.example.SharedXpcHelper",
+        footprintBytes: 50 * MB,
+      }),
+      makeRow({
+        pid: 11,
+        startedAtUnixMs: 11,
+        localizedName: "AutoFill (MoStats)",
+        bundleIdentifier: "com.example.SharedXpcHelper",
+        footprintBytes: 30 * MB,
+      }),
     ];
     const { groups } = projectProcessList(makeSnapshot(rows), "memory", "");
-    expect(groups).toHaveLength(1);
-    expect(groups[0].memberCount).toBe(2);
+    expect(groups.map((group) => group.name)).toEqual(["AutoFill (Chrome)", "AutoFill (MoStats)"]);
+    expect(groups.every((group) => group.memberCount === 1)).toBe(true);
   });
 
   it("keeps non-app processes (no bundle) as separate singleton rows", () => {

@@ -56,9 +56,8 @@ void IconForFilePath(const std::string& path, NativeImage* out);
  *
  * The bundle is the outermost `.app` in the path, so the main app process and
  * its helpers (which carry no bundle id of their own) resolve to the same
- * bundle. A path with no `.app` segment (a plain daemon) leaves `out` unset, so
- * grouping falls back to bundle id / name downstream. Reads only the path string
- * (no AppKit).
+ * bundle. A path with no `.app` segment leaves `out` unset, so the renderer
+ * keeps it as a singleton.
  */
 void FillAppBundle(const std::string& executable_path, NativeAppBundle* out);
 

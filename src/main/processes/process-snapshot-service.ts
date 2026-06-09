@@ -124,8 +124,8 @@ function toIconValue(icon: NativeImage | undefined): StringValue {
 
 /**
  * Maps the owning `.app` bundle (path + name) the list groups by. An absent
- * bundle or non-AVAILABLE path maps to undefined so a non-bundled process falls
- * back to bundle-id/name grouping in the renderer.
+ * bundle or non-AVAILABLE path maps to undefined so the renderer keeps the row
+ * as a singleton.
  */
 function toAppBundle(bundle: NativeAppBundle | undefined): AppBundle | undefined {
   if (
