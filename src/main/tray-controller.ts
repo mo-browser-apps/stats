@@ -1,4 +1,4 @@
-import { app, Menu, MenuItem, Tray } from "@mobrowser/api";
+import { app, CheckboxMenuItem, Menu, MenuItem, Tray } from "@mobrowser/api";
 import type { MouseButton } from "@mobrowser/api";
 import type { ApplicationWindow } from "./application-window";
 
@@ -9,17 +9,11 @@ const DISPLAY_NAME = "MōStats";
 
 /**
  * Owns the macOS menu-bar tray item and its menu.
- *
- * The tray is the primary way to bring the compact window back after it has
- * been hidden, and to quit the app. A left click toggles the window; a right
- * click opens the menu with Show/Hide and Quit actions. Quit is routed through
- * the injected callback (rather than calling `app.quit()` directly) so the owner
- * can tear down runtime services before the process exits. (About lives in the
- * macOS app menu, the native location, not here.)
  */
 export class TrayController {
   private readonly tray: Tray;
   private readonly toggleWindowItem: MenuItem;
+  private readonly launchAtLoginItem: CheckboxMenuItem;
   private readonly quitItem: MenuItem;
 
   /**
@@ -36,6 +30,14 @@ export class TrayController {
       label: this.getToggleLabel(),
       action: () => {
         this.window.toggle();
+      },
+    });
+    this.launchAtLoginItem = new CheckboxMenuItem({
+      id: "launchAtLogin",
+      label: "Launch at Login",
+      checked: app.loginItemSettings.openAtLogin,
+      action: () => {
+        this.toggleLaunchAtLogin();
       },
     });
     this.quitItem = new MenuItem({
@@ -55,6 +57,7 @@ export class TrayController {
 
     this.tray.on("mouseUp", (button: MouseButton) => {
       if (button === "secondary") {
+        this.syncLaunchAtLogin();
         this.tray.openMenu();
         return;
       }
@@ -90,6 +93,8 @@ export class TrayController {
       items: [
         this.toggleWindowItem,
         "separator",
+        this.launchAtLoginItem,
+        "separator",
         this.quitItem,
       ],
     });
@@ -97,5 +102,23 @@ export class TrayController {
 
   private getToggleLabel(): string {
     return this.window.isVisible ? `Hide ${DISPLAY_NAME}` : `Show ${DISPLAY_NAME}`;
+  }
+
+  /**
+   * Flips the login-item registration to the opposite of the current OS state,
+   * then re-reads it. The checkbox is set from the read-back, not the request,
+   * so a refused change (e.g. the system denying background-item registration)
+   * leaves the menu honest instead of showing a checkmark that lies.
+   */
+  private toggleLaunchAtLogin(): void {
+    app.setLoginItemSettings({ openAtLogin: !app.loginItemSettings.openAtLogin });
+    this.syncLaunchAtLogin();
+  }
+
+  /**
+   * Re-reads the authoritative OS login-item state into the checkbox.
+   */
+  private syncLaunchAtLogin(): void {
+    this.launchAtLoginItem.setChecked(app.loginItemSettings.openAtLogin);
   }
 }
