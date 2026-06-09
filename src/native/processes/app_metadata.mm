@@ -173,6 +173,10 @@ void FillAppBundle(const std::string& executable_path, NativeAppBundle* out) {
   FillBundle(bundle.path, out);
 }
 
+bool PathContainsAppBundle(const std::string& executable_path) {
+  return !AppBundleForPath(executable_path).path.empty();
+}
+
 void IconForExecutablePath(const std::string& executable_path,
                            NativeImage* out) {
   if (executable_path.empty()) {

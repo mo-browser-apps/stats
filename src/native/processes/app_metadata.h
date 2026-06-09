@@ -50,6 +50,14 @@ void IconForExecutablePath(const std::string& executable_path, NativeImage* out)
 void IconForFilePath(const std::string& path, NativeImage* out);
 
 /**
+ * Whether a path lies inside a real `.app` bundle (has a `.app/` segment), i.e.
+ * {@link IconForExecutablePath} can derive an app icon from it. False for a plain
+ * daemon and for a code-sign clone whose bundle is `Foo.app.bundle` (no `.app/`),
+ * which is why the collector prefers the NSWorkspace bundle path in that case.
+ */
+bool PathContainsAppBundle(const std::string& executable_path);
+
+/**
  * Fills the owning `.app` bundle (path + display name) for an executable path,
  * used to group a multi-process app's members into one list row.
  *
