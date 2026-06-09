@@ -15,9 +15,11 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <iterator>
 #include <limits>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -107,6 +109,84 @@ std::string InternIcon(CollectProcessesResponse* response,
     table[key] = icon;
   }
   return key;
+}
+
+// Lifetime-stable per-process fields cached across passes. A process never
+// changes its executable, name, or argv after exec, and these are the most
+// expensive reads in a pass (KERN_PROCARGS2 dominates; proc_pidpath next), so
+// caching them turns a steady pass into mostly task-info + rusage reads. CPU
+// time, memory, and thread count are NOT here - they change every tick and are
+// always read fresh.
+struct StableProcessFields {
+  NativeString command_name;
+  NativeString executable_name;
+  NativeString executable_path;
+  NativeCommandLine command_line;
+};
+
+// Session cache of stable fields keyed by process identity "pid:started_at".
+// Keying on start time (not pid alone) means a reused PID is a different key and
+// re-reads, so a new process never inherits the prior occupant's argv/path.
+// Pruned each pass to the identities actually seen (see CollectProcesses), so it
+// cannot grow unbounded or serve an exited process's data.
+//
+// Threading: touched only by the collector, which runs serially on the native
+// main thread - no lock needed, same contract as the icon and uid caches.
+std::unordered_map<std::string, StableProcessFields>& StableFieldsCache() {
+  static std::unordered_map<std::string, StableProcessFields> cache;
+  return cache;
+}
+
+// Process identity key for the stable-fields cache, or empty when the start time
+// is unavailable. Without a known start time a PID cannot be safely keyed (a
+// reused PID would collide), so such a record is never cached and always reads
+// fresh - the same rule the main-side CPU baseline uses.
+std::string StableFieldsKey(const NativeProcessIdentity& identity) {
+  if (identity.started_at_status() != NATIVE_FIELD_STATUS_AVAILABLE) {
+    return std::string();
+  }
+  return std::to_string(identity.pid()) + ":" +
+         std::to_string(identity.started_at_unix_ms());
+}
+
+// Returns the cached stable fields for an identity key, or null on a miss.
+StableProcessFields* FindStableFields(const std::string& key) {
+  auto& cache = StableFieldsCache();
+  const auto it = cache.find(key);
+  return it == cache.end() ? nullptr : &it->second;
+}
+
+// Caches a record's stable fields under its identity key, but only when the key
+// is stable (known start time) AND every cached field was read AVAILABLE. A
+// partially-denied read (e.g. argv permission-denied) is left uncached so it is
+// retried next pass rather than freezing a gap for the process's lifetime.
+void MaybeCacheStableFields(const std::string& key,
+                            const NativeProcessRecord& record) {
+  if (key.empty()) {
+    return;
+  }
+  if (record.command_name().status() != NATIVE_FIELD_STATUS_AVAILABLE ||
+      record.executable_name().status() != NATIVE_FIELD_STATUS_AVAILABLE ||
+      record.executable_path().status() != NATIVE_FIELD_STATUS_AVAILABLE ||
+      record.command_line().status() != NATIVE_FIELD_STATUS_AVAILABLE) {
+    return;
+  }
+  StableProcessFields fields;
+  fields.command_name = record.command_name();
+  fields.executable_name = record.executable_name();
+  fields.executable_path = record.executable_path();
+  fields.command_line = record.command_line();
+  StableFieldsCache()[key] = std::move(fields);
+}
+
+// Drops cache entries whose identity was not seen this pass (exited processes /
+// reused PIDs), so the cache tracks only live processes and cannot grow without
+// bound. Mirrors the main-side CPU-baseline fresh-map prune.
+void PruneStableFieldsCache(const std::unordered_set<std::string>& seen) {
+  auto& cache = StableFieldsCache();
+  for (auto it = cache.begin(); it != cache.end();) {
+    it = seen.count(it->first) == 0 ? cache.erase(it) : std::next(it);
+  }
 }
 
 // Enumerates all PIDs. proc_listallpids reports a PID count, not a byte count,
@@ -465,23 +545,44 @@ void FillThreadCount(const proc_taskallinfo& task, bool task_ok,
   SetAvailableInt64(out, std::max(0, task.ptinfo.pti_threadnum));
 }
 
-// Fills the owning user from task info or the kern.proc.pid fallback, then
-// resolves the login name with getpwuid_r. An unmapped uid (no passwd entry)
-// stays AVAILABLE with the numeric uid and an empty name, because the uid itself
-// is still a real value. getpwuid_r is used (not getpwuid) so the per-pass loop
-// stays thread-safe and does not return a pointer into shared static storage.
-void SetAvailableUser(uid_t uid, NativeProcessUser* out) {
-  out->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
-  out->set_uid(static_cast<int32_t>(uid));
+// Resolves a uid to its login name, cached for the session. A uid -> name
+// mapping is immutable while the app runs, and a machine has only a handful of
+// distinct uids across hundreds of processes, so this turns ~one getpwuid_r per
+// PID per pass into one lookup per distinct uid for the whole session. An
+// unmapped uid is cached as an empty name so a missing entry is not re-queried
+// every pass. getpwuid_r (not getpwuid) keeps the lookup thread-safe.
+//
+// Threading: the collector runs serially on the native main thread (one pass at
+// a time), so this static cache needs no lock - same contract as the icon cache.
+const std::string& LoginNameForUid(uid_t uid) {
+  static std::unordered_map<uid_t, std::string> cache;
+  const auto cached = cache.find(uid);
+  if (cached != cache.end()) {
+    return cached->second;
+  }
 
-  // Resolve the login name. A miss (no entry / error) is not a failure: the uid
-  // is still valid, so the name is simply left empty.
+  std::string name;
   struct passwd pwd = {};
   struct passwd* result = nullptr;
   char buffer[1024] = {};
   if (getpwuid_r(uid, &pwd, buffer, sizeof(buffer), &result) == 0 &&
       result != nullptr && result->pw_name != nullptr) {
-    out->set_name(result->pw_name);
+    name = result->pw_name;
+  }
+  return cache.emplace(uid, std::move(name)).first->second;
+}
+
+// Fills the owning user from task info or the kern.proc.pid fallback, then
+// resolves the login name (session-cached, see LoginNameForUid). An unmapped uid
+// (no passwd entry) stays AVAILABLE with the numeric uid and an empty name,
+// because the uid itself is still a real value.
+void SetAvailableUser(uid_t uid, NativeProcessUser* out) {
+  out->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
+  out->set_uid(static_cast<int32_t>(uid));
+
+  const std::string& name = LoginNameForUid(uid);
+  if (!name.empty()) {
+    out->set_name(name);
   }
 }
 
@@ -511,7 +612,8 @@ void FillUser(const proc_taskallinfo& task, bool task_ok,
 void FillRecord(
     pid_t pid, int arg_max, std::vector<char>* args_buffer,
     CollectProcessesResponse* response, NativeProcessRecord* record,
-    const std::unordered_map<int32_t, NativeAppMetadata>& app_metadata) {
+    const std::unordered_map<int32_t, NativeAppMetadata>& app_metadata,
+    std::unordered_set<std::string>* seen_identities) {
   NativeProcessIdentity* identity = record->mutable_identity();
   identity->set_pid(pid);
 
@@ -538,11 +640,32 @@ void FillRecord(
         CombinedFallbackStatus(task_status, kinfo_status));
   }
 
-  FillCommandName(pid, task, task_ok, kinfo, kinfo_ok, kinfo_status,
-                  record->mutable_command_name());
-  FillExecutablePathAndName(pid, record->mutable_executable_path(),
-                            record->mutable_executable_name());
-  FillCommandLine(pid, arg_max, args_buffer, record->mutable_command_line());
+  // Lifetime-stable fields (name, executable path/name, argv): serve from the
+  // per-identity cache when present, skipping the expensive KERN_PROCARGS2 +
+  // proc_pidpath + proc_name reads. A record with a stable identity (known start
+  // time) is cached only once every one of these fields was read AVAILABLE, so a
+  // partially-denied process re-reads each pass rather than caching a gap.
+  const std::string stable_key = StableFieldsKey(*identity);
+  if (!stable_key.empty() && seen_identities != nullptr) {
+    seen_identities->insert(stable_key);
+  }
+
+  StableProcessFields* cached =
+      stable_key.empty() ? nullptr : FindStableFields(stable_key);
+  if (cached != nullptr) {
+    *record->mutable_command_name() = cached->command_name;
+    *record->mutable_executable_name() = cached->executable_name;
+    *record->mutable_executable_path() = cached->executable_path;
+    *record->mutable_command_line() = cached->command_line;
+  } else {
+    FillCommandName(pid, task, task_ok, kinfo, kinfo_ok, kinfo_status,
+                    record->mutable_command_name());
+    FillExecutablePathAndName(pid, record->mutable_executable_path(),
+                              record->mutable_executable_name());
+    FillCommandLine(pid, arg_max, args_buffer, record->mutable_command_line());
+    MaybeCacheStableFields(stable_key, *record);
+  }
+
   FillMemory(pid, task, task_ok, task_status, record->mutable_memory());
   FillCpu(task, task_ok, task_status, record->mutable_cpu());
   FillThreadCount(task, task_ok, task_status, record->mutable_thread_count());
@@ -621,10 +744,17 @@ void CollectProcesses(CollectProcessesResponse* response) {
   const int arg_max = ReadArgMax();
   std::vector<char> args_buffer(arg_max > 0 ? static_cast<size_t>(arg_max) : 0);
 
+  // Identities seen this pass; entries in the stable-fields cache not in this set
+  // (exited / reused PIDs) are pruned below so the cache tracks only live ones.
+  std::unordered_set<std::string> seen_identities;
+  seen_identities.reserve(pids.size());
+
   for (const pid_t pid : pids) {
     FillRecord(pid, arg_max, &args_buffer, response, response->add_records(),
-               app_metadata);
+               app_metadata, &seen_identities);
   }
+
+  PruneStableFieldsCache(seen_identities);
 }
 
 }  // namespace mostats
