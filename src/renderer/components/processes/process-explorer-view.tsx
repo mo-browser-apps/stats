@@ -96,6 +96,16 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     [],
   );
   const goBack = useCallback(() => setSelectionStack((stack) => stack.slice(0, -1)), []);
+
+  useEffect(() => {
+    setSelectionStack((stack) => {
+      let length = stack.length;
+      while (length > 0 && resolveSelection(snapshot, sort, stack[length - 1]) === undefined) {
+        length -= 1;
+      }
+      return length === stack.length ? stack : stack.slice(0, length);
+    });
+  }, [snapshot, sort]);
   const popAfterTerminate = useCallback((terminatedPid: number) => {
     setSelectionStack((stack) => {
       const next = stack.slice(0, -1);
@@ -114,6 +124,9 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     });
   }, []);
   const detail = useMemo(() => {
+    // The fallback scan keeps the render before the prune effect commits
+    // flicker-free: a just-died top entry already shows its outer detail (or
+    // the list) here, and the effect then makes that state permanent.
     for (let depth = selectionStack.length - 1; depth >= 0; depth -= 1) {
       const group = resolveSelection(snapshot, sort, selectionStack[depth]);
       if (group) {

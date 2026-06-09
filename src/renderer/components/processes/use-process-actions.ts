@@ -27,7 +27,9 @@ interface ProcessActionsState {
    */
   actionMessage?: string;
   /**
-   * Forwards a chosen action kind to main, then re-pulls and refreshes states.
+   * Forwards a chosen action kind to main, then re-pulls; action states are
+   * refreshed unless the action terminated the target (the detail navigates
+   * away from it then).
    */
   runAction: (kind: ProcessActionKind) => Promise<void>;
 }
@@ -116,8 +118,9 @@ export function useProcessActions(
       await onActed();
       if (terminated) {
         onTerminated(target.pid);
+      } else {
+        await refreshActionStates();
       }
-      await refreshActionStates();
     },
     [target, actionsBusy, onActed, onTerminated, refreshActionStates],
   );
