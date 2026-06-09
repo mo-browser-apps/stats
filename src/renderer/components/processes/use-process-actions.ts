@@ -113,13 +113,10 @@ export function useProcessActions(
       } finally {
         setActionsBusy(false);
       }
+      await onActed();
       if (terminated) {
-        // Leave the detail for the list; do not keep the dead selection around.
         onTerminated();
       }
-      // Re-pull so a quit/force-quit drops the row promptly, and refresh the
-      // action availability for whatever target remains.
-      await onActed();
       await refreshActionStates();
     },
     [target, actionsBusy, onActed, onTerminated, refreshActionStates],

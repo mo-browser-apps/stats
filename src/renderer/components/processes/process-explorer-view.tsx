@@ -42,12 +42,16 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
 
   // Highest revision applied, so an out-of-order pull cannot show stale rows.
   const appliedRevision = useRef(0);
+  const snapshotRef = useRef(snapshot);
+  const sortRef = useRef(sort);
+  sortRef.current = sort;
 
   const pull = useCallback(async () => {
     try {
       const next = await processExplorerGateway.getSnapshot();
       if (next.revision >= appliedRevision.current) {
         appliedRevision.current = next.revision;
+        snapshotRef.current = next;
         setSnapshot(next);
       }
     } catch {
@@ -92,7 +96,19 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     [],
   );
   const goBack = useCallback(() => setSelectionStack((stack) => stack.slice(0, -1)), []);
-  const clearSelection = useCallback(() => setSelectionStack([]), []);
+  const popAfterTerminate = useCallback(() => {
+    setSelectionStack((stack) => {
+      const next = stack.slice(0, -1);
+      while (
+        next.length > 0 &&
+        resolveSelection(snapshotRef.current, sortRef.current, next[next.length - 1]) ===
+          undefined
+      ) {
+        next.pop();
+      }
+      return next;
+    });
+  }, []);
   const detail = useMemo(() => {
     for (let depth = selectionStack.length - 1; depth >= 0; depth -= 1) {
       const group = resolveSelection(snapshot, sort, selectionStack[depth]);
@@ -106,7 +122,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
   const { actions, actionsBusy, actionMessage, runAction } = useProcessActions(
     detail,
     pull,
-    clearSelection,
+    popAfterTerminate,
   );
 
   if (detail) {
