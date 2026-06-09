@@ -98,9 +98,9 @@
 /* Semantic tokens — Dark mode (the shipped appearance). */
 .dark {
   /* Surface & text — near-black shell, card slightly elevated above it. */
-  --background:         oklch(22.5% 0 0deg);
+  --background:         oklch(18% 0 0deg);
   --foreground:         oklch(90% 0 0deg);
-  --card:               oklch(27.5% 0 0deg);
+  --card:               oklch(25% 0 0deg);
   --card-foreground:    oklch(90% 0 0deg);
   --popover:            oklch(20.5% 0 0deg);
   --popover-foreground: oklch(90% 0 0deg);

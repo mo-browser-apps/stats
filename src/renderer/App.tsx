@@ -33,7 +33,7 @@ function App() {
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <header className={cn("title-bar relative flex items-center pr-2", isMac && "title-bar-mac")}>
-        <div className="pointer-events-none absolute inset-x-0 flex items-center justify-center">
+        <div className="pointer-events-none absolute inset-x-0 flex items-center justify-center pt-2">
           <div className="pointer-events-auto">
             <ProcessViewSwitch view={view} onChange={setView} />
           </div>
@@ -90,7 +90,7 @@ function PinToggle() {
       aria-pressed={pinned}
       title={pinned ? "Unpin from top" : "Keep on top"}
       className={cn(
-        "ml-auto h-7 w-7",
+        "ml-auto mt-2 h-7 w-7",
         pinned ? "text-foreground hover:text-foreground" : "text-muted-foreground",
       )}
     >
