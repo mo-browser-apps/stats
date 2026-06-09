@@ -6,6 +6,7 @@ import {
   findGroupByKey,
   isPending,
   okString,
+  pinGroupOrder,
   projectProcessList,
   resolveSelection,
   rowCpu,
@@ -156,6 +157,47 @@ describe("projectProcessList - sorting", () => {
     const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "");
     expect(groups.map((g) => g.name)).toEqual(["zeta", "alpha"]);
     expect(groups.every((g) => g.metricState === "pending")).toBe(true);
+  });
+});
+
+describe("pinGroupOrder", () => {
+  function tick(cpuByName: Record<string, number>) {
+    const rows = Object.entries(cpuByName).map(([name, cpu], index) =>
+      makeRow({ pid: index + 1, commandName: name, startedAtUnixMs: index + 1, cpuPercent: cpu }),
+    );
+    return projectProcessList(makeSnapshot(rows), "cpu", "").groups;
+  }
+
+  it("replays the pinned order over a re-ranked projection, keeping fresh values", () => {
+    const before = tick({ alpha: 50, beta: 40, gamma: 30 });
+    const pinned = before.map((group) => group.key);
+
+    // Next tick: gamma spikes to the top; the pinned order must not move.
+    const next = tick({ alpha: 10, beta: 20, gamma: 90 });
+    const replayed = pinGroupOrder(next, pinned);
+
+    expect(replayed.map((group) => group.name)).toEqual(["alpha", "beta", "gamma"]);
+    // The group objects are the fresh ones - values keep ticking while pinned.
+    expect(replayed.map((group) => group.sortValue)).toEqual([10, 20, 90]);
+  });
+
+  it("appends new groups after the pinned rows and drops vanished ones", () => {
+    const pinned = tick({ alpha: 50, beta: 40, gamma: 30 }).map((group) => group.key);
+
+    // beta exited; delta arrived at the top of the ranking.
+    const nextRows = [
+      makeRow({ pid: 1, commandName: "alpha", startedAtUnixMs: 1, cpuPercent: 10 }),
+      makeRow({ pid: 3, commandName: "gamma", startedAtUnixMs: 3, cpuPercent: 30 }),
+      makeRow({ pid: 4, commandName: "delta", startedAtUnixMs: 4, cpuPercent: 95 }),
+    ];
+    const next = projectProcessList(makeSnapshot(nextRows), "cpu", "").groups;
+
+    expect(pinGroupOrder(next, pinned).map((group) => group.name)).toEqual(["alpha", "gamma", "delta"]);
+  });
+
+  it("passes groups through unchanged when nothing is pinned", () => {
+    const groups = tick({ alpha: 50, beta: 40 });
+    expect(pinGroupOrder(groups, [])).toBe(groups);
   });
 });
 

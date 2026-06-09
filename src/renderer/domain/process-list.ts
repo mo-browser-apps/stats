@@ -525,6 +525,32 @@ export function projectProcessList(
 }
 
 /**
+ * Reorders projected groups to match a previously rendered key order, so the
+ * list can pin row positions while the pointer is inside it - a live re-rank
+ * otherwise moves rows under the cursor between aiming and clicking, opening
+ * the wrong detail. Only the order is held; the group objects (and their live
+ * metric values) are the fresh ones. Groups not in `pinnedKeys` (new arrivals)
+ * append after the pinned rows in their ranked order, so they never displace a
+ * row mid-list; vanished keys drop out naturally. With no pinned keys the
+ * groups pass through unchanged.
+ */
+export function pinGroupOrder(groups: ProcessGroup[], pinnedKeys: string[]): ProcessGroup[] {
+  if (pinnedKeys.length === 0) {
+    return groups;
+  }
+
+  const rankByKey = new Map(pinnedKeys.map((key, index) => [key, index] as const));
+  const pinned: ProcessGroup[] = [];
+  const fresh: ProcessGroup[] = [];
+  for (const group of groups) {
+    (rankByKey.has(group.key) ? pinned : fresh).push(group);
+  }
+  pinned.sort((left, right) => (rankByKey.get(left.key) ?? 0) - (rankByKey.get(right.key) ?? 0));
+
+  return [...pinned, ...fresh];
+}
+
+/**
  * Finds one group by its {@link ProcessGroup.key} for the detail view. Collects
  * only the rows whose {@link rowGroupKey} matches (rather than grouping the whole
  * snapshot and discarding the rest - the detail re-resolves on every tick, so this

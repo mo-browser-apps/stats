@@ -1,12 +1,20 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+
 import { SnapshotStatus } from "@/gen/process_explorer";
 import { ProcessRow } from "@/components/processes/process-row";
-import type { DetailSelection, ProcessListProjection } from "@/domain/process-list";
+import { pinGroupOrder, type DetailSelection, type ProcessListProjection } from "@/domain/process-list";
 
 /**
  * The ranked, grouped process rows plus the loading/empty/unavailable/
  * permission-limited states, all sharing one scroll area so the panel never
  * resizes. Each row opens the detail view via {@link onOpenSelection} (a stable
  * callback, so the memoized rows are not invalidated each tick).
+ *
+ * While the pointer is inside the list, row order is pinned ({@link
+ * pinGroupOrder}): a snapshot tick re-ranks rows, and a reorder landing between
+ * aiming and clicking would open the wrong process. Values keep updating; only
+ * the order holds. Live ranking resumes when the pointer leaves (opening a
+ * detail unmounts the list, so a stale pin cannot outlive the interaction).
  */
 export function ProcessList({
   projection,
@@ -19,10 +27,28 @@ export function ProcessList({
   hasQuery: boolean
   onOpenSelection: (selection: DetailSelection) => void
 }) {
-  const { groups } = projection;
+  const [pointerInside, setPointerInside] = useState(false);
+  // The key order last shown on screen; the baseline the next pinned tick replays.
+  const pinnedKeys = useRef<string[]>([]);
+
+  const groups = useMemo(
+    () => (pointerInside ? pinGroupOrder(projection.groups, pinnedKeys.current) : projection.groups),
+    [pointerInside, projection],
+  );
+
+  // Track the order actually displayed: unpinned it follows the live ranking;
+  // pinned it evolves only by drop-outs and bottom appends, so a row that left
+  // the capped set and returned cannot reclaim a mid-list slot under the cursor.
+  useEffect(() => {
+    pinnedKeys.current = groups.map((group) => group.key);
+  }, [groups]);
 
   return (
-    <div className="scrollbar-hidden flex-1 overflow-y-auto">
+    <div
+      className="scrollbar-hidden flex-1 overflow-y-auto"
+      onPointerOver={() => setPointerInside(true)}
+      onPointerLeave={() => setPointerInside(false)}
+    >
       {groups.length > 0 ? (
         <ul>
           {groups.map((group) => (
