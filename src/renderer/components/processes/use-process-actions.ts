@@ -3,9 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { processExplorerGateway } from "@/gateway/process-explorer-gateway";
 import {
   FieldStatus,
+  ProcessActionKind,
   RunProcessActionResponse_Outcome as Outcome,
   type ActionState,
-  type ProcessActionKind,
   type ProcessIdentity,
 } from "@/gen/process_explorer";
 import type { ProcessDetail } from "@/domain/process-detail";
@@ -36,17 +36,11 @@ interface ProcessActionsState {
  * Owns the detail's process-action concerns: the action target, its
  * main-authoritative {@link ActionState} list, the in-flight flag, a transient
  * non-success message, and the action runner.
- *
- * The target is derived from the open `detail` but keyed on its primitive
- * identity (pid + start time) so it stays stable across the 2s snapshot ticks
- * (the detail object is a fresh reference each tick) and does not refetch
- * needlessly. A `targetKey` guard drops out-of-order `getActionStates`
- * responses. `onActed` re-pulls the snapshot after an action so a killed process
- * drops promptly and the detail falls back.
  */
 export function useProcessActions(
   detail: ProcessDetail | undefined,
   onActed: () => Promise<void>,
+  onTerminated: () => void,
 ): ProcessActionsState {
   const targetPid = detail?.pid;
   const targetStartedAt = detail?.startedAt === "ok" ? detail.startedAtUnixMs : undefined;
@@ -105,11 +99,13 @@ export function useProcessActions(
       }
       setActionsBusy(true);
       setActionMessage(undefined);
+      let terminated = false;
       try {
         const response = await processExplorerGateway.runAction(kind, target);
-        // A succeeded quit/force-quit drops the row and the detail falls back, so
-        // only a non-success outcome needs surfacing. Messages are derived from the
-        // coarse outcome only - they carry no process identity.
+        terminated =
+          response.outcome === Outcome.OUTCOME_SUCCEEDED &&
+          (kind === ProcessActionKind.PROCESS_ACTION_KIND_QUIT ||
+            kind === ProcessActionKind.PROCESS_ACTION_KIND_FORCE_QUIT);
         setActionMessage(actionOutcomeMessage(response.outcome));
       } catch {
         // No diagnostic is logged - the target/result can carry process identity.
@@ -117,12 +113,16 @@ export function useProcessActions(
       } finally {
         setActionsBusy(false);
       }
-      // Re-pull so a quit/force-quit drops the row promptly (the detail then falls
-      // back down the stack), and refresh the action availability for what remains.
+      if (terminated) {
+        // Leave the detail for the list; do not keep the dead selection around.
+        onTerminated();
+      }
+      // Re-pull so a quit/force-quit drops the row promptly, and refresh the
+      // action availability for whatever target remains.
       await onActed();
       await refreshActionStates();
     },
-    [target, actionsBusy, onActed, refreshActionStates],
+    [target, actionsBusy, onActed, onTerminated, refreshActionStates],
   );
 
   return { actions, actionsBusy, actionMessage, runAction };

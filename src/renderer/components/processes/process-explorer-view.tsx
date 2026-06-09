@@ -92,6 +92,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     [],
   );
   const goBack = useCallback(() => setSelectionStack((stack) => stack.slice(0, -1)), []);
+  const clearSelection = useCallback(() => setSelectionStack([]), []);
   const detail = useMemo(() => {
     for (let depth = selectionStack.length - 1; depth >= 0; depth -= 1) {
       const group = resolveSelection(snapshot, sort, selectionStack[depth]);
@@ -102,7 +103,11 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     return undefined;
   }, [snapshot, sort, selectionStack]);
 
-  const { actions, actionsBusy, actionMessage, runAction } = useProcessActions(detail, pull);
+  const { actions, actionsBusy, actionMessage, runAction } = useProcessActions(
+    detail,
+    pull,
+    clearSelection,
+  );
 
   if (detail) {
     return (
