@@ -15,9 +15,20 @@ interface MetricRowProps {
    */
   state: MetricState;
   /**
-   * Primary value string, already formatted. Ignored when not live.
+   * Primary value string (numeric part only), already formatted. Ignored when
+   * not live.
    */
   value?: string;
+  /**
+   * Unit suffix rendered small and muted after the value (e.g. "%" or "KB/s"),
+   * so the numerals carry the visual weight. Ignored when not live.
+   */
+  valueUnit?: string;
+  /**
+   * Quiet prefix glyph rendered small and muted before the value (the Network
+   * row's down-arrow). Ignored when not live.
+   */
+  valuePrefix?: string;
   /**
    * Optional detail line (e.g. "10.2 / 16 GB" or a CPU model).
    */
@@ -48,9 +59,10 @@ const FILL_BY_STATE: Record<MetricState, string> = {
   unavailable: "bg-muted-foreground/30",
 };
 
-export function MetricRow({ icon: Icon, label, state, value, detail, percent }: MetricRowProps) {
+export function MetricRow({ icon: Icon, label, state, value, valueUnit, valuePrefix, detail, percent }: MetricRowProps) {
   const live = isLive(state);
   const primaryText = live && value ? value : state === "pending" ? "--" : UNAVAILABLE_TEXT;
+  const showAffixes = live && Boolean(value);
 
   return (
     <div className="flex flex-col gap-2">
@@ -59,8 +71,16 @@ export function MetricRow({ icon: Icon, label, state, value, detail, percent }: 
           <Icon className="h-3.5 w-3.5 shrink-0 self-center" strokeWidth={1.75} aria-hidden="true" />
           <span className="text-[11px] font-light uppercase tracking-[0.18em]">{label}</span>
         </span>
-        <span className={cn("text-2xl font-medium tabular-nums leading-none", VALUE_COLOR_BY_STATE[state])}>
-          {primaryText}
+        <span className="flex items-baseline gap-1">
+          {showAffixes && valuePrefix ? (
+            <span className="text-sm font-light text-muted-foreground">{valuePrefix}</span>
+          ) : null}
+          <span className={cn("text-2xl font-medium tabular-nums leading-none", VALUE_COLOR_BY_STATE[state])}>
+            {primaryText}
+          </span>
+          {showAffixes && valueUnit ? (
+            <span className="text-[13px] font-light text-muted-foreground">{valueUnit}</span>
+          ) : null}
         </span>
       </div>
       <Meter label={label} state={state} percent={percent} />

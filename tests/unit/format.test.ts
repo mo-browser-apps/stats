@@ -5,28 +5,29 @@ import {
   formatCpuPercent,
   formatCpuPercentPrecise,
   formatCpuTime,
-  formatPercent,
+  formatPercentParts,
   formatRate,
+  formatRateParts,
   formatStartTime,
   formatUptime,
   UNAVAILABLE_TEXT,
 } from "@/lib/format";
 
-describe("formatPercent", () => {
-  it("renders one fractional digit", () => {
-    expect(formatPercent(42)).toBe("42.0%");
-    expect(formatPercent(0)).toBe("0.0%");
-    expect(formatPercent(3.456)).toBe("3.5%");
+describe("formatPercentParts", () => {
+  it("renders one fractional digit with a % unit", () => {
+    expect(formatPercentParts(42)).toEqual({ value: "42.0", unit: "%" });
+    expect(formatPercentParts(0)).toEqual({ value: "0.0", unit: "%" });
+    expect(formatPercentParts(3.456)).toEqual({ value: "3.5", unit: "%" });
   });
 
   it("clamps into 0-100", () => {
-    expect(formatPercent(-5)).toBe("0.0%");
-    expect(formatPercent(150)).toBe("100.0%");
+    expect(formatPercentParts(-5)).toEqual({ value: "0.0", unit: "%" });
+    expect(formatPercentParts(150)).toEqual({ value: "100.0", unit: "%" });
   });
 
-  it("is unavailable for non-finite input", () => {
-    expect(formatPercent(Number.NaN)).toBe(UNAVAILABLE_TEXT);
-    expect(formatPercent(Number.POSITIVE_INFINITY)).toBe(UNAVAILABLE_TEXT);
+  it("is unavailable (no unit) for non-finite input", () => {
+    expect(formatPercentParts(Number.NaN)).toEqual({ value: UNAVAILABLE_TEXT, unit: "" });
+    expect(formatPercentParts(Number.POSITIVE_INFINITY)).toEqual({ value: UNAVAILABLE_TEXT, unit: "" });
   });
 });
 
@@ -91,11 +92,30 @@ describe("formatBytes", () => {
   });
 });
 
+describe("formatRateParts", () => {
+  it("keeps sub-10 values to one decimal and larger values whole", () => {
+    expect(formatRateParts(1.2 * 1024 * 1024)).toEqual({ value: "1.2", unit: "MB/s" });
+    expect(formatRateParts(45 * 1024)).toEqual({ value: "45", unit: "KB/s" });
+    expect(formatRateParts(0)).toEqual({ value: "0", unit: "B/s" });
+  });
+
+  it("promotes the unit at 1000 so the number never exceeds three digits", () => {
+    // 1018 B/s would be four digits wide; it must read as ~1 KB/s instead.
+    expect(formatRateParts(1018)).toEqual({ value: "1.0", unit: "KB/s" });
+    expect(formatRateParts(999 * 1024)).toEqual({ value: "999", unit: "KB/s" });
+    expect(formatRateParts(1000 * 1024)).toEqual({ value: "1.0", unit: "MB/s" });
+  });
+
+  it("is unavailable (no unit) for negative or non-finite input", () => {
+    expect(formatRateParts(-1)).toEqual({ value: UNAVAILABLE_TEXT, unit: "" });
+    expect(formatRateParts(Number.POSITIVE_INFINITY)).toEqual({ value: UNAVAILABLE_TEXT, unit: "" });
+  });
+});
+
 describe("formatRate", () => {
-  it("appends /s to a byte size, inheriting formatBytes precision", () => {
-    // Sub-GB rates are whole (MB tier has no decimals); GB+ keeps one digit.
-    expect(formatRate(1.2 * 1024 * 1024)).toBe("1 MB/s");
+  it("joins the rate parts into one string", () => {
     expect(formatRate(1.2 * 1024 * 1024 * 1024)).toBe("1.2 GB/s");
+    expect(formatRate(1018)).toBe("1.0 KB/s");
     expect(formatRate(0)).toBe("0 B/s");
   });
 

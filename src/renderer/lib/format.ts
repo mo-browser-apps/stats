@@ -14,14 +14,25 @@ export const UNAVAILABLE_TEXT = "Unavailable";
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"] as const;
 
 /**
- * Formats a 0-100 percentage with a single fractional digit, e.g. `42.0%`.
+ * A formatted metric value split into its numeric text and unit suffix, so the
+ * overview can render the number large and the unit small and muted. `unit` is
+ * empty when the input could not be formatted (the value slot then carries
+ * {@link UNAVAILABLE_TEXT}).
+ */
+export interface ValueParts {
+  value: string;
+  unit: string;
+}
+
+/**
+ * Formats a 0-100 percentage with a single fractional digit, e.g. `42.0` + `%`.
  * The fixed precision keeps the string width stable across updates. Intended for
  * whole-machine gauges (CPU/memory/disk overview) that are bounded at 100%.
  */
-export function formatPercent(value: number): string {
-  if (!Number.isFinite(value)) return UNAVAILABLE_TEXT;
+export function formatPercentParts(value: number): ValueParts {
+  if (!Number.isFinite(value)) return { value: UNAVAILABLE_TEXT, unit: "" };
   const clamped = Math.min(100, Math.max(0, value));
-  return `${clamped.toFixed(1)}%`;
+  return { value: clamped.toFixed(1), unit: "%" };
 }
 
 /**
@@ -68,12 +79,34 @@ export function formatBytes(bytes: number, precise = false): string {
 }
 
 /**
- * Formats a per-second byte rate, e.g. `1.2 MB/s`. Reuses {@link formatBytes}
- * and appends `/s`.
+ * Formats a per-second byte rate split into number and unit, e.g. `2.1` +
+ * `KB/s`. Unlike {@link formatBytes}, the unit is promoted at 1000 (not 1024),
+ * so the numeric part never exceeds three digits — a rate hovering just under
+ * 1 KB/s reads `1.0 KB/s` instead of a wide `1018 B/s`. Sub-10 values keep one
+ * decimal so a slow rate still visibly moves; larger values stay whole.
+ */
+export function formatRateParts(bytesPerSecond: number): ValueParts {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) return { value: UNAVAILABLE_TEXT, unit: "" };
+
+  let value = bytesPerSecond;
+  let unit = 0;
+  while (value >= 1000 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+
+  const digits = unit > 0 && value < 10 ? 1 : 0;
+  return { value: value.toFixed(digits), unit: `${BYTE_UNITS[unit]}/s` };
+}
+
+/**
+ * Formats a per-second byte rate as one string, e.g. `2.1 KB/s`. Joins
+ * {@link formatRateParts} for places that render the rate at a single size
+ * (the Network row's up-rate detail line).
  */
 export function formatRate(bytesPerSecond: number): string {
-  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) return UNAVAILABLE_TEXT;
-  return `${formatBytes(bytesPerSecond)}/s`;
+  const parts = formatRateParts(bytesPerSecond);
+  return parts.unit ? `${parts.value} ${parts.unit}` : parts.value;
 }
 
 /**

@@ -10,8 +10,9 @@ import {
   UNAVAILABLE_TEXT,
   formatBytes,
   formatCelsius,
-  formatPercent,
+  formatPercentParts,
   formatRate,
+  formatRateParts,
   formatUptime,
 } from "@/lib/format";
 
@@ -61,12 +62,14 @@ function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const state = cpu ? usageState(cpu.status, cpu.usagePercent) : "pending";
   const live = isLive(state);
   const detail = cpu && cpu.model ? `${cpu.model}${cpu.coreCount ? ` - ${cpu.coreCount} cores` : ""}` : undefined;
+  const percent = cpu ? formatPercentParts(cpu.usagePercent) : undefined;
   return (
     <MetricRow
       icon={Cpu}
       label="CPU"
       state={state}
-      value={cpu ? formatPercent(cpu.usagePercent) : undefined}
+      value={percent?.value}
+      valueUnit={percent?.unit}
       detail={live ? detail : undefined}
       percent={live ? cpu?.usagePercent : undefined}
     />
@@ -77,12 +80,14 @@ function MemoryRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const memory = snapshot?.memory;
   const state = memory ? usageState(memory.status, memory.usedPercent) : "pending";
   const live = isLive(state);
+  const percent = memory ? formatPercentParts(memory.usedPercent) : undefined;
   return (
     <MetricRow
       icon={MemoryStick}
       label="Memory"
       state={state}
-      value={memory ? formatPercent(memory.usedPercent) : undefined}
+      value={percent?.value}
+      valueUnit={percent?.unit}
       detail={live ? `${formatBytes(memory!.usedBytes)} / ${formatBytes(memory!.totalBytes)}` : undefined}
       percent={live ? memory?.usedPercent : undefined}
     />
@@ -93,12 +98,14 @@ function DiskRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const disk = snapshot?.disk;
   const state = disk ? usageState(disk.status, disk.usedPercent) : "pending";
   const live = isLive(state);
+  const percent = disk ? formatPercentParts(disk.usedPercent) : undefined;
   return (
     <MetricRow
       icon={HardDrive}
       label="Disk"
       state={state}
-      value={disk ? formatPercent(disk.usedPercent) : undefined}
+      value={percent?.value}
+      valueUnit={percent?.unit}
       detail={live ? `${formatBytes(disk!.usedBytes)} / ${formatBytes(disk!.totalBytes)}` : undefined}
       percent={live ? disk?.usedPercent : undefined}
     />
@@ -109,12 +116,15 @@ function NetworkRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const network = snapshot?.network;
   const state = network ? baseState(network.status) : "pending";
   const live = isLive(state);
+  const down = network && live ? formatRateParts(network.rxBytesPerSec) : undefined;
   return (
     <MetricRow
       icon={Network}
       label="Network"
       state={state}
-      value={network && live ? `↓ ${formatRate(network.rxBytesPerSec)}` : undefined}
+      value={down?.value}
+      valueUnit={down?.unit}
+      valuePrefix="↓"
       detail={network && live ? `↑ ${formatRate(network.txBytesPerSec)}` : undefined}
     />
   );
