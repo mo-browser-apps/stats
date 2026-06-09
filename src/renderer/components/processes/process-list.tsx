@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from "react";
 
 import { SnapshotStatus } from "@/gen/process_explorer";
 import { ProcessRow } from "@/components/processes/process-row";
@@ -21,11 +21,15 @@ export function ProcessList({
   status,
   hasQuery,
   onOpenSelection,
+  containerRef,
+  onExitTop,
 }: {
   projection: ProcessListProjection
   status: SnapshotStatus
   hasQuery: boolean
   onOpenSelection: (selection: DetailSelection) => void
+  containerRef?: Ref<HTMLDivElement>
+  onExitTop?: () => void
 }) {
   const [pointerInside, setPointerInside] = useState(false);
   // The key order last shown on screen; the baseline the next pinned tick replays.
@@ -43,11 +47,33 @@ export function ProcessList({
     pinnedKeys.current = groups.map((group) => group.key);
   }, [groups]);
 
+  // Moves focus between row buttons on ArrowDown/ArrowUp; rows are the only
+  // buttons inside the container. Focusing scrolls the row into view natively.
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+      return;
+    }
+    const rows = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button"));
+    const current = rows.indexOf(document.activeElement as HTMLButtonElement);
+    if (current < 0) {
+      return;
+    }
+    event.preventDefault();
+    if (event.key === "ArrowUp" && current === 0) {
+      onExitTop?.();
+      return;
+    }
+    const next = event.key === "ArrowDown" ? Math.min(current + 1, rows.length - 1) : current - 1;
+    rows[next]?.focus();
+  }
+
   return (
     <div
+      ref={containerRef}
       className="scrollbar-hidden flex-1 overflow-y-auto"
       onPointerOver={() => setPointerInside(true)}
       onPointerLeave={() => setPointerInside(false)}
+      onKeyDown={handleKeyDown}
     >
       {groups.length > 0 ? (
         <ul>

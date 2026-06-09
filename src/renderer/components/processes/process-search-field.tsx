@@ -1,3 +1,4 @@
+import type { Ref } from "react";
 import { Search, X } from "lucide-react";
 import { cva } from "class-variance-authority";
 
@@ -23,9 +24,15 @@ const clearButton = cva(
 export function ProcessSearchField({
   value,
   onChange,
+  inputRef,
+  onArrowDown,
+  onSubmit,
 }: {
   value: string
   onChange: (value: string) => void
+  inputRef?: Ref<HTMLInputElement>
+  onArrowDown?: () => void
+  onSubmit?: () => void
 }) {
   return (
     <div className="no-drag relative flex h-9 min-w-0 flex-1 items-center">
@@ -35,9 +42,19 @@ export function ProcessSearchField({
         aria-hidden="true"
       />
       <input
+        ref={inputRef}
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" && onArrowDown) {
+            event.preventDefault();
+            onArrowDown();
+          } else if (event.key === "Enter" && onSubmit) {
+            event.preventDefault();
+            onSubmit();
+          }
+        }}
         placeholder="Search processes"
         aria-label="Search processes"
         spellCheck={false}

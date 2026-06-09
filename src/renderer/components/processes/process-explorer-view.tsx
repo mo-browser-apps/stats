@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import { processExplorerGateway } from "@/gateway/process-explorer-gateway";
 import { type ProcessSnapshot } from "@/gen/process_explorer";
@@ -124,9 +124,6 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     });
   }, []);
   const detail = useMemo(() => {
-    // The fallback scan keeps the render before the prune effect commits
-    // flicker-free: a just-died top entry already shows its outer detail (or
-    // the list) here, and the effect then makes that state permanent.
     for (let depth = selectionStack.length - 1; depth >= 0; depth -= 1) {
       const group = resolveSelection(snapshot, sort, selectionStack[depth]);
       if (group) {
@@ -141,6 +138,31 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     pull,
     popAfterTerminate,
   );
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const hasDetail = detail !== undefined;
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (hasDetail) {
+          goBack();
+        } else {
+          setQuery("");
+        }
+        return;
+      }
+      if (event.key.toLowerCase() === "f" && (event.metaKey || event.ctrlKey) && !hasDetail) {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [active, hasDetail, goBack]);
 
   if (detail) {
     return (
@@ -163,9 +185,11 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
 
   return (
     <ProcessListPanel
+      active={active}
       snapshot={snapshot}
       sort={sort}
       query={query}
+      searchInputRef={searchInputRef}
       onSortChange={setSort}
       onQueryChange={setQuery}
       onOpenSelection={openSelection}
@@ -174,29 +198,61 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
 }
 
 function ProcessListPanel({
+  active,
   snapshot,
   sort,
   query,
+  searchInputRef,
   onSortChange,
   onQueryChange,
   onOpenSelection,
 }: {
+  active: boolean;
   snapshot: ProcessSnapshot;
   sort: SortMode;
   query: string;
+  searchInputRef: RefObject<HTMLInputElement | null>;
   onSortChange: (sort: SortMode) => void;
   onQueryChange: (query: string) => void;
   onOpenSelection: (selection: DetailSelection) => void;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
   const projection = useMemo(
     () => projectProcessList(snapshot, sort, query),
     [snapshot, sort, query],
   );
 
+  // Focus the search field whenever the list panel comes on screen.
+  useEffect(() => {
+    if (active) {
+      searchInputRef.current?.focus();
+    }
+  }, [active, searchInputRef]);
+
+  const focusFirstRow = useCallback(() => {
+    listRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, []);
+
+  const openTopMatch = useCallback(() => {
+    if (query.trim().length === 0) {
+      return;
+    }
+    const top = projection.groups[0];
+    if (top) {
+      onOpenSelection(top.openSelection);
+    }
+  }, [query, projection, onOpenSelection]);
+
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-hidden px-4 pb-4 pt-3">
       <div className="flex items-center gap-2">
-        <ProcessSearchField value={query} onChange={onQueryChange} />
+        <ProcessSearchField
+          value={query}
+          onChange={onQueryChange}
+          inputRef={searchInputRef}
+          onArrowDown={focusFirstRow}
+          onSubmit={openTopMatch}
+        />
         <ProcessSortControl sort={sort} onChange={onSortChange} />
       </div>
 
@@ -205,6 +261,8 @@ function ProcessListPanel({
         status={snapshot.status}
         hasQuery={query.trim().length > 0}
         onOpenSelection={onOpenSelection}
+        containerRef={listRef}
+        onExitTop={() => searchInputRef.current?.focus()}
       />
     </div>
   );

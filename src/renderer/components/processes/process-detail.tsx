@@ -435,7 +435,7 @@ const MemberRow = memo(
         onClick={() => onOpen(member.pid, member.startedAtUnixMs)}
         aria-label={`Show details for ${member.name}, PID ${member.pid}`}
         title={`${member.name} - PID ${member.pid}`}
-        className="no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+        className="no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <ProcessIcon iconPngBase64={member.iconPngBase64} name={member.name} />
         <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">{member.name}</span>
