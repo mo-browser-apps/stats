@@ -404,19 +404,22 @@ class CpuCoreTemperatureReader {
     }
 
     for (const std::string_view key : CpuKeysForGeneration(generation_)) {
-      // Cache each key's metadata: size/type are fixed for the machine's life,
-      // so later ticks skip the key-info RPC and do only the bytes-read. A key
-      // absent from this chip never resolves and is skipped for good.
+      // Cache each key's metadata once: size/type are fixed for the machine's
+      // life, so later ticks skip the key-info RPC and do only the bytes-read.
+      // The cached value is optional: a key absent from this chip caches as
+      // nullopt ("known absent") so it is probed at most once, never re-queried
+      // every tick - the generation key lists are supersets and many keys do not
+      // exist on a given chip.
       auto info_it = key_info_.find(std::string(key));
       if (info_it == key_info_.end()) {
-        const std::optional<SmcKeyInfo> info = smc_.ReadKeyInfo(key);
-        if (!info.has_value()) {
-          continue;
-        }
-        info_it = key_info_.emplace(std::string(key), *info).first;
+        info_it = key_info_.emplace(std::string(key), smc_.ReadKeyInfo(key)).first;
+      }
+      if (!info_it->second.has_value()) {
+        continue;  // Known-absent key on this chip.
       }
 
-      const std::optional<SmcValue> value = smc_.ReadValue(key, info_it->second);
+      const std::optional<SmcValue> value =
+          smc_.ReadValue(key, *info_it->second);
       if (!value.has_value()) {
         continue;
       }
@@ -442,7 +445,8 @@ class CpuCoreTemperatureReader {
   bool initialized_ = false;
   AppleSiliconGeneration generation_ = AppleSiliconGeneration::kUnknown;
   SmcConnection smc_;
-  std::unordered_map<std::string, SmcKeyInfo> key_info_;
+  // nullopt = key probed and absent on this chip (do not re-probe).
+  std::unordered_map<std::string, std::optional<SmcKeyInfo>> key_info_;
   std::unordered_map<std::string, double> last_good_;
 };
 
@@ -490,8 +494,19 @@ bool IsCpuCoreSensorName(CFStringRef name) {
          CFStringHasPrefix(name, CFSTR("eACC MTR Temp"));
 }
 
-TemperatureAccumulator ReadHidCpuCoreTemperatures() {
+// One HID enumeration pass. Sets `enumerated` true once the IOHID client and
+// service list are created (a real query happened, even if it matched nothing);
+// it stays false only on a transient setup failure that should be retried. Sets
+// `has_cpu_sensor` true when at least one CPU-core sensor *service* is present.
+// The caller latches off only when `enumerated && !has_cpu_sensor` - i.e. a
+// successful query proved this machine has no such sensors (a fixed hardware
+// fact). Keying on the sensor *existing* (not on a plausible reading this tick)
+// means a present-but-momentarily-unreadable sensor never causes a false latch.
+TemperatureAccumulator ReadHidCpuCoreTemperaturesOnce(bool* enumerated,
+                                                      bool* has_cpu_sensor) {
   TemperatureAccumulator accumulator;
+  *enumerated = false;
+  *has_cpu_sensor = false;
 
   CFDictionaryRef match = CreateCpuCoreSensorMatch();
   if (match == nullptr) {
@@ -513,6 +528,10 @@ TemperatureAccumulator ReadHidCpuCoreTemperatures() {
     return accumulator;
   }
 
+  // The service list was obtained: a genuine enumeration, authoritative for this
+  // machine even if it matches zero CPU-core sensors.
+  *enumerated = true;
+
   const CFIndex service_count = CFArrayGetCount(services);
   for (CFIndex i = 0; i < service_count; ++i) {
     IOHIDServiceClientRef service = static_cast<IOHIDServiceClientRef>(
@@ -530,6 +549,9 @@ TemperatureAccumulator ReadHidCpuCoreTemperatures() {
     if (!is_cpu_core) {
       continue;
     }
+    // A CPU-core sensor service exists on this machine, independent of whether
+    // its reading is plausible this tick.
+    *has_cpu_sensor = true;
     IOHIDEventRef event =
         IOHIDServiceClientCopyEvent(service, kHIDEventTypeTemperature, 0, 0);
     if (event == nullptr) {
@@ -548,6 +570,40 @@ TemperatureAccumulator ReadHidCpuCoreTemperatures() {
   return accumulator;
 }
 
+// Process-lifetime HID CPU-core reader. The HID temperature page exists on some
+// Macs and is entirely absent on others (e.g. the M2 Max this was developed on
+// returns no CPU-core sensors). Whether the page has sensors cannot change while
+// the machine runs, so once an enumeration succeeds and finds none, this latches
+// "unavailable" and skips the (non-trivial) IOHID client/match/copy-services
+// work on every later tick. A transient setup failure does not latch - it is
+// retried. Mutex-guarded because the RPC handler may call it off the main thread.
+class HidCpuCoreTemperatureReader {
+ public:
+  TemperatureAccumulator Read() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (latched_unavailable_) {
+      return {};
+    }
+
+    bool enumerated = false;
+    bool has_cpu_sensor = false;
+    TemperatureAccumulator accumulator =
+        ReadHidCpuCoreTemperaturesOnce(&enumerated, &has_cpu_sensor);
+
+    // Latch off only when a successful enumeration proved there is no CPU-core
+    // sensor service - a fixed hardware fact. A transient setup failure
+    // (enumerated == false) leaves the latch off so it retries on the next tick.
+    if (enumerated && !has_cpu_sensor) {
+      latched_unavailable_ = true;
+    }
+    return accumulator;
+  }
+
+ private:
+  std::mutex mutex_;
+  bool latched_unavailable_ = false;
+};
+
 }  // namespace
 
 CpuTemperatureReading ReadCpuTemperature() {
@@ -557,9 +613,10 @@ CpuTemperatureReading ReadCpuTemperature() {
   // plausible CPU-core value the result is unavailable, so the card only ever
   // shows a real CPU-core temperature.
   static CpuCoreTemperatureReader smc_reader;
+  static HidCpuCoreTemperatureReader hid_reader;
 
   TemperatureAccumulator cores = smc_reader.Read();
-  cores.Merge(ReadHidCpuCoreTemperatures());
+  cores.Merge(hid_reader.Read());
   return ReadingFromAverage(cores.sum, cores.count);
 }
 
