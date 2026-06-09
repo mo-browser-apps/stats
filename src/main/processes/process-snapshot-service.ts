@@ -35,11 +35,9 @@ import {
 import { ProcessExplorerServiceDescriptor } from "../gen/ipc_service";
 
 /**
- * Interval between process collections, in milliseconds. Slower than the 1s
- * metrics cadence because a full enumeration touches every PID with several
- * syscalls and the list barely changes second to second.
+ * Interval between process collections, in milliseconds.
  */
-const COLLECT_INTERVAL_MS = 2000;
+const COLLECT_INTERVAL_MS = 3000;
 
 /**
  * Logical-core count. Per-process CPU uses Activity Monitor semantics (a process
