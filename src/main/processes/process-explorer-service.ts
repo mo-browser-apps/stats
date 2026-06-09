@@ -41,7 +41,8 @@ export class ProcessExplorerService {
     ProcessExplorerServiceImpl,
     "GetProcessSnapshot" | "GetProcessActionStates" | "RunProcessAction"
   > = {
-    GetProcessSnapshot: async () => this.snapshots.getSnapshot(),
+    GetProcessSnapshot: async (request) =>
+      this.snapshots.getSnapshot(request.haveRevision),
     GetProcessActionStates: async (request) => this.actions.getActionStates(request),
     RunProcessAction: (request) => this.actions.runAction(request),
   };

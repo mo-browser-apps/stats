@@ -20,7 +20,7 @@ namespace mostats {
  * records; processes with no entry keep bundle id / localized name unset.
  *
  * Icons are NOT resolved here. The collector resolves every process's icon
- * uniformly via {@link IconForFilePath} from the same bundle the row groups by
+ * uniformly via {@link ResolveIconForPath} from the same bundle the row groups by
  * (yielding the owning `.app` icon, identical to NSRunningApplication.icon for a
  * GUI app - verified - and the generic icon for a daemon), so there is no
  * GUI-only icon special case and the per-path icon cache covers every row.
@@ -28,8 +28,18 @@ namespace mostats {
 std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata();
 
 /**
- * Resolves a small icon for an exact app/file path, writing the base64 PNG (or
- * an unavailable status) into `out`.
+ * A resolved icon, borrowed from the session icon cache: the encoded PNG bytes
+ * and their content-hash key for the response's dedup table. Both pointers are
+ * null when no icon could be resolved, and otherwise stay valid only until the
+ * next {@link PruneIconCache} call - consume them within the same pass.
+ */
+struct ResolvedIcon {
+  const std::string* png_base64 = nullptr;
+  const std::string* content_key = nullptr;
+};
+
+/**
+ * Resolves a small icon for an exact app/file path.
  *
  * Not limited to GUI apps: a `.app` bundle path yields the app's real icon and a
  * plain executable path yields the generic system executable icon, via
@@ -37,12 +47,12 @@ std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata();
  * the record has one (so every member of a multi-process app shares the app's
  * icon) and the bare executable path otherwise.
  *
- * The encoded icon is cached per path while the path stays in use (see
- * {@link PruneIconCache}), so a steady-state pass is a hash lookup with no
- * AppKit drawing. The icon is volatile display-only data and is never logged or
- * persisted.
+ * The encoded icon and its content key are cached per path while the path stays
+ * in use (see {@link PruneIconCache}), so a steady-state pass is a hash lookup
+ * with no AppKit drawing, no PNG encode, and no re-hash. The icon is volatile
+ * display-only data and is never logged or persisted.
  */
-void IconForFilePath(const std::string& path, NativeImage* out);
+ResolvedIcon ResolveIconForPath(const std::string& path);
 
 /**
  * Drops cached icons whose resolution path is not in `used_paths` (the paths the

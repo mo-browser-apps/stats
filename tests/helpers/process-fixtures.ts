@@ -151,10 +151,10 @@ function makeUser(options: RowOptions): ProcessUser | undefined {
 /** Builds the command-line cell, honoring an explicit non-OK status override. */
 function makeCommandLine(options: RowOptions): CommandLine | undefined {
   if (options.commandLineStatus !== undefined) {
-    return { status: options.commandLineStatus, arguments: options.commandLine ?? [] };
+    return { status: options.commandLineStatus, arguments: options.commandLine ?? [], fromPrev: false };
   }
   if (options.commandLine !== undefined) {
-    return { status: FieldStatus.FIELD_STATUS_OK, arguments: options.commandLine };
+    return { status: FieldStatus.FIELD_STATUS_OK, arguments: options.commandLine, fromPrev: false };
   }
   return undefined;
 }
@@ -194,6 +194,7 @@ export function makeRow(options: RowOptions = {}): ProcessRow {
     threadCount: options.threadCount !== undefined ? okU64(options.threadCount) : undefined,
     cpuTime: makeCpuTime(options),
     user: makeUser(options),
+    stableFromPrev: false,
   };
 }
 
@@ -218,6 +219,7 @@ export function makeSnapshot(rows: ProcessRow[], revision = 1): ProcessSnapshot 
     processes: rows,
     warnings: [],
     icons,
+    delta: false,
   };
 }
 

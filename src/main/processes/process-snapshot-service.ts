@@ -105,28 +105,6 @@ function toStringValue(value: NativeString | undefined): StringValue {
 }
 
 /**
- * Maps the native deduplicated icon table onto the renderer's. The native table
- * keys identical icons once (by content hash); here it becomes a plain
- * key -> base64 map (a table entry is always an available icon, so the per-entry
- * status is dropped). The renderer gateway rehydrates each row's icon from this
- * table by key. Base64 payloads are volatile display data, never logged.
- */
-function toIconTable(icons: { [key: string]: NativeImage }): {
-  [key: string]: string;
-} {
-  const table: { [key: string]: string } = {};
-  for (const [key, icon] of Object.entries(icons)) {
-    if (
-      icon.status === NativeFieldStatus.NATIVE_FIELD_STATUS_AVAILABLE &&
-      icon.pngBase64.length > 0
-    ) {
-      table[key] = icon.pngBase64;
-    }
-  }
-  return table;
-}
-
-/**
  * Maps the owning `.app` bundle (path + name) the list groups by. An absent
  * bundle or non-AVAILABLE path maps to undefined so the renderer keeps the row
  * as a singleton.
@@ -238,23 +216,6 @@ function toProcessUser(user: NativeProcessUser | undefined): ProcessUser {
 }
 
 /**
- * Maps the sensitive command-line group. Arguments are forwarded verbatim for
- * local display/search only and are never logged or persisted here; they are
- * dropped unless the vector is explicitly available.
- */
-function toCommandLine(commandLine: NativeCommandLine | undefined): CommandLine {
-  if (commandLine === undefined) {
-    return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, arguments: [] };
-  }
-  const status = toFieldStatus(commandLine.status);
-  return {
-    status,
-    arguments:
-      status === FieldStatus.FIELD_STATUS_OK ? commandLine.arguments : [],
-  };
-}
-
-/**
  * Builds the snapshot-stable identity key for a record, or null if no PID.
  */
 function recordKey(record: NativeProcessRecord): ProcessKey | null {
@@ -267,6 +228,151 @@ function recordKey(record: NativeProcessRecord): ProcessKey | null {
       ? identity.startedAtUnixMs
       : "unknown";
   return `${identity.pid}:${startedAt}`;
+}
+
+/**
+ * Identity key for one renderer row (pid + start time), used to align rows
+ * across snapshot revisions when building a delta.
+ */
+function rowKey(row: ProcessRow): ProcessKey {
+  const pid = row.identity?.pid ?? 0;
+  const startedAt =
+    row.identity?.startedAtStatus === FieldStatus.FIELD_STATUS_OK
+      ? row.identity.startedAtUnixMs
+      : "unknown";
+  return `${pid}:${startedAt}`;
+}
+
+/**
+ * Value equality for an optional string field (status + value).
+ */
+function stringValueEqual(a: StringValue | undefined, b: StringValue | undefined): boolean {
+  if (a === undefined || b === undefined) {
+    return a === b;
+  }
+  return a.status === b.status && a.value === b.value;
+}
+
+/**
+ * Value equality for the optional owning `.app` bundle.
+ */
+function bundleEqual(a: AppBundle | undefined, b: AppBundle | undefined): boolean {
+  if (a === undefined || b === undefined) {
+    return a === b;
+  }
+  return stringValueEqual(a.path, b.path) && stringValueEqual(a.name, b.name);
+}
+
+/**
+ * Value equality for the optional app metadata (including the icon key).
+ */
+function appEqual(a: AppMetadata | undefined, b: AppMetadata | undefined): boolean {
+  if (a === undefined || b === undefined) {
+    return a === b;
+  }
+  return (
+    stringValueEqual(a.bundleIdentifier, b.bundleIdentifier) &&
+    stringValueEqual(a.localizedName, b.localizedName) &&
+    a.iconKey === b.iconKey &&
+    bundleEqual(a.bundle, b.bundle)
+  );
+}
+
+/**
+ * Value equality for the optional owning user.
+ */
+function userEqual(a: ProcessUser | undefined, b: ProcessUser | undefined): boolean {
+  if (a === undefined || b === undefined) {
+    return a === b;
+  }
+  return a.status === b.status && a.uid === b.uid && a.name === b.name;
+}
+
+/**
+ * Whether the row's stable field group (names, path, app metadata, user) is
+ * value-identical to the previous row's, i.e. eligible for the
+ * stable_from_prev wire reduction. Every field is compared by value, so any
+ * real change (a settling translocated path, an exec, a uid drop) always ships
+ * in full - staleness is impossible by construction.
+ */
+function stableFieldsEqual(row: ProcessRow, previous: ProcessRow): boolean {
+  return (
+    stringValueEqual(row.commandName, previous.commandName) &&
+    stringValueEqual(row.executableName, previous.executableName) &&
+    stringValueEqual(row.executablePath, previous.executablePath) &&
+    appEqual(row.app, previous.app) &&
+    userEqual(row.user, previous.user)
+  );
+}
+
+/**
+ * Builds the delta form of `current` against `previous` for a renderer that
+ * proved (via have_revision) it holds `previous` in full:
+ *
+ * - icon-table entries the previous snapshot already carried are omitted;
+ * - a row's argv is replaced by a from_prev marker when it is identical to the
+ *   previous row's (unchanged argv is literally the same array instance,
+ *   carried across ticks by the per-identity store, so reference equality is
+ *   exact - a changed argv always ships in full);
+ * - a row's stable field group is dropped behind stable_from_prev when it
+ *   compares value-equal to the previous row's (see stableFieldsEqual).
+ *
+ * The renderer gateway reverses every reduction before presentation code sees
+ * the snapshot. Volatile fields (memory, cpu, thread count, parent) always ship.
+ */
+function buildSnapshotDelta(
+  current: ProcessSnapshot,
+  previous: ProcessSnapshot,
+): ProcessSnapshot {
+  const previousRows = new Map<ProcessKey, ProcessRow>();
+  for (const row of previous.processes) {
+    previousRows.set(rowKey(row), row);
+  }
+
+  const processes = current.processes.map((row) => {
+    const previousRow = previousRows.get(rowKey(row));
+    if (previousRow === undefined) {
+      return row;
+    }
+
+    const commandLine = row.commandLine;
+    const argvFromPrev =
+      commandLine !== undefined &&
+      commandLine.status === FieldStatus.FIELD_STATUS_OK &&
+      commandLine.arguments.length > 0 &&
+      previousRow.commandLine?.arguments === commandLine.arguments;
+    const stableFromPrev = stableFieldsEqual(row, previousRow);
+    if (!argvFromPrev && !stableFromPrev) {
+      return row;
+    }
+
+    const reduced = { ...row };
+    if (stableFromPrev) {
+      reduced.commandName = undefined;
+      reduced.executableName = undefined;
+      reduced.executablePath = undefined;
+      reduced.app = undefined;
+      reduced.user = undefined;
+      reduced.stableFromPrev = true;
+    }
+    if (argvFromPrev && commandLine !== undefined) {
+      reduced.commandLine = {
+        status: commandLine.status,
+        arguments: [],
+        fromPrev: true,
+      };
+    }
+    return reduced;
+  });
+
+  const icons: { [key: string]: string } = {};
+  for (const [key, bytes] of Object.entries(current.icons)) {
+    if (previous.icons[key] === undefined) {
+      icons[key] = bytes;
+    }
+  }
+
+  return { ...current, processes, icons, delta: true };
 }
 
 /**
@@ -305,6 +411,25 @@ export class ProcessSnapshotService {
   private cpuBaselines = new Map<ProcessKey, CpuBaseline>();
 
   /**
+   * Per-identity argv store. Native ships argument bytes only on the pass that
+   * first reads them (later passes carry a from_cache marker instead), so this
+   * map carries them forward. Rebuilt each pass from the identities actually
+   * seen, mirroring the native cache prune; kept across failed passes because
+   * the native cache survives those too. Sensitive: display/search data only,
+   * never logged or persisted.
+   */
+  private argvStore = new Map<ProcessKey, string[]>();
+
+  /**
+   * Icon bytes by content key. Native ships an icon's bytes only when the
+   * previous pass did not reference its key, so this store carries known icons
+   * forward. Rebuilt each pass to exactly the referenced keys (an exited app's
+   * icon drops out; native re-sends it in full if the app relaunches) and kept
+   * across failed passes, mirroring native's delta base.
+   */
+  private iconStore = new Map<string, string>();
+
+  /**
    * The most recent snapshot, served from cache by GetProcessSnapshot.
    */
   private snapshot: ProcessSnapshot = {
@@ -314,7 +439,16 @@ export class ProcessSnapshotService {
     processes: [],
     warnings: [],
     icons: {},
+    delta: false,
   };
+
+  /**
+   * The snapshot immediately before {@link snapshot}, kept so a renderer that
+   * holds it (proved via have_revision) can be served a delta instead of the
+   * full payload. Only one generation back: any older revision gets a full
+   * snapshot.
+   */
+  private previousSnapshot: ProcessSnapshot | null = null;
 
   /**
    * Monotonic revision id; advances each time a new snapshot is produced.
@@ -361,8 +495,25 @@ export class ProcessSnapshotService {
    * Returns the latest cached snapshot, pulled by the renderer after a revision
    * ping or once for first paint. Returns a LOADING snapshot until the first
    * collection completes.
+   *
+   * When `haveRevision` names the current or the immediately-previous revision,
+   * the renderer demonstrably holds that snapshot in full, so a delta is
+   * returned instead: icon bytes and argv that the renderer already has are
+   * omitted (see {@link buildSnapshotDelta}). Any other value - first pull,
+   * renderer reload, or a missed generation - gets the full snapshot. Callers
+   * inside main (the action service) pass nothing and always see full data.
    */
-  getSnapshot(): ProcessSnapshot {
+  getSnapshot(haveRevision = 0): ProcessSnapshot {
+    if (haveRevision !== 0) {
+      if (haveRevision === this.snapshot.revision) {
+        // Re-pull of a revision the renderer already merged (e.g. returning to
+        // the Processes view): everything dedupes against the snapshot itself.
+        return buildSnapshotDelta(this.snapshot, this.snapshot);
+      }
+      if (haveRevision === this.previousSnapshot?.revision) {
+        return buildSnapshotDelta(this.snapshot, this.previousSnapshot);
+      }
+    }
     return this.snapshot;
   }
 
@@ -379,6 +530,9 @@ export class ProcessSnapshotService {
     this.active = false;
     this.stopTimer();
     this.cpuBaselines.clear();
+    this.argvStore.clear();
+    this.iconStore.clear();
+    this.previousSnapshot = null;
     this.revisionHandle.dispose();
   }
 
@@ -420,16 +574,19 @@ export class ProcessSnapshotService {
       if (this.disposed) {
         return;
       }
-      this.snapshot = this.buildSnapshot(
+      const next = this.buildSnapshot(
         response.available,
         response.records,
         response.icons,
       );
+      this.previousSnapshot = this.snapshot;
+      this.snapshot = next;
       this.publishRevision();
     } catch {
       // Degrade silently to an unavailable snapshot; the next tick retries. No
       // diagnostic is logged because it could carry process-identifying data.
       if (!this.disposed) {
+        this.previousSnapshot = this.snapshot;
         this.snapshot = this.buildUnavailableSnapshot();
         this.publishRevision();
       }
@@ -469,6 +626,7 @@ export class ProcessSnapshotService {
 
     const sampledAtMs = performance.now();
     const nextBaselines = new Map<ProcessKey, CpuBaseline>();
+    const nextArgvStore = new Map<ProcessKey, string[]>();
     let permissionLimited = false;
     let permissionDeniedCount = 0;
     let commandLinePartialCount = 0;
@@ -476,7 +634,11 @@ export class ProcessSnapshotService {
     const processes: ProcessRow[] = records.map((record) => {
       const key = recordKey(record);
       const cpu = this.deriveCpu(record.cpu, key, sampledAtMs, nextBaselines);
-      const commandLine = toCommandLine(record.commandLine);
+      const commandLine = this.deriveCommandLine(
+        record.commandLine,
+        key,
+        nextArgvStore,
+      );
 
       // Permission-limited if macOS denied ANY field, not just the task-info read:
       // argv, path, memory, and CPU can each be denied while task info is readable.
@@ -492,6 +654,7 @@ export class ProcessSnapshotService {
     });
 
     this.cpuBaselines = nextBaselines;
+    this.argvStore = nextArgvStore;
     this.revision += 1;
 
     return {
@@ -502,14 +665,97 @@ export class ProcessSnapshotService {
       timestampMs: Date.now(),
       processes,
       warnings: buildWarnings(permissionDeniedCount, commandLinePartialCount),
-      icons: toIconTable(icons),
+      icons: this.buildIconTable(records, icons),
+      delta: false,
     };
+  }
+
+  /**
+   * Maps the sensitive command-line group. Native ships the argument bytes only
+   * on the pass that first reads them; later passes carry a from_cache marker
+   * with the arguments omitted, and the value is rehydrated from the
+   * per-identity store this method rolls forward (an unchanged argv stays the
+   * same array instance across ticks, which the delta builder relies on).
+   * Arguments are forwarded verbatim for local display/search only and are
+   * never logged or persisted here.
+   */
+  private deriveCommandLine(
+    commandLine: NativeCommandLine | undefined,
+    key: ProcessKey | null,
+    nextArgvStore: Map<ProcessKey, string[]>,
+  ): CommandLine {
+    const status =
+      commandLine === undefined
+        ? FieldStatus.FIELD_STATUS_UNAVAILABLE
+        : toFieldStatus(commandLine.status);
+    if (commandLine === undefined || status !== FieldStatus.FIELD_STATUS_OK) {
+      return { status, arguments: [], fromPrev: false };
+    }
+
+    const args = commandLine.fromCache
+      ? key === null
+        ? undefined
+        : this.argvStore.get(key)
+      : commandLine.arguments;
+    if (args === undefined) {
+      // The pass that read this argv never made it into the store (a mid-build
+      // failure on that tick); degrade honestly rather than fabricate. Native
+      // re-reads when the process execs or restarts, which heals this.
+      return {
+        status: FieldStatus.FIELD_STATUS_UNAVAILABLE,
+        arguments: [],
+        fromPrev: false,
+      };
+    }
+
+    if (key !== null) {
+      nextArgvStore.set(key, args);
+    }
+    return { status, arguments: args, fromPrev: false };
+  }
+
+  /**
+   * Builds the snapshot icon table and rolls the key -> bytes store forward.
+   * Native ships bytes only for keys the previous pass did not reference, so a
+   * referenced key resolves from the fresh response first and the store second.
+   * The store is then replaced with exactly the referenced keys, mirroring the
+   * native-side delta base, so an exited app's icon drops out (native re-sends
+   * it in full if the app relaunches). A key that resolves to no bytes at all
+   * is left out of the table; its rows fall back to the generic glyph.
+   */
+  private buildIconTable(
+    records: NativeProcessRecord[],
+    fresh: { [key: string]: NativeImage },
+  ): { [key: string]: string } {
+    const next = new Map<string, string>();
+    for (const record of records) {
+      const key = record.app?.iconKey;
+      if (key === undefined || key.length === 0 || next.has(key)) {
+        continue;
+      }
+      const image = fresh[key];
+      const bytes =
+        image !== undefined &&
+        image.status === NativeFieldStatus.NATIVE_FIELD_STATUS_AVAILABLE &&
+        image.pngBase64.length > 0
+          ? image.pngBase64
+          : this.iconStore.get(key);
+      if (bytes !== undefined) {
+        next.set(key, bytes);
+      }
+    }
+    this.iconStore = next;
+    return Object.fromEntries(next);
   }
 
   /**
    * An explicit unavailable snapshot (no rows) that still advances the revision.
    */
   private buildUnavailableSnapshot(): ProcessSnapshot {
+    // CPU baselines reset (a fresh delta will be derived), but the argv/icon
+    // stores are kept: the native session caches survive a failed pass too, so
+    // the next successful pass still serves from_cache markers and omits known
+    // icon keys against them.
     this.cpuBaselines.clear();
     this.revision += 1;
     return {
@@ -519,6 +765,7 @@ export class ProcessSnapshotService {
       processes: [],
       warnings: [],
       icons: {},
+      delta: false,
     };
   }
 
@@ -554,6 +801,7 @@ export class ProcessSnapshotService {
       threadCount: toThreadCount(record.threadCount),
       cpuTime: toCpuTime(record.cpu),
       user: toProcessUser(record.user),
+      stableFromPrev: false,
     };
   }
 

@@ -145,6 +145,11 @@ message CommandLine {
   FieldStatus status = 1;
   // Parsed argument vector when status is OK. Sensitive; see message comment.
   repeated string arguments = 2;
+  // Set only on a delta snapshot (see ProcessSnapshot.delta): the arguments are
+  // omitted from the wire because they are byte-identical to this identity's row
+  // in the snapshot the renderer said it has; the gateway rehydrates them from
+  // that snapshot before presentation code sees the row.
+  bool from_prev = 3;
 }
 
 // Stable identity for one process: PID plus an optional start time. Start time
@@ -187,6 +192,14 @@ message ProcessRow {
   CpuTime cpu_time = 12;
   // The user the process runs as (uid + resolved name).
   ProcessUser user = 13;
+  // Set only on a delta snapshot (see ProcessSnapshot.delta): the stable field
+  // group - command_name, executable_name, executable_path, app, and user - is
+  // omitted from the wire because main verified it is identical to this
+  // identity's row in the snapshot the renderer said it has. The gateway copies
+  // the group back from that snapshot before presentation code sees the row.
+  // The volatile fields (memory, cpu, cpu_time, thread_count, parent) are always
+  // carried in full.
+  bool stable_from_prev = 14;
 }
 
 // A safe, non-sensitive warning about a snapshot. Counts only - it must never
@@ -225,14 +238,29 @@ message ProcessSnapshot {
   // Deduplicated base64 PNG app icons for this snapshot, keyed by content hash.
   // A row references its icon via AppMetadata.icon_key; an icon shared by many
   // processes is carried once here, so the snapshot stays small even though most
-  // rows show an icon. Presentation code resolves a row's icon by looking its
-  // icon_key up here. Volatile display-only data: never logged or persisted.
+  // rows show an icon. On a delta snapshot (see `delta`) this carries only the
+  // entries the renderer's previous snapshot did not have. Presentation code
+  // resolves a row's icon by looking its icon_key up here. Volatile display-only
+  // data: never logged or persisted.
   map<string, string> icons = 6;
+  // True when this snapshot is a delta against the revision the renderer sent in
+  // GetProcessSnapshotRequest.have_revision: `icons` carries only new entries and
+  // rows may mark their argv as CommandLine.from_prev. The renderer gateway
+  // merges a delta with its previous snapshot into a full one; presentation code
+  // never sees a delta. False means the snapshot is self-contained.
+  bool delta = 7;
 }
 
-// Reserved for future read parameters (e.g. a field-detail level). Empty for
-// now so the contract can grow without a breaking client change.
-message GetProcessSnapshotRequest {}
+// Read parameters for the snapshot pull.
+message GetProcessSnapshotRequest {
+  // Revision of the last full snapshot the renderer holds, or 0 for none. When
+  // it matches the snapshot immediately preceding the current one, main responds
+  // with a delta (icons/argv that did not change are omitted; see
+  // ProcessSnapshot.delta); any other value gets a full snapshot. Bytes that
+  // dominate the payload (icons, argv) rarely change between ticks, so this
+  // keeps the steady-state pull small without a stateful subscription.
+  uint64 have_revision = 1;
+}
 
 // A lightweight notification that a new snapshot revision exists. Deliberately
 // tiny (no rows) so it is cheap to broadcast on the collection cadence; the

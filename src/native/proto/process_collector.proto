@@ -74,6 +74,12 @@ message NativeCommandLine {
   NativeFieldStatus status = 1;
   // Parsed argument vector when AVAILABLE. Sensitive: never log/persist/export.
   repeated string arguments = 2;
+  // True when this value was served from the collector's per-process cache. For
+  // an AVAILABLE status the arguments are then omitted from the wire: main
+  // received them on the pass that first read them (the same pass that created
+  // the cache entry) and rehydrates from its own per-identity store. argv is
+  // immutable per process image, so the cached value cannot drift.
+  bool from_cache = 3;
 }
 
 // Per-process memory metrics in bytes. Physical footprint is preferred for
@@ -195,10 +201,13 @@ message CollectProcessesResponse {
   repeated NativeProcessRecord records = 3;
   // Safe, count-only warnings (no sensitive text).
   repeated NativeCollectorWarning warnings = 4;
-  // Deduplicated app icons for this pass, keyed by a content hash of the PNG
-  // bytes. Records reference an entry via NativeAppMetadata.icon_key; an icon
-  // shared by many processes (a multi-process app, or the generic daemon icon)
-  // is carried once here instead of once per record. Volatile display-only data.
+  // Deduplicated app icons, keyed by a content hash of the PNG bytes. Records
+  // reference an entry via NativeAppMetadata.icon_key; an icon shared by many
+  // processes (a multi-process app, or the generic daemon icon) is carried once.
+  // Sent incrementally: a key already referenced by the previous successful pass
+  // is omitted here, because main received its bytes then and rehydrates from
+  // its own key -> bytes store. A key absent for one pass (its app exited) is
+  // re-sent in full if it reappears. Volatile display-only data.
   map<string, NativeImage> icons = 5;
 }
 

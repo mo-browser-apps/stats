@@ -78,37 +78,19 @@ int64_t SaturatingInt64(uint64_t value) {
                            : static_cast<int64_t>(value);
 }
 
-// Content key for an icon's base64 bytes: 64-bit FNV-1a as hex. Non-cryptographic
-// is fine - the key only has to collapse identical icons to one table entry and
-// tell different ones apart within a pass. A collision would at worst show one
-// wrong icon for a tick; nothing crashes.
-std::string IconContentKey(const std::string& base64) {
-  uint64_t hash = 0xcbf29ce484222325ULL;
-  for (const unsigned char byte : base64) {
-    hash ^= byte;
-    hash *= 0x100000001b3ULL;
-  }
-  char out[17];
-  std::snprintf(out, sizeof(out), "%016llx",
-                static_cast<unsigned long long>(hash));
-  return std::string(out, 16);
-}
-
-// Interns a resolved icon into the response's dedup table and returns its key
-// (empty when the icon is unavailable). Identical bytes collapse to one entry,
-// so a shared icon is carried once per pass instead of once per record.
-std::string InternIcon(CollectProcessesResponse* response,
-                       const NativeImage& icon) {
-  if (icon.status() != NATIVE_FIELD_STATUS_AVAILABLE ||
-      icon.png_base64().empty()) {
-    return std::string();
-  }
-  std::string key = IconContentKey(icon.png_base64());
-  auto& table = *response->mutable_icons();
-  if (table.find(key) == table.end()) {
-    table[key] = icon;
-  }
-  return key;
+// Icon content keys referenced by the previous successful pass. Main received
+// the bytes for these keys already (and keeps its own key -> bytes store), so
+// the response table only carries entries NOT in this set - in steady state the
+// icon table is empty instead of re-shipping a few hundred KB of identical PNGs
+// every tick. A key absent for one pass falls out of the set, so a reappearing
+// icon (app relaunch) is re-sent in full, which keeps both sides in sync.
+//
+// Threading: touched only by the collector, which runs serially - no lock
+// needed, same contract as the other session caches. Left untouched when a pass
+// aborts early, so the delta base stays the last response main actually saw.
+std::unordered_set<std::string>& LastPassIconKeys() {
+  static std::unordered_set<std::string> keys;
+  return keys;
 }
 
 // Cached command line (argv) per process image, across passes. argv is fixed at
@@ -167,12 +149,17 @@ NativeCommandLine* FindCommandLine(const std::string& key) {
 }
 
 // Caches a record's command line under its identity key, but only when the key
-// is stable (known start time) AND argv was read AVAILABLE. A partially-denied
-// read is left uncached so it is retried next pass rather than freezing a gap.
+// is stable (known start time) AND the read is worth not repeating: AVAILABLE
+// (argv is fixed for the image) or PERMISSION_DENIED (the denial is uid-based
+// and does not change for a live process, so re-issuing the syscall every pass
+// is pure waste - on a typical machine hundreds of root-owned processes deny
+// argv to a non-root user). UNAVAILABLE/PARSE_FAILED stay uncached so a
+// transient failure is retried next pass rather than frozen.
 void MaybeCacheCommandLine(const std::string& key,
                            const NativeProcessRecord& record) {
-  if (key.empty() ||
-      record.command_line().status() != NATIVE_FIELD_STATUS_AVAILABLE) {
+  const NativeFieldStatus status = record.command_line().status();
+  if (key.empty() || (status != NATIVE_FIELD_STATUS_AVAILABLE &&
+                      status != NATIVE_FIELD_STATUS_PERMISSION_DENIED)) {
     return;
   }
   CommandLineCache()[key] = record.command_line();
@@ -188,13 +175,15 @@ void PruneCommandLineCache(const std::unordered_set<std::string>& seen) {
   }
 }
 
-// Cache keys and icon resolution paths used by the records of one pass. The
-// session caches (argv here, encoded icons in app_metadata) are pruned to these
-// after the loop so they track only live processes and cannot grow without
-// bound.
+// Cache keys, icon resolution paths, and icon content keys used by the records
+// of one pass. The session caches (argv here, encoded icons in app_metadata)
+// are pruned to these after the loop so they track only live processes and
+// cannot grow without bound; the icon keys also become the next pass's
+// LastPassIconKeys delta base.
 struct PassCacheUsage {
   std::unordered_set<std::string> command_line_keys;
   std::unordered_set<std::string> icon_paths;
+  std::unordered_set<std::string> icon_keys;
 };
 
 // Enumerates all PIDs. proc_listallpids reports a PID count, not a byte count,
@@ -293,20 +282,17 @@ NativeFieldStatus CombinedFallbackStatus(NativeFieldStatus task_status,
                                                         : task_status;
 }
 
-// Resolves the short command name, preferring proc_name and falling back to the
-// BSD info's registered name/comm when task info is available. For protected
-// processes that deny task info, falls back to kern.proc.pid's p_comm.
+// Resolves the short command name. proc_name(3) is itself a PROC_PIDTBSDINFO
+// read that returns pbi_name (falling back to pbi_comm), and the
+// PROC_PIDTASKALLINFO read already carries that same proc_bsdinfo - so when task
+// info succeeded the answer is already in hand and the per-PID proc_name syscall
+// is skipped (~700 syscalls saved per pass). proc_name remains the first
+// fallback when task info is denied; protected processes that deny both fall
+// back to kern.proc.pid's p_comm.
 void FillCommandName(pid_t pid, const proc_taskallinfo& task, bool task_ok,
                      const kinfo_proc& kinfo, bool kinfo_ok,
                      NativeFieldStatus kinfo_status,
                      NativeString* out) {
-  char name[2 * MAXCOMLEN] = {};
-  errno = 0;
-  if (proc_name(pid, name, static_cast<uint32_t>(sizeof(name))) > 0) {
-    SetAvailableString(out, name);
-    return;
-  }
-
   if (task_ok) {
     if (task.pbsd.pbi_name[0] != '\0') {
       SetAvailableString(out, task.pbsd.pbi_name);
@@ -318,12 +304,19 @@ void FillCommandName(pid_t pid, const proc_taskallinfo& task, bool task_ok,
     }
   }
 
+  char name[2 * MAXCOMLEN] = {};
+  errno = 0;
+  if (proc_name(pid, name, static_cast<uint32_t>(sizeof(name))) > 0) {
+    SetAvailableString(out, name);
+    return;
+  }
+  const NativeFieldStatus name_status = StatusFromErrno(errno);
+
   if (kinfo_ok && kinfo.kp_proc.p_comm[0] != '\0') {
     SetAvailableString(out, kinfo.kp_proc.p_comm);
     return;
   }
 
-  const NativeFieldStatus name_status = StatusFromErrno(errno);
   out->set_status(
       name_status == NATIVE_FIELD_STATUS_UNAVAILABLE ? kinfo_status
                                                      : name_status);
@@ -624,8 +617,8 @@ void FillUser(const proc_taskallinfo& task, bool task_ok,
 // availability so a single denied/exited read degrades that field, not the row.
 // app_metadata holds GUI-app metadata keyed by PID (from NSWorkspace); a record
 // with no entry keeps its app fields unset and falls back to a generic icon.
-// The resolved icon is interned into `response`'s dedup table and referenced by
-// key, so a shared icon is stored once for the whole pass.
+// The record references its icon by content key; the bytes go into `response`'s
+// dedup table only when the previous pass did not already carry that key.
 void FillRecord(
     pid_t pid, int arg_max, std::vector<char>* args_buffer,
     CollectProcessesResponse* response, NativeProcessRecord* record,
@@ -671,6 +664,9 @@ void FillRecord(
   // fixed at exec and KERN_PROCARGS2 is the most expensive per-PID read. Serve it
   // from the cache when present, else read once and cache. The key includes the
   // executable path read above, so a process that execs a new image re-reads.
+  // A cache hit carries only the status plus from_cache - not the argument
+  // bytes: main received those on the pass that created the entry and rehydrates
+  // them from its own per-identity store, so steady-state responses stay small.
   const std::string command_line_key =
       CommandLineKey(*identity, record->executable_path());
   if (!command_line_key.empty()) {
@@ -679,7 +675,9 @@ void FillRecord(
   NativeCommandLine* cached_command_line =
       command_line_key.empty() ? nullptr : FindCommandLine(command_line_key);
   if (cached_command_line != nullptr) {
-    *record->mutable_command_line() = *cached_command_line;
+    NativeCommandLine* out = record->mutable_command_line();
+    out->set_status(cached_command_line->status());
+    out->set_from_cache(true);
   } else {
     FillCommandLine(pid, arg_max, args_buffer, record->mutable_command_line());
     MaybeCacheCommandLine(command_line_key, *record);
@@ -727,16 +725,23 @@ void FillRecord(
     icon_path = record->executable_path().value();
   }
 
-  NativeImage icon;
-  icon.set_status(NATIVE_FIELD_STATUS_UNAVAILABLE);
   if (!icon_path.empty()) {
     usage->icon_paths.insert(icon_path);
-    IconForFilePath(icon_path, &icon);
-  }
-
-  std::string icon_key = InternIcon(response, icon);
-  if (!icon_key.empty()) {
-    record->mutable_app()->set_icon_key(std::move(icon_key));
+    const ResolvedIcon icon = ResolveIconForPath(icon_path);
+    if (icon.content_key != nullptr) {
+      const std::string& key = *icon.content_key;
+      usage->icon_keys.insert(key);
+      record->mutable_app()->set_icon_key(key);
+      // Ship the bytes only when the previous pass did not already reference
+      // this key (main keeps a key -> bytes store), and only once per pass.
+      auto& table = *response->mutable_icons();
+      if (LastPassIconKeys().count(key) == 0 && table.find(key) == table.end()) {
+        NativeImage image;
+        image.set_status(NATIVE_FIELD_STATUS_AVAILABLE);
+        image.set_png_base64(*icon.png_base64);
+        table[key] = std::move(image);
+      }
+    }
   }
 }
 
@@ -789,6 +794,10 @@ void CollectProcesses(CollectProcessesResponse* response) {
 
   PruneCommandLineCache(usage.command_line_keys);
   PruneIconCache(usage.icon_paths);
+  // This pass's referenced icon keys become the next pass's delta base: keys in
+  // this set were shipped to (or already held by) main, so the next response
+  // omits their bytes.
+  LastPassIconKeys() = std::move(usage.icon_keys);
 }
 
 }  // namespace mostats

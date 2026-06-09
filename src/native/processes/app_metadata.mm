@@ -2,6 +2,8 @@
 
 #import <AppKit/AppKit.h>
 
+#include <cstdint>
+#include <cstdio>
 #include <iterator>
 #include <string>
 #include <unordered_map>
@@ -17,6 +19,14 @@ namespace {
 // tiny, so this keeps the payload light while staying crisp at row sizes.
 constexpr int kIconSizePoints = 32;
 
+// One cached icon: the encoded PNG and its content-hash key for the response's
+// dedup table. The key is computed once at encode time so a steady-state pass
+// neither re-encodes nor re-hashes.
+struct CachedIcon {
+  std::string png_base64;
+  std::string content_key;
+};
+
 // Session cache of encoded icons, keyed by the icon resolution path (the owning
 // `.app` bundle, else the executable). Rasterizing an NSImage and
 // PNG/base64-encoding it is by far the most expensive step, and an app's icon
@@ -30,8 +40,50 @@ constexpr int kIconSizePoints = 32;
 // layer invokes serially on the native main thread (one collection at a time),
 // so this map needs no lock. The icon is volatile display data and is never
 // logged or persisted.
-std::unordered_map<std::string, std::string>& IconCache() {
-  static std::unordered_map<std::string, std::string> cache;
+std::unordered_map<std::string, CachedIcon>& IconCache() {
+  static std::unordered_map<std::string, CachedIcon> cache;
+  return cache;
+}
+
+// Content key for an icon's base64 bytes: 64-bit FNV-1a as hex. Non-cryptographic
+// is fine - the key only has to collapse identical icons to one table entry and
+// tell different ones apart. A collision would at worst show one wrong icon;
+// nothing crashes. Computed once per encode and cached alongside the bytes.
+std::string IconContentKey(const std::string& base64) {
+  uint64_t hash = 0xcbf29ce484222325ULL;
+  for (const unsigned char byte : base64) {
+    hash ^= byte;
+    hash *= 0x100000001b3ULL;
+  }
+  char out[17];
+  std::snprintf(out, sizeof(out), "%016llx",
+                static_cast<unsigned long long>(hash));
+  return std::string(out, 16);
+}
+
+// One cached NSWorkspace metadata entry, guarded by the app's launch time (the
+// same pid+started_at identity discipline the rest of the app uses): a
+// different launch time for the same PID means the PID was reused and the entry
+// must be re-read. 0 stands in for a nil launchDate. Pointer identity is NOT
+// usable as a guard - runningApplications vends fresh autoreleased wrapper
+// instances per call (measured: a pointer-guarded cache never hit).
+struct CachedAppMetadata {
+  double launched_at;
+  NativeAppMetadata metadata;
+};
+
+// Per-PID cache of NSWorkspace app metadata. The bridged property reads
+// (bundleIdentifier, localizedName, bundleURL) cost ~12-15 ms per pass for ~50
+// apps - by far the dominant share of the NSWorkspace snapshot - while the
+// values themselves are fixed for an app instance's lifetime, so each app is
+// read once (plus the cheap pid/launchDate reads per pass) and served from
+// here afterwards. Pruned each pass to the apps actually running. Known
+// accepted staleness: an app that flips its activation policy after first
+// sight keeps its cached bundle-path visibility; grouping still works through
+// the executable-path bundle, so nothing user-visible breaks. Threading:
+// serial collector contract, same as the other caches.
+std::unordered_map<int32_t, CachedAppMetadata>& AppMetadataCache() {
+  static std::unordered_map<int32_t, CachedAppMetadata> cache;
   return cache;
 }
 
@@ -148,23 +200,20 @@ void FillAppBundle(const std::string& executable_path, NativeAppBundle* out) {
   FillBundle(bundle.path, out);
 }
 
-void IconForFilePath(const std::string& path, NativeImage* out) {
+ResolvedIcon ResolveIconForPath(const std::string& path) {
   if (path.empty()) {
-    out->set_status(NATIVE_FIELD_STATUS_UNAVAILABLE);
-    return;
+    return ResolvedIcon{};
   }
 
   // Fast path: the encoded icon is cached per resolution path, so a steady-state
   // pass (every bundle/executable already seen) is a hash lookup with no AppKit
   // work at all. Only the first time a given bundle/executable is seen do we
-  // resolve+encode. Measured on a ~600-process machine: a fully warm pass is well
-  // under 1 ms, while a cold resolve+encode is the only real cost, once per path.
+  // resolve+encode+hash. Measured on a ~700-process machine: a fully warm pass is
+  // well under 1 ms, while a cold resolve+encode is the only real cost, per path.
   auto& cache = IconCache();
   const auto cached = cache.find(path);
   if (cached != cache.end()) {
-    out->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
-    out->set_png_base64(cached->second);
-    return;
+    return ResolvedIcon{&cached->second.png_base64, &cached->second.content_key};
   }
 
   std::string encoded;
@@ -183,13 +232,15 @@ void IconForFilePath(const std::string& path, NativeImage* out) {
   if (encoded.empty()) {
     // A failed resolve/encode is left uncached so a transiently missing icon
     // can still resolve on a later pass.
-    out->set_status(NATIVE_FIELD_STATUS_UNAVAILABLE);
-    return;
+    return ResolvedIcon{};
   }
 
-  out->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
-  out->set_png_base64(encoded);
-  cache.emplace(path, std::move(encoded));
+  CachedIcon entry;
+  entry.content_key = IconContentKey(encoded);
+  entry.png_base64 = std::move(encoded);
+  const auto inserted = cache.emplace(path, std::move(entry)).first;
+  return ResolvedIcon{&inserted->second.png_base64,
+                      &inserted->second.content_key};
 }
 
 void PruneIconCache(const std::unordered_set<std::string>& used_paths) {
@@ -206,8 +257,24 @@ std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata() {
     NSArray<NSRunningApplication*>* applications =
         [[NSWorkspace sharedWorkspace] runningApplications];
     by_pid.reserve(applications.count);
+    auto& cache = AppMetadataCache();
 
     for (NSRunningApplication* application in applications) {
+      const int32_t pid = static_cast<int32_t>(application.processIdentifier);
+      NSDate* launch_date = application.launchDate;
+      const double launched_at =
+          launch_date == nil ? 0 : launch_date.timeIntervalSince1970;
+
+      // Metadata is fixed per app instance; serve it from the per-PID cache and
+      // pay the expensive bridged reads (bundleIdentifier, localizedName,
+      // bundleURL) only the first time an app is seen. The launch time guards
+      // PID reuse: a different launch time re-reads.
+      const auto cached = cache.find(pid);
+      if (cached != cache.end() && cached->second.launched_at == launched_at) {
+        by_pid.emplace(pid, cached->second.metadata);
+        continue;
+      }
+
       NativeAppMetadata metadata;
       FillString(metadata.mutable_bundle_identifier(),
                  application.bundleIdentifier);
@@ -222,8 +289,14 @@ std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata() {
           FillBundle(bundle_path.UTF8String, metadata.mutable_bundle());
         }
       }
-      by_pid.emplace(static_cast<int32_t>(application.processIdentifier),
-                     std::move(metadata));
+      cache[pid] = CachedAppMetadata{launched_at, metadata};
+      by_pid.emplace(pid, std::move(metadata));
+    }
+
+    // Drop cache entries for apps no longer running, so the cache tracks only
+    // the live set (same prune discipline as the other session caches).
+    for (auto it = cache.begin(); it != cache.end();) {
+      it = by_pid.count(it->first) == 0 ? cache.erase(it) : std::next(it);
     }
   }
 

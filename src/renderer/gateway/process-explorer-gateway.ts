@@ -8,6 +8,7 @@ import {
   RunProcessActionResponse,
   SnapshotStatus,
 } from "@/gen/process_explorer";
+import { mergeSnapshotDelta } from "@/gateway/snapshot-delta";
 
 /**
  * Called for each revision ping the main process publishes.
@@ -37,8 +38,19 @@ function emptySnapshot(): ProcessSnapshot {
     processes: [],
     warnings: [],
     icons: {},
+    delta: false,
   };
 }
+
+/**
+ * The last full snapshot this renderer assembled, advertised to main on every
+ * pull (have_revision) so main can answer with a delta - icon bytes and argv
+ * the renderer already holds are omitted and merged back in locally. Module
+ * state on purpose: it must survive view re-mounts but reset with the renderer,
+ * so a reloaded renderer naturally pulls a full snapshot (have_revision 0).
+ * Holds sensitive argv like any snapshot; never logged or persisted.
+ */
+let lastSnapshot: ProcessSnapshot | null = null;
 
 /**
  * Renderer-side wrapper over the generated process explorer client.
@@ -59,10 +71,21 @@ export const processExplorerGateway = {
   emptySnapshot,
 
   /**
-   * Pulls the latest cached process snapshot from main.
+   * Pulls the latest cached process snapshot from main. Advertises the last
+   * snapshot this renderer holds; when main answers with a delta against it,
+   * the delta is merged locally into a full snapshot, so callers always receive
+   * self-contained data regardless of what went over the wire.
    */
   async getSnapshot(): Promise<ProcessSnapshot> {
-    return ipc.processExplorer.GetProcessSnapshot({});
+    const base = lastSnapshot;
+    const response = await ipc.processExplorer.GetProcessSnapshot({
+      haveRevision: base?.revision ?? 0,
+    });
+    const snapshot = response.delta ? mergeSnapshotDelta(base, response) : response;
+    if (lastSnapshot === null || snapshot.revision >= lastSnapshot.revision) {
+      lastSnapshot = snapshot;
+    }
+    return snapshot;
   },
 
   /**

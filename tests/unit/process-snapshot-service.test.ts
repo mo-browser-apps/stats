@@ -109,6 +109,8 @@ interface RecordOptions {
   bundleName?: string;
   commandLine?: string[];
   commandLineStatus?: NativeFieldStatus;
+  /** Marks the argv as served from the native cache (arguments omitted). */
+  commandLineFromCache?: boolean;
   footprintBytes?: number;
   footprintStatus?: NativeFieldStatus;
   residentBytes?: number;
@@ -138,9 +140,15 @@ function appMetadata(options: RecordOptions): NativeAppMetadata {
 
 function commandLine(options: RecordOptions): NativeCommandLine {
   const status = options.commandLineStatus ?? OK;
+  const fromCache = options.commandLineFromCache ?? false;
   return {
     status,
-    arguments: status === OK ? options.commandLine ?? ["fake-app", "--fake-flag"] : [],
+    // A cache-served argv carries no argument bytes; main rehydrates them.
+    arguments:
+      status === OK && !fromCache
+        ? options.commandLine ?? ["fake-app", "--fake-flag"]
+        : [],
+    fromCache,
   };
 }
 
@@ -199,15 +207,23 @@ function record(options: RecordOptions = {}): NativeProcessRecord {
   };
 }
 
-function response(records: NativeProcessRecord[], available = true): CollectProcessesResponse {
+function response(
+  records: NativeProcessRecord[],
+  available = true,
+  iconsOverride?: { [key: string]: NativeImage },
+): CollectProcessesResponse {
   // Build the dedup icon table from the records' keys, mirroring native: each
   // record's icon key maps to a NativeImage whose bytes are the key itself (the
-  // fixture convention), so toIconTable produces a matching renderer table.
-  const icons: { [key: string]: NativeImage } = {};
-  for (const record of records) {
-    const key = record.app?.iconKey;
-    if (key !== undefined && key.length > 0) {
-      icons[key] = nativeImage(key);
+  // fixture convention), so the snapshot table matches. Pass `iconsOverride`
+  // (e.g. {}) to mimic native's delta behavior of omitting already-sent icons.
+  let icons = iconsOverride;
+  if (icons === undefined) {
+    icons = {};
+    for (const record of records) {
+      const key = record.app?.iconKey;
+      if (key !== undefined && key.length > 0) {
+        icons[key] = nativeImage(key);
+      }
     }
   }
   return {
@@ -312,6 +328,7 @@ describe("ProcessSnapshotService", () => {
     expect(row.commandLine).toEqual({
       status: FieldStatus.FIELD_STATUS_OK,
       arguments: ["fake-browser", "--renderer-fixture"],
+      fromPrev: false,
     });
     expect(row.memory?.physicalFootprintBytes).toEqual({
       status: FieldStatus.FIELD_STATUS_OK,
@@ -475,6 +492,7 @@ describe("ProcessSnapshotService", () => {
     expect(row.commandLine).toEqual({
       status: FieldStatus.FIELD_STATUS_PERMISSION_DENIED,
       arguments: [],
+      fromPrev: false,
     });
     expect(row.memory?.physicalFootprintBytes).toEqual({
       status: FieldStatus.FIELD_STATUS_PERMISSION_DENIED,
@@ -575,5 +593,171 @@ describe("ProcessSnapshotService field mapping", () => {
     expect(row.memory?.physicalFootprintBytes?.value).toBe(0);
     expect(row.memory?.residentBytes?.value).toBe(0);
     expect(row.threadCount?.value).toBe(0);
+  });
+});
+
+describe("ProcessSnapshotService incremental payloads", () => {
+  it("rehydrates cache-served argv from the pass that first read it", async () => {
+    const service = makeService();
+
+    await collectByActivation(service, response([
+      record({ pid: 400, startedAtUnixMs: 1_000, commandLine: ["fake-app", "--flag"] }),
+    ]));
+    // Native serves the same identity from its cache: status only, no bytes.
+    await collectByActivation(service, response([
+      record({ pid: 400, startedAtUnixMs: 1_000, commandLineFromCache: true }),
+    ]));
+
+    const row = service.getSnapshot().processes[0];
+    expect(row.commandLine).toEqual({
+      status: FieldStatus.FIELD_STATUS_OK,
+      arguments: ["fake-app", "--flag"],
+      fromPrev: false,
+    });
+  });
+
+  it("degrades a cache-served argv with no stored value to UNAVAILABLE", async () => {
+    const service = makeService();
+
+    // from_cache on the very first pass: the fresh read that should have seeded
+    // the store never reached this service, so the row must not fake an argv.
+    await collectByActivation(service, response([
+      record({ pid: 401, startedAtUnixMs: 1_000, commandLineFromCache: true }),
+    ]));
+
+    expect(service.getSnapshot().processes[0].commandLine).toEqual({
+      status: FieldStatus.FIELD_STATUS_UNAVAILABLE,
+      arguments: [],
+      fromPrev: false,
+    });
+  });
+
+  it("rehydrates icon bytes for keys native omitted as already sent", async () => {
+    const service = makeService();
+
+    await collectByActivation(service, response([
+      record({ pid: 402, iconPngBase64: "ICON-A" }),
+    ]));
+    // Next pass references the same key but ships no bytes (native's delta).
+    await collectByActivation(service, response(
+      [record({ pid: 402, iconPngBase64: "ICON-A" })],
+      true,
+      {},
+    ));
+
+    const snapshot = service.getSnapshot();
+    expect(snapshot.icons["ICON-A"]).toBe("ICON-A");
+    expect(snapshot.processes[0].app?.iconKey).toBe("ICON-A");
+  });
+
+  it("drops an unreferenced icon from the table and store", async () => {
+    const service = makeService();
+
+    await collectByActivation(service, response([
+      record({ pid: 403, iconPngBase64: "ICON-B" }),
+    ]));
+    // The app exited; nothing references ICON-B anymore.
+    await collectByActivation(service, response(
+      [{ ...record({ pid: 404 }), app: undefined }],
+      true,
+      {},
+    ));
+
+    expect(service.getSnapshot().icons).toEqual({});
+  });
+
+  it("serves a delta against the revision the renderer holds", async () => {
+    const service = makeService();
+
+    await collectByActivation(service, response([
+      record({ pid: 405, startedAtUnixMs: 1_000, commandLine: ["fake-app", "--one"], iconPngBase64: "ICON-C" }),
+    ]));
+    // Second pass: same process (argv cache-served), plus a new one with a new
+    // icon and a fresh argv.
+    await collectByActivation(service, response([
+      record({ pid: 405, startedAtUnixMs: 1_000, commandLineFromCache: true, iconPngBase64: "ICON-C" }),
+      record({ pid: 406, startedAtUnixMs: 2_000, commandLine: ["fake-new", "--two"], iconPngBase64: "ICON-D" }),
+    ], true, { "ICON-D": nativeImage("ICON-D") }));
+
+    // Renderer holds revision 1: unchanged argv, stable fields, and known icons
+    // are omitted; the volatile fields still ship.
+    const delta = service.getSnapshot(1);
+    expect(delta.delta).toBe(true);
+    expect(delta.revision).toBe(2);
+    expect(Object.keys(delta.icons)).toEqual(["ICON-D"]);
+    expect(delta.processes[0].commandLine).toEqual({
+      status: FieldStatus.FIELD_STATUS_OK,
+      arguments: [],
+      fromPrev: true,
+    });
+    expect(delta.processes[0].stableFromPrev).toBe(true);
+    expect(delta.processes[0].executablePath).toBeUndefined();
+    expect(delta.processes[0].app).toBeUndefined();
+    expect(delta.processes[0].user).toBeUndefined();
+    expect(delta.processes[0].memory?.physicalFootprintBytes?.value).toBe(512);
+    // The new process ships everything in full.
+    expect(delta.processes[1].commandLine).toEqual({
+      status: FieldStatus.FIELD_STATUS_OK,
+      arguments: ["fake-new", "--two"],
+      fromPrev: false,
+    });
+    expect(delta.processes[1].stableFromPrev).toBe(false);
+    expect(delta.processes[1].executablePath?.value).not.toBeUndefined();
+
+    // Renderer holds the current revision (re-entering the view): everything
+    // known dedupes against the snapshot itself.
+    const reentry = service.getSnapshot(2);
+    expect(reentry.delta).toBe(true);
+    expect(reentry.icons).toEqual({});
+    expect(reentry.processes[0].commandLine?.fromPrev).toBe(true);
+
+    // An unknown revision (renderer reloaded) gets the full snapshot.
+    const full = service.getSnapshot(7);
+    expect(full.delta).toBe(false);
+    expect(full.icons["ICON-C"]).toBe("ICON-C");
+    expect(full.icons["ICON-D"]).toBe("ICON-D");
+    expect(full.processes[0].commandLine?.arguments).toEqual(["fake-app", "--one"]);
+
+    // Callers inside main (the action service) always see the full snapshot.
+    expect(service.getSnapshot().delta).toBe(false);
+  });
+
+  it("ships a changed argv in full even when the identity matches", async () => {
+    const service = makeService();
+
+    await collectByActivation(service, response([
+      record({ pid: 407, startedAtUnixMs: 1_000, commandLine: ["fake-wrapper"] }),
+    ]));
+    // Same identity, new argv (the process exec'd; native re-read it fresh).
+    await collectByActivation(service, response([
+      record({ pid: 407, startedAtUnixMs: 1_000, commandLine: ["fake-real-binary", "--exec"] }),
+    ]));
+
+    const delta = service.getSnapshot(1);
+    expect(delta.delta).toBe(true);
+    expect(delta.processes[0].commandLine).toEqual({
+      status: FieldStatus.FIELD_STATUS_OK,
+      arguments: ["fake-real-binary", "--exec"],
+      fromPrev: false,
+    });
+  });
+
+  it("ships changed stable fields in full even when the identity matches", async () => {
+    const service = makeService();
+
+    // A just-launched app first reports a staging path, then settles.
+    await collectByActivation(service, response([
+      record({ pid: 408, startedAtUnixMs: 1_000, executablePath: "/private/var/staging/FakeApp.app/Contents/MacOS/Fake" }),
+    ]));
+    await collectByActivation(service, response([
+      record({ pid: 408, startedAtUnixMs: 1_000, executablePath: "/Applications/FakeApp.app/Contents/MacOS/Fake" }),
+    ]));
+
+    const delta = service.getSnapshot(1);
+    expect(delta.delta).toBe(true);
+    expect(delta.processes[0].stableFromPrev).toBe(false);
+    expect(delta.processes[0].executablePath?.value).toBe(
+      "/Applications/FakeApp.app/Contents/MacOS/Fake",
+    );
   });
 });
