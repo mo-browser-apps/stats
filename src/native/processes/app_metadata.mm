@@ -2,25 +2,29 @@
 
 #import <AppKit/AppKit.h>
 
+#include <iterator>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace mostats {
 namespace {
 
-// Icon edge length in points. Small on purpose: the icon is volatile display
-// data sent on every snapshot pull, and the list renders it tiny, so a 32 px
-// PNG keeps the payload light while staying crisp at typical row sizes.
-constexpr int kIconSizePx = 32;
+// Icon edge length in points (the offscreen raster scales with the screen's
+// backing factor, so Retina yields a 64 px bitmap). Small on purpose: the icon
+// is volatile display data sent on every snapshot pull, and the list renders it
+// tiny, so this keeps the payload light while staying crisp at row sizes.
+constexpr int kIconSizePoints = 32;
 
 // Session cache of encoded icons, keyed by the icon resolution path (the owning
 // `.app` bundle, else the executable). Rasterizing an NSImage and
 // PNG/base64-encoding it is by far the most expensive step, and an app's icon
 // does not change while it runs, so caching the encoded string lets a
 // steady-state collection skip the draw/encode entirely. Keying on the `.app`
-// bundle means all members of a multi-process app share one entry. Bounded by
-// the number of distinct bundles/executables seen this session.
+// bundle means all members of a multi-process app share one entry. Pruned each
+// pass to the paths still in use (see PruneIconCache), so it is bounded by the
+// live processes rather than every path ever seen.
 //
 // Threading: the cache is touched only from the process collector, which the RPC
 // layer invokes serially on the native main thread (one collection at a time),
@@ -52,9 +56,9 @@ std::string EncodeIconBase64(NSImage* icon) {
   }
 
   NSImage* resized =
-      [[NSImage alloc] initWithSize:NSMakeSize(kIconSizePx, kIconSizePx)];
+      [[NSImage alloc] initWithSize:NSMakeSize(kIconSizePoints, kIconSizePoints)];
   [resized lockFocus];
-  [icon drawInRect:NSMakeRect(0, 0, kIconSizePx, kIconSizePx)
+  [icon drawInRect:NSMakeRect(0, 0, kIconSizePoints, kIconSizePoints)
           fromRect:NSZeroRect
          operation:NSCompositingOperationSourceOver
           fraction:1.0
@@ -70,7 +74,7 @@ std::string EncodeIconBase64(NSImage* icon) {
 
   NSBitmapImageRep* bitmap =
       [[NSBitmapImageRep alloc] initWithCGImage:cg_image];
-  [bitmap setSize:NSMakeSize(kIconSizePx, kIconSizePx)];
+  [bitmap setSize:NSMakeSize(kIconSizePoints, kIconSizePoints)];
   NSData* png =
       [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
   if (png.length == 0) {
@@ -82,35 +86,6 @@ std::string EncodeIconBase64(NSImage* icon) {
     return std::string();
   }
   return encoded.UTF8String;
-}
-
-// Fills the icon field from an NSImage, reusing the session cache so a given
-// icon is rasterized and encoded at most once per session. On a cache hit the
-// field is filled from the stored base64 with no drawing. A successful first
-// encode is cached; a failed encode degrades the field to unavailable and is not
-// cached, so a transiently missing icon can still resolve on a later pass. The
-// cache key must be stable for the icon (the resolution path).
-void FillIcon(NativeImage* out, NSImage* icon, const std::string& cache_key) {
-  if (!cache_key.empty()) {
-    const auto cached = IconCache().find(cache_key);
-    if (cached != IconCache().end()) {
-      out->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
-      out->set_png_base64(cached->second);
-      return;
-    }
-  }
-
-  const std::string encoded = EncodeIconBase64(icon);
-  if (encoded.empty()) {
-    out->set_status(NATIVE_FIELD_STATUS_UNAVAILABLE);
-    return;
-  }
-
-  if (!cache_key.empty()) {
-    IconCache().emplace(cache_key, encoded);
-  }
-  out->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
-  out->set_png_base64(encoded);
 }
 
 // The owning `.app` bundle of an executable path: the outermost `.app` segment.
@@ -173,52 +148,55 @@ void FillAppBundle(const std::string& executable_path, NativeAppBundle* out) {
   FillBundle(bundle.path, out);
 }
 
-bool PathContainsAppBundle(const std::string& executable_path) {
-  return !AppBundleForPath(executable_path).path.empty();
-}
-
-void IconForExecutablePath(const std::string& executable_path,
-                           NativeImage* out) {
-  if (executable_path.empty()) {
-    out->set_status(NATIVE_FIELD_STATUS_UNAVAILABLE);
-    return;
-  }
-
-  // Resolve from the owning `.app` bundle (real app icon) when there is one, else
-  // the executable itself (generic system icon). The cache is keyed on this
-  // resolution path, so all members of one app bundle share a single entry.
-  const AppBundle bundle = AppBundleForPath(executable_path);
-  const std::string& resolution_path =
-      bundle.path.empty() ? executable_path : bundle.path;
-  IconForFilePath(resolution_path, out);
-}
-
 void IconForFilePath(const std::string& path, NativeImage* out) {
   if (path.empty()) {
     out->set_status(NATIVE_FIELD_STATUS_UNAVAILABLE);
     return;
   }
+
   // Fast path: the encoded icon is cached per resolution path, so a steady-state
   // pass (every bundle/executable already seen) is a hash lookup with no AppKit
   // work at all. Only the first time a given bundle/executable is seen do we
   // resolve+encode. Measured on a ~600-process machine: a fully warm pass is well
   // under 1 ms, while a cold resolve+encode is the only real cost, once per path.
-  if (IconCache().count(path) == 0) {
-    @autoreleasepool {
-      NSString* file_path = [NSString stringWithUTF8String:path.c_str()];
-      // iconForFile: never returns nil: a `.app` bundle yields its real icon, and
-      // a plain executable yields the generic Unix-executable icon (the same
-      // thing Activity Monitor shows), so this raises icon coverage well beyond
-      // the GUI-app-only NSWorkspace enrichment without any private API.
-      NSImage* icon = file_path == nil
-                          ? nil
-                          : [[NSWorkspace sharedWorkspace] iconForFile:file_path];
-      FillIcon(out, icon, path);
-      return;
-    }
+  auto& cache = IconCache();
+  const auto cached = cache.find(path);
+  if (cached != cache.end()) {
+    out->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
+    out->set_png_base64(cached->second);
+    return;
   }
 
-  FillIcon(out, /*icon=*/nil, path);
+  std::string encoded;
+  @autoreleasepool {
+    NSString* file_path = [NSString stringWithUTF8String:path.c_str()];
+    // iconForFile: never returns nil: a `.app` bundle yields its real icon, and
+    // a plain executable yields the generic Unix-executable icon (the same
+    // thing Activity Monitor shows), so this raises icon coverage well beyond
+    // the GUI-app-only NSWorkspace enrichment without any private API.
+    NSImage* icon = file_path == nil
+                        ? nil
+                        : [[NSWorkspace sharedWorkspace] iconForFile:file_path];
+    encoded = EncodeIconBase64(icon);
+  }
+
+  if (encoded.empty()) {
+    // A failed resolve/encode is left uncached so a transiently missing icon
+    // can still resolve on a later pass.
+    out->set_status(NATIVE_FIELD_STATUS_UNAVAILABLE);
+    return;
+  }
+
+  out->set_status(NATIVE_FIELD_STATUS_AVAILABLE);
+  out->set_png_base64(encoded);
+  cache.emplace(path, std::move(encoded));
+}
+
+void PruneIconCache(const std::unordered_set<std::string>& used_paths) {
+  auto& cache = IconCache();
+  for (auto it = cache.begin(); it != cache.end();) {
+    it = used_paths.count(it->first) == 0 ? cache.erase(it) : std::next(it);
+  }
 }
 
 std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata() {

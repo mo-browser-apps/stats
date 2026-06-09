@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "gen/process_collector.pb.h"
 
@@ -19,43 +20,38 @@ namespace mostats {
  * records; processes with no entry keep bundle id / localized name unset.
  *
  * Icons are NOT resolved here. The collector resolves every process's icon
- * uniformly from its executable path via {@link IconForExecutablePath} (which
- * yields the owning `.app` icon, identical to NSRunningApplication.icon for a GUI
- * app - verified - and the generic icon for a daemon), so there is no GUI-only
- * icon special case and the per-resolution-path cache covers every row.
+ * uniformly via {@link IconForFilePath} from the same bundle the row groups by
+ * (yielding the owning `.app` icon, identical to NSRunningApplication.icon for a
+ * GUI app - verified - and the generic icon for a daemon), so there is no
+ * GUI-only icon special case and the per-path icon cache covers every row.
  */
 std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata();
 
 /**
- * Resolves a small app icon for any process by its executable path, writing the
- * base64 PNG (or an unavailable status) into `out`.
+ * Resolves a small icon for an exact app/file path, writing the base64 PNG (or
+ * an unavailable status) into `out`.
  *
- * Unlike {@link SnapshotRunningAppMetadata}, this is not limited to GUI apps. It
- * resolves the icon from the owning `.app` bundle when the executable lives
- * inside one (a browser helper resolves to the parent app's real icon), and from
- * the executable itself otherwise (a plain daemon gets the generic system icon),
- * via NSWorkspace's iconForFile:. The collector uses it as an icon-only fallback,
- * leaving naming, bundle id, and localized name untouched.
+ * Not limited to GUI apps: a `.app` bundle path yields the app's real icon and a
+ * plain executable path yields the generic system executable icon, via
+ * NSWorkspace's iconForFile:. The collector passes the owning `.app` bundle when
+ * the record has one (so every member of a multi-process app shares the app's
+ * icon) and the bare executable path otherwise.
  *
- * The encoded icon is cached per resolution path for the session, so members of
- * one app bundle share a single entry and a steady-state pass is a hash lookup
- * with no AppKit drawing. The icon is volatile display-only data and is never
- * logged or persisted.
- */
-void IconForExecutablePath(const std::string& executable_path, NativeImage* out);
-
-/**
- * Resolves an icon for an exact app/file path without applying app grouping.
+ * The encoded icon is cached per path while the path stays in use (see
+ * {@link PruneIconCache}), so a steady-state pass is a hash lookup with no
+ * AppKit drawing. The icon is volatile display-only data and is never logged or
+ * persisted.
  */
 void IconForFilePath(const std::string& path, NativeImage* out);
 
 /**
- * Whether a path lies inside a real `.app` bundle (has a `.app/` segment), i.e.
- * {@link IconForExecutablePath} can derive an app icon from it. False for a plain
- * daemon and for a code-sign clone whose bundle is `Foo.app.bundle` (no `.app/`),
- * which is why the collector prefers the NSWorkspace bundle path in that case.
+ * Drops cached icons whose resolution path is not in `used_paths` (the paths the
+ * just-finished pass resolved icons from). Keeps the icon cache bounded by the
+ * live processes: per-launch paths such as app-translocation directories would
+ * otherwise accumulate for the whole session. An exited app's icon is simply
+ * re-encoded once if it launches again.
  */
-bool PathContainsAppBundle(const std::string& executable_path);
+void PruneIconCache(const std::unordered_set<std::string>& used_paths);
 
 /**
  * Fills the owning `.app` bundle (path + display name) for an executable path,

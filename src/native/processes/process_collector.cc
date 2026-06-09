@@ -111,10 +111,10 @@ std::string InternIcon(CollectProcessesResponse* response,
   return key;
 }
 
-// Cached command line (argv) per process, across passes. argv is fixed at exec
-// and never changes for a process's lifetime, and KERN_PROCARGS2 is by far the
-// most expensive per-PID read, so caching it makes a steady pass mostly task-info
-// + rusage. Only argv is cached: the executable PATH is deliberately NOT cached
+// Cached command line (argv) per process image, across passes. argv is fixed at
+// exec (a later exec() installs a new image and rotates the cache key - see
+// CommandLineKey), and KERN_PROCARGS2 is by far the most expensive per-PID read,
+// so caching it makes a steady pass mostly task-info + rusage. Only argv is cached: the executable PATH is deliberately NOT cached
 // because macOS can transiently report a translocated/staging path
 // (/private/var/folders/...) for the first tick of a freshly launched app, and
 // freezing that would pin a wrong path (and a generic icon) for the process's
@@ -122,10 +122,14 @@ std::string InternIcon(CollectProcessesResponse* response,
 // every tick so the icon always tracks the real bundle and self-heals. CPU time,
 // memory, and thread count are likewise always read fresh - they change per tick.
 //
-// Session cache keyed by process identity "pid:started_at". Keying on start time
+// Session cache keyed by "pid:started_at:executable_path". Keying on start time
 // (not pid alone) means a reused PID is a different key and re-reads, so a new
-// process never inherits the prior occupant's argv. Pruned each pass to the
-// identities actually seen (see CollectProcesses).
+// process never inherits the prior occupant's argv. The executable path is part
+// of the key because exec() replaces argv while keeping the pid AND the
+// fork-time start time; an exec nearly always changes the executable path, so
+// the key rotates and argv is re-read once instead of staying frozen at the
+// pre-exec value for the process's lifetime. Pruned each pass to the keys
+// actually seen (see CollectProcesses).
 //
 // Threading: touched only by the collector, which runs serially on the native
 // main thread - no lock needed, same contract as the icon and uid caches.
@@ -134,16 +138,25 @@ std::unordered_map<std::string, NativeCommandLine>& CommandLineCache() {
   return cache;
 }
 
-// Process identity key for the command-line cache, or empty when the start time
-// is unavailable. Without a known start time a PID cannot be safely keyed (a
+// Cache key for a record's command line, or empty when the start time is
+// unavailable. Without a known start time a PID cannot be safely keyed (a
 // reused PID would collide), so such a record is never cached and always reads
-// fresh - the same rule the main-side CPU baseline uses.
-std::string CommandLineKey(const NativeProcessIdentity& identity) {
+// fresh - the same rule the main-side CPU baseline uses. The executable path
+// segment (empty when the path is unavailable) makes an exec() rotate the key,
+// so cached argv cannot outlive the image it was read from.
+std::string CommandLineKey(const NativeProcessIdentity& identity,
+                           const NativeString& executable_path) {
   if (identity.started_at_status() != NATIVE_FIELD_STATUS_AVAILABLE) {
     return std::string();
   }
-  return std::to_string(identity.pid()) + ":" +
-         std::to_string(identity.started_at_unix_ms());
+  std::string key = std::to_string(identity.pid());
+  key += ':';
+  key += std::to_string(identity.started_at_unix_ms());
+  key += ':';
+  if (executable_path.status() == NATIVE_FIELD_STATUS_AVAILABLE) {
+    key += executable_path.value();
+  }
+  return key;
 }
 
 // Returns the cached command line for an identity key, or null on a miss.
@@ -165,15 +178,24 @@ void MaybeCacheCommandLine(const std::string& key,
   CommandLineCache()[key] = record.command_line();
 }
 
-// Drops cache entries whose identity was not seen this pass (exited processes /
-// reused PIDs), so the cache tracks only live processes and cannot grow without
-// bound. Mirrors the main-side CPU-baseline fresh-map prune.
+// Drops cache entries whose key was not seen this pass (exited processes,
+// reused PIDs, exec-rotated keys), so the cache tracks only live processes and
+// cannot grow without bound. Mirrors the main-side CPU-baseline fresh-map prune.
 void PruneCommandLineCache(const std::unordered_set<std::string>& seen) {
   auto& cache = CommandLineCache();
   for (auto it = cache.begin(); it != cache.end();) {
     it = seen.count(it->first) == 0 ? cache.erase(it) : std::next(it);
   }
 }
+
+// Cache keys and icon resolution paths used by the records of one pass. The
+// session caches (argv here, encoded icons in app_metadata) are pruned to these
+// after the loop so they track only live processes and cannot grow without
+// bound.
+struct PassCacheUsage {
+  std::unordered_set<std::string> command_line_keys;
+  std::unordered_set<std::string> icon_paths;
+};
 
 // Enumerates all PIDs. proc_listallpids reports a PID count, not a byte count,
 // and the table can grow between the size probe and the read, so the buffer is
@@ -550,9 +572,18 @@ const std::string& LoginNameForUid(uid_t uid) {
   std::string name;
   struct passwd pwd = {};
   struct passwd* result = nullptr;
-  char buffer[1024] = {};
-  if (getpwuid_r(uid, &pwd, buffer, sizeof(buffer), &result) == 0 &&
-      result != nullptr && result->pw_name != nullptr) {
+  // getpwuid_r reports ERANGE when the scratch buffer is too small for the
+  // passwd record (possible for directory-service accounts); grow and retry,
+  // bounded, rather than caching an empty name for the session.
+  const long suggested = sysconf(_SC_GETPW_R_SIZE_MAX);
+  std::vector<char> buffer(suggested > 0 ? static_cast<size_t>(suggested)
+                                         : 1024);
+  int rc = getpwuid_r(uid, &pwd, buffer.data(), buffer.size(), &result);
+  while (rc == ERANGE && buffer.size() < (1u << 20)) {
+    buffer.resize(buffer.size() * 2);
+    rc = getpwuid_r(uid, &pwd, buffer.data(), buffer.size(), &result);
+  }
+  if (rc == 0 && result != nullptr && result->pw_name != nullptr) {
     name = result->pw_name;
   }
   return cache.emplace(uid, std::move(name)).first->second;
@@ -599,7 +630,7 @@ void FillRecord(
     pid_t pid, int arg_max, std::vector<char>* args_buffer,
     CollectProcessesResponse* response, NativeProcessRecord* record,
     const std::unordered_map<int32_t, NativeAppMetadata>& app_metadata,
-    std::unordered_set<std::string>* seen_identities) {
+    PassCacheUsage* usage) {
   NativeProcessIdentity* identity = record->mutable_identity();
   identity->set_pid(pid);
 
@@ -636,12 +667,14 @@ void FillRecord(
   FillExecutablePathAndName(pid, record->mutable_executable_path(),
                             record->mutable_executable_name());
 
-  // Command line (argv) is the one lifetime-stable field worth caching: it is
+  // Command line (argv) is the one image-stable field worth caching: it is
   // fixed at exec and KERN_PROCARGS2 is the most expensive per-PID read. Serve it
-  // from the per-identity cache when present, else read once and cache.
-  const std::string command_line_key = CommandLineKey(*identity);
-  if (!command_line_key.empty() && seen_identities != nullptr) {
-    seen_identities->insert(command_line_key);
+  // from the cache when present, else read once and cache. The key includes the
+  // executable path read above, so a process that execs a new image re-reads.
+  const std::string command_line_key =
+      CommandLineKey(*identity, record->executable_path());
+  if (!command_line_key.empty()) {
+    usage->command_line_keys.insert(command_line_key);
   }
   NativeCommandLine* cached_command_line =
       command_line_key.empty() ? nullptr : FindCommandLine(command_line_key);
@@ -677,35 +710,28 @@ void FillRecord(
                   record->mutable_app()->mutable_bundle());
   }
 
-  // Resolve the icon into a local image, intern it, and store only the key.
-  // Icon resolution prefers a path that actually contains a `.app`: the
-  // executable path normally does, but macOS can run a GUI app from a code-sign
-  // clone under /private/var/folders/.../X/...code_sign_clone/Foo.app.bundle/...
-  // whose path has no `.app` segment - resolving from it yields the generic exec
-  // icon. In that case NSWorkspace still reports the real bundle path
-  // (/Applications/Foo.app), so prefer it. The exec path remains the fallback for
-  // plain daemons (no `.app`, no NSWorkspace bundle), which correctly get the
-  // generic icon.
+  // Resolve the icon into a local image, intern it, and store only the key. The
+  // icon resolves from the same bundle the row groups by: after the
+  // normalization above, app.bundle holds the outer `.app` when the executable
+  // lives inside one, else the NSWorkspace bundle path (covers a GUI app run
+  // from a code-sign clone whose executable path has no `.app` segment), else is
+  // unset and the executable path itself yields the generic icon for a plain
+  // daemon. The chosen path is recorded on `usage` so the icon cache can be
+  // pruned to the paths still in use.
+  std::string icon_path;
+  if (record->app().bundle().path().status() ==
+      NATIVE_FIELD_STATUS_AVAILABLE) {
+    icon_path = record->app().bundle().path().value();
+  } else if (record->executable_path().status() ==
+             NATIVE_FIELD_STATUS_AVAILABLE) {
+    icon_path = record->executable_path().value();
+  }
+
   NativeImage icon;
   icon.set_status(NATIVE_FIELD_STATUS_UNAVAILABLE);
-
-  const std::string exe_path =
-      record->executable_path().status() == NATIVE_FIELD_STATUS_AVAILABLE
-          ? record->executable_path().value()
-          : std::string();
-  const std::string ns_bundle_path =
-      record->has_app() &&
-              record->app().bundle().path().status() ==
-                  NATIVE_FIELD_STATUS_AVAILABLE
-          ? record->app().bundle().path().value()
-          : std::string();
-
-  if (!exe_path.empty() && PathContainsAppBundle(exe_path)) {
-    IconForExecutablePath(exe_path, &icon);  // exec path is inside a real `.app`
-  } else if (!ns_bundle_path.empty()) {
-    IconForFilePath(ns_bundle_path, &icon);  // clone / no-`.app` exec: use NSWorkspace
-  } else if (!exe_path.empty()) {
-    IconForExecutablePath(exe_path, &icon);  // plain daemon: generic exec icon
+  if (!icon_path.empty()) {
+    usage->icon_paths.insert(icon_path);
+    IconForFilePath(icon_path, &icon);
   }
 
   std::string icon_key = InternIcon(response, icon);
@@ -750,17 +776,19 @@ void CollectProcesses(CollectProcessesResponse* response) {
   const int arg_max = ReadArgMax();
   std::vector<char> args_buffer(arg_max > 0 ? static_cast<size_t>(arg_max) : 0);
 
-  // Identities seen this pass; entries in the stable-fields cache not in this set
-  // (exited / reused PIDs) are pruned below so the cache tracks only live ones.
-  std::unordered_set<std::string> seen_identities;
-  seen_identities.reserve(pids.size());
+  // Cache keys and icon paths used this pass; the session caches are pruned to
+  // them below so exited processes (and exec-rotated keys) drop out.
+  PassCacheUsage usage;
+  usage.command_line_keys.reserve(pids.size());
+  usage.icon_paths.reserve(pids.size());
 
   for (const pid_t pid : pids) {
     FillRecord(pid, arg_max, &args_buffer, response, response->add_records(),
-               app_metadata, &seen_identities);
+               app_metadata, &usage);
   }
 
-  PruneCommandLineCache(seen_identities);
+  PruneCommandLineCache(usage.command_line_keys);
+  PruneIconCache(usage.icon_paths);
 }
 
 }  // namespace mostats
