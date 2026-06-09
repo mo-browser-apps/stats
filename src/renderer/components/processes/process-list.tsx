@@ -70,7 +70,7 @@ export function ProcessList({
   return (
     <div
       ref={containerRef}
-      className="scrollbar-hidden flex-1 overflow-y-auto"
+      className="scrollbar-hidden flex-1 overflow-y-auto bg-background"
       onPointerOver={() => setPointerInside(true)}
       onPointerLeave={() => setPointerInside(false)}
       onKeyDown={handleKeyDown}
