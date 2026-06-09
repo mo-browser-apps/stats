@@ -85,10 +85,10 @@
   /* Unfilled meter rail; faint, but a step stronger than dividers. */
   --track:            oklch(0% 0 0deg / 8%);
 
-  /* Metric status — green normal, amber elevated, red critical. */
-  --success:                oklch(59.6% 0.145 163.2deg);
-  --warning:                oklch(70% 0.180 65.0deg);
-  --destructive:            oklch(57.7% 0.245 27.3deg);
+  /* Metric status — soft blue normal, violet moderate, pink-red critical. */
+  --success:                oklch(58% 0.130 258deg);
+  --warning:                oklch(56% 0.190 300deg);
+  --destructive:            oklch(57% 0.235 12deg);
   --destructive-foreground: oklch(98.5% 0 0deg);
 
   /* Base radius — 10px, matching ../voice/../icons. */
@@ -123,10 +123,10 @@
      and the row separators read as different elements (DESIGN.md track token). */
   --track:            oklch(100% 0 0deg / 9%);
 
-  /* Metric status — green normal, amber elevated, red critical. */
-  --success:                oklch(79% 0.19 157deg);
-  --warning:                oklch(82% 0.160 75.0deg);
-  --destructive:            oklch(73.2% 0.183 24.7deg);
+  /* Metric status — soft blue normal, violet moderate, pink-red critical. */
+  --success:                oklch(72% 0.130 258deg);
+  --warning:                oklch(70% 0.180 300deg);
+  --destructive:            oklch(68% 0.230 12deg);
   --destructive-foreground: oklch(90% 0 0deg);
 }
 
