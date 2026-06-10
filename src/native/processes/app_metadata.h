@@ -28,18 +28,11 @@ namespace mostats {
 std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata();
 
 /**
- * A resolved icon, borrowed from the session icon cache: the encoded PNG bytes
- * and their content-hash key. Both pointers are null when no icon could be
- * resolved, and otherwise stay valid only until the next {@link PruneIconCache}
- * call - consume them within the same pass.
- */
-struct ResolvedIcon {
-  const std::string* png_base64 = nullptr;
-  const std::string* content_key = nullptr;
-};
-
-/**
- * Resolves a small icon for an exact app/file path.
+ * Resolves a small icon for an exact app/file path and returns its content-hash
+ * key, borrowed from the session icon cache - or null when no icon could be
+ * resolved. The pointer stays valid only until the next {@link PruneIconCache}
+ * call; consume it within the same pass. The encoded bytes stay in the cache
+ * and are served by key through {@link CopyIconForKey}.
  *
  * Not limited to GUI apps: a `.app` bundle path yields the app's real icon and a
  * plain executable path yields the generic system executable icon, via
@@ -52,7 +45,7 @@ struct ResolvedIcon {
  * with no AppKit drawing, no PNG encode, and no re-hash. The icon is volatile
  * display-only data and is never logged or persisted.
  */
-ResolvedIcon ResolveIconForPath(const std::string& path);
+const std::string* ResolveIconForPath(const std::string& path);
 
 /**
  * Drops cached icons whose resolution path is not in `used_paths` (the paths the

@@ -710,9 +710,9 @@ void FillRecord(
 
   if (!icon_path.empty()) {
     usage->icon_paths.insert(icon_path);
-    const ResolvedIcon icon = ResolveIconForPath(icon_path);
-    if (icon.content_key != nullptr) {
-      record->mutable_app()->set_icon_key(*icon.content_key);
+    const std::string* icon_key = ResolveIconForPath(icon_path);
+    if (icon_key != nullptr) {
+      record->mutable_app()->set_icon_key(*icon_key);
     }
   }
 }

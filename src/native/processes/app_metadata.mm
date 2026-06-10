@@ -208,9 +208,9 @@ void FillAppBundle(const std::string& executable_path, NativeAppBundle* out) {
   FillBundle(bundle.path, out);
 }
 
-ResolvedIcon ResolveIconForPath(const std::string& path) {
+const std::string* ResolveIconForPath(const std::string& path) {
   if (path.empty()) {
-    return ResolvedIcon{};
+    return nullptr;
   }
 
   // Fast path: the encoded icon is cached per resolution path, so a steady-state
@@ -219,7 +219,7 @@ ResolvedIcon ResolveIconForPath(const std::string& path) {
   // resolve+encode+hash. Measured on a ~700-process machine: a fully warm pass is
   // well under 1 ms, while a cold resolve+encode is the only real cost, per path.
   //
-  // The returned pointers stay valid across the unlocked encode below and until
+  // The returned pointer stays valid across the unlocked encode below and until
   // PruneIconCache: only the collector thread mutates the map, and unordered_map
   // insertions never invalidate element pointers. The lock only orders this
   // thread's find/emplace against the concurrent CopyIconForKey reader.
@@ -228,8 +228,7 @@ ResolvedIcon ResolveIconForPath(const std::string& path) {
     const std::lock_guard<std::mutex> lock(IconCacheMutex());
     const auto cached = cache.find(path);
     if (cached != cache.end()) {
-      return ResolvedIcon{&cached->second.png_base64,
-                          &cached->second.content_key};
+      return &cached->second.content_key;
     }
   }
 
@@ -249,16 +248,14 @@ ResolvedIcon ResolveIconForPath(const std::string& path) {
   if (encoded.empty()) {
     // A failed resolve/encode is left uncached so a transiently missing icon
     // can still resolve on a later pass.
-    return ResolvedIcon{};
+    return nullptr;
   }
 
   CachedIcon entry;
   entry.content_key = IconContentKey(encoded);
   entry.png_base64 = std::move(encoded);
   const std::lock_guard<std::mutex> lock(IconCacheMutex());
-  const auto inserted = cache.emplace(path, std::move(entry)).first;
-  return ResolvedIcon{&inserted->second.png_base64,
-                      &inserted->second.content_key};
+  return &cache.emplace(path, std::move(entry)).first->second.content_key;
 }
 
 void PruneIconCache(const std::unordered_set<std::string>& used_paths) {
