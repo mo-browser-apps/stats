@@ -16,7 +16,7 @@
 export type ReadingStatus = "unknown" | "ok" | "unavailable";
 
 /**
- * Aggregate CPU usage plus load average.
+ * Aggregate CPU usage across all logical cores.
  */
 export interface CpuReading {
   status: ReadingStatus;
@@ -24,10 +24,6 @@ export interface CpuReading {
    * 0-100 aggregate usage across all logical cores.
    */
   usagePercent: number;
-  /**
-   * 1/5/15 minute load averages when the platform provides them.
-   */
-  loadAverage: number[];
 }
 
 /**

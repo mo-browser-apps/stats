@@ -42,7 +42,7 @@ const PUBLISH_INTERVAL_MS = 1000;
 /** A minimal snapshot; the gating tests only care about call counts. */
 function emptyReading() {
   return {
-    cpu: { status: "unavailable", usagePercent: 0, loadAverage: [] },
+    cpu: { status: "unavailable", usagePercent: 0 },
     memory: {
       status: "unavailable",
       usedBytes: 0,

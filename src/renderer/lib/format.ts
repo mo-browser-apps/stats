@@ -128,20 +128,6 @@ export function formatUptime(seconds: number): string {
 }
 
 /**
- * Formats the 1/5/15-minute load averages as `3.4 / 2.9 / 2.1` (the order `top`
- * and `uptime` use, newest first), each to one decimal. Trailing missing entries
- * are skipped, so a platform that reports fewer values still renders cleanly.
- * Returns `undefined` when no finite entry exists, letting the caller omit the
- * line rather than show an empty or broken string.
- */
-export function formatLoadAverage(loadAverage: readonly number[] | undefined): string | undefined {
-  if (!loadAverage) return undefined;
-  const parts = loadAverage.slice(0, 3).filter((value) => Number.isFinite(value));
-  if (parts.length === 0) return undefined;
-  return parts.map((value) => value.toFixed(1)).join(" / ");
-}
-
-/**
  * Formats a cumulative CPU time given in nanoseconds as a compact duration,
  * matching Activity Monitor's "CPU Time" column: `4.62s` below a minute and
  * `40:31.84` (m:ss.cc) below an hour both carry centiseconds, so the value

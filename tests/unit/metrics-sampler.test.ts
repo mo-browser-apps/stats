@@ -13,7 +13,6 @@ const h = vi.hoisted(() => ({
   cpus: vi.fn(),
   statfsSync: vi.fn(),
   uptime: vi.fn(),
-  loadavg: vi.fn(),
 }));
 
 vi.mock("@main/gen/native", () => ({
@@ -23,7 +22,7 @@ vi.mock("@main/gen/native", () => ({
     temperature: { ReadCpuTemperature: h.readTemp },
   },
 }));
-vi.mock("node:os", () => ({ cpus: h.cpus, uptime: h.uptime, loadavg: h.loadavg }));
+vi.mock("node:os", () => ({ cpus: h.cpus, uptime: h.uptime }));
 vi.mock("node:fs", () => ({ statfsSync: h.statfsSync }));
 
 import { MetricsSampler } from "@main/metrics/metrics-sampler";
@@ -48,7 +47,6 @@ beforeEach(() => {
   h.cpus.mockReturnValue([core("M2", 0, 100)]);
   h.statfsSync.mockReturnValue({ blocks: 100, bsize: GB, bavail: 40 });
   h.uptime.mockReturnValue(3600);
-  h.loadavg.mockReturnValue([1.5, 1.0, 0.5]);
   h.readMemory.mockResolvedValue({ available: false, totalBytes: 0, usedBytes: 0, availableBytes: 0, cachedBytes: 0 });
   h.readNetwork.mockResolvedValue({ available: false, rxBytes: 0, txBytes: 0 });
   h.readTemp.mockResolvedValue({ available: false, celsius: 0 });
@@ -389,36 +387,6 @@ describe("uptime", () => {
     expect(reading.uptime.status).toBe("unavailable");
     // Disk (another sync group) is unaffected.
     expect(reading.disk.status).toBe("ok");
-  });
-});
-
-describe("load average", () => {
-  it("reports finite load averages on the CPU reading", async () => {
-    h.loadavg.mockReturnValue([2.5, 1.25, 0.75]);
-    const reading = await new MetricsSampler().sample();
-    expect(reading.cpu.loadAverage).toEqual([2.5, 1.25, 0.75]);
-  });
-
-  it("drops non-finite load entries (e.g. a platform without loadavg)", async () => {
-    h.loadavg.mockReturnValue([1.5, Number.NaN, Number.POSITIVE_INFINITY]);
-    const reading = await new MetricsSampler().sample();
-    expect(reading.cpu.loadAverage).toEqual([1.5]);
-  });
-
-  it("keeps the CPU usage reading even when loadavg() throws", async () => {
-    h.loadavg.mockImplementation(() => {
-      throw new Error("loadavg boom");
-    });
-    // Two samples with a real tick delta so usage is meaningful (first is always
-    // pending); load failing independently must not downgrade that usage status.
-    const sampler = new MetricsSampler();
-    h.cpus.mockReturnValue([core("M2", 100, 100)]);
-    await sampler.sample();
-    h.cpus.mockReturnValue([core("M2", 175, 125)]); // +75 busy / +100 total = 75%
-    const reading = await sampler.sample();
-    expect(reading.cpu.loadAverage).toEqual([]);
-    expect(reading.cpu.status).toBe("ok");
-    expect(reading.cpu.usagePercent).toBeCloseTo(75);
   });
 });
 

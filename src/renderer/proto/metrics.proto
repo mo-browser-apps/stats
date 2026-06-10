@@ -21,7 +21,6 @@ enum MetricStatus {
 message CpuMetric {
   MetricStatus status = 1;
   double usage_percent = 2; // 0-100 aggregate usage across all cores.
-  repeated double load_average = 3; // 1/5/15 minute load averages.
 }
 
 // Physical memory composition. used (= app + wired + compressed) excludes

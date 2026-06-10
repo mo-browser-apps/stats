@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Clock, Cpu, HardDrive, Network, Thermometer } from "lucide-react";
+import { Clock, HardDrive, Network, Thermometer } from "lucide-react";
 
 import { MetricRow } from "@/components/metrics/metric-row";
+import { CpuRow } from "@/components/metrics/cpu-row";
 import { MemoryRow } from "@/components/metrics/memory-row";
 import { metricsGateway } from "@/gateway/metrics-gateway";
 import type { MetricsSnapshot } from "@/gen/metrics";
@@ -11,7 +12,6 @@ import {
   UNAVAILABLE_TEXT,
   formatBytes,
   formatCelsius,
-  formatLoadAverage,
   formatPercentParts,
   formatRate,
   formatRateParts,
@@ -56,26 +56,6 @@ export function MetricsOverview({ active }: { active: boolean }) {
         <FooterStats snapshot={snapshot} />
       </div>
     </div>
-  );
-}
-
-function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
-  const cpu = snapshot?.cpu;
-  const state = cpu ? usageState(cpu.status, cpu.usagePercent) : "pending";
-  const live = isLive(state);
-  const load = formatLoadAverage(cpu?.loadAverage);
-  const detail = load ? `Load ${load}` : undefined;
-  const percent = cpu ? formatPercentParts(cpu.usagePercent) : undefined;
-  return (
-    <MetricRow
-      icon={Cpu}
-      label="CPU"
-      state={state}
-      value={percent?.value}
-      valueUnit={percent?.unit}
-      detail={live ? detail : undefined}
-      percent={live ? cpu?.usagePercent : undefined}
-    />
   );
 }
 

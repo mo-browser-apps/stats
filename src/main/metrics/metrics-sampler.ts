@@ -103,7 +103,6 @@ export class MetricsSampler {
    * tick and a logical-core-count change that would make a raw delta meaningless.
    */
   private sampleCpu(): CpuReading {
-    const loadAverage = this.readLoadAverage();
     try {
       const cores = os.cpus();
 
@@ -113,7 +112,7 @@ export class MetricsSampler {
 
       if (previous === null) {
         // First sample: no delta yet. Pending until the next tick.
-        return { status: "unknown", usagePercent: 0, loadAverage };
+        return { status: "unknown", usagePercent: 0 };
       }
 
       const busyDelta = current.busy - previous.busy;
@@ -122,27 +121,14 @@ export class MetricsSampler {
       if (totalDelta <= 0 || busyDelta < 0) {
         // Zero/negative delta (idle tick, counter reset, or core-count change):
         // not a meaningful percentage this tick.
-        return { status: "unknown", usagePercent: 0, loadAverage };
+        return { status: "unknown", usagePercent: 0 };
       }
 
       const usagePercent = clampPercent((busyDelta / totalDelta) * 100);
-      return { status: "ok", usagePercent, loadAverage };
+      return { status: "ok", usagePercent };
     } catch {
       this.previousCpuTicks = null;
-      return { status: "unavailable", usagePercent: 0, loadAverage };
-    }
-  }
-
-  /**
-   * 1/5/15 minute load averages from Node `os`. `loadavg()` is Unix-specific; on
-   * platforms without it the entries are 0, so non-finite values are dropped and
-   * an empty array signals "unavailable" to the formatter. Never throws.
-   */
-  private readLoadAverage(): number[] {
-    try {
-      return os.loadavg().filter((value) => Number.isFinite(value));
-    } catch {
-      return [];
+      return { status: "unavailable", usagePercent: 0 };
     }
   }
 
