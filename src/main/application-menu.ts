@@ -1,9 +1,5 @@
 import { Menu, MenuItem, MenuWithRole } from "@mobrowser/api";
-
-/**
- * Human-facing app name.
- */
-const DISPLAY_NAME = "MōStats";
+import { DISPLAY_NAME } from "./branding";
 
 /**
  * Builds the macOS application menu.

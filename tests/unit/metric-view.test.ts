@@ -20,7 +20,8 @@ describe("baseState", () => {
 describe("usageState", () => {
   it("refines an OK metric by the default thresholds", () => {
     expect(usageState(MetricStatus.METRIC_STATUS_OK, 10)).toBe("ok");
-    expect(usageState(MetricStatus.METRIC_STATUS_OK, 70)).toBe("elevated");
+    expect(usageState(MetricStatus.METRIC_STATUS_OK, 74.9)).toBe("ok");
+    expect(usageState(MetricStatus.METRIC_STATUS_OK, 75)).toBe("elevated");
     expect(usageState(MetricStatus.METRIC_STATUS_OK, 89.9)).toBe("elevated");
     expect(usageState(MetricStatus.METRIC_STATUS_OK, 90)).toBe("critical");
     expect(usageState(MetricStatus.METRIC_STATUS_OK, 100)).toBe("critical");

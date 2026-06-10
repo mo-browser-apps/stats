@@ -7,11 +7,7 @@ import { MetricsService } from "./metrics/metrics-service";
 import { ProcessExplorerService } from "./processes/process-explorer-service";
 import { ActiveView, CopyTextRequest, SetActiveViewRequest, SetAlwaysOnTopRequest } from "./gen/app";
 import { AppServiceDescriptor } from "./gen/ipc_service";
-
-/**
- * Human-facing app name.
- */
-const DISPLAY_NAME = "MōStats";
+import { DISPLAY_NAME } from "./branding";
 
 /**
  * Opened from the About dialog's button.

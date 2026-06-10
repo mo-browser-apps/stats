@@ -1,11 +1,7 @@
 import { app, CheckboxMenuItem, Menu, MenuItem, Tray } from "@mobrowser/api";
 import type { MouseButton } from "@mobrowser/api";
 import type { ApplicationWindow } from "./application-window";
-
-/**
- * Human-facing app name.
- */
-const DISPLAY_NAME = "MōStats";
+import { DISPLAY_NAME } from "./branding";
 
 /**
  * Owns the macOS menu-bar tray item and its menu.

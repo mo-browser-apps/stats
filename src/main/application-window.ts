@@ -1,6 +1,7 @@
 import process from "node:process";
 import { app, BrowserWindow } from "@mobrowser/api";
 import type { CloseBrowserWindowAction, CloseBrowserWindowParams } from "@mobrowser/api";
+import { DISPLAY_NAME } from "./branding";
 
 /**
  * The two top-level views; the window picks its height per view.
@@ -171,7 +172,9 @@ export class ApplicationWindow {
     const initialHeight = this.targetHeight;
     const window = new BrowserWindow({
       url: app.url,
-      title: app.name,
+      // Branded name (with macron) for the user-visible title; app.name is the
+      // ASCII technical identifier and must not surface in the UI.
+      title: DISPLAY_NAME,
       size: { width: WINDOW_WIDTH, height: initialHeight },
       // Minimum is the smallest (Stats) height so a shrink animation is never
       // clamped; the exact per-view height is driven by setBounds, not the user.
