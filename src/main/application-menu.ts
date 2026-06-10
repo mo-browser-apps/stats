@@ -2,21 +2,10 @@ import { Menu, MenuItem, MenuWithRole } from "@mobrowser/api";
 import { DISPLAY_NAME } from "./branding";
 
 /**
- * Builds the macOS application menu.
- *
- * Intentionally minimal: the standard app menu (About, hide, quit), an Edit menu
- * so text in the process detail can be selected and copied, and a Window menu
- * with minimize. About sits under the app-name menu, the native macOS location,
- * rather than in the tray.
- *
- * Quit is a custom item routed through `onQuit` rather than the framework `quit`
- * role so it goes through the single application quit path that disposes the
- * services and tray; the `quit` role would call the framework quit directly and
- * skip that.
- *
- * @param onAbout Invoked when the user selects About; the owner shows the dialog.
- * @param onQuit Invoked when the user selects Quit; the owner disposes services
- *   and then quits the app.
+ * Builds the minimal macOS application menu: the standard app menu, an Edit
+ * menu so detail text can be selected and copied, and a Window menu. Quit is a
+ * custom item routed through `onQuit` (not the framework `quit` role) so it
+ * goes through the single quit path that disposes the services and tray.
  */
 export function buildApplicationMenu(onAbout: () => void, onQuit: () => void): Menu {
   const appMenu = new MenuWithRole({

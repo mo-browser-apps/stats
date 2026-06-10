@@ -3,17 +3,13 @@ import { app, BrowserWindow } from "@mobrowser/api";
 import type { CloseBrowserWindowAction, CloseBrowserWindowParams } from "@mobrowser/api";
 import { DISPLAY_NAME } from "./branding";
 
-/**
- * The two top-level views; the window picks its height per view.
- */
+/** The two top-level views; the window picks its height per view. */
 type WindowView = "stats" | "processes";
 
 /**
- * Compact window dimensions. Width is constant; the height follows the active
- * view so neither view wastes vertical space: the Stats overview is a tight stack
- * of metric rows, while the Processes explorer needs room for the sort control,
- * search field, and a ranked list. Kept closer to a menu-bar popover than a
- * dashboard.
+ * Compact window dimensions, closer to a menu-bar popover than a dashboard.
+ * Width is constant; the height follows the active view so neither view
+ * wastes vertical space.
  */
 const WINDOW_WIDTH = 360;
 const VIEW_HEIGHT: Record<WindowView, number> = {
@@ -21,127 +17,95 @@ const VIEW_HEIGHT: Record<WindowView, number> = {
   processes: 560,
 };
 
-/**
- * The view the window opens at (and re-shows at after a hide).
- */
 const INITIAL_VIEW: WindowView = "stats";
 
 /**
- * Per-view resize animation. macOS has no documented animate flag on setBounds,
- * so a short eased loop in main gives a smooth grow/shrink without any content
- * reflow (both views stay mounted, so only the window frame moves).
+ * Per-view resize animation. macOS has no documented animate flag on
+ * setBounds, so a short eased loop in main gives a smooth grow/shrink (both
+ * views stay mounted, so only the window frame moves).
  */
 const RESIZE_DURATION_MS = 160;
 const RESIZE_STEP_MS = 16; // ~60fps
 
-/**
- * Position of the macOS traffic-light buttons so they clear the custom
- * draggable title row instead of overlapping content.
- */
+/** Traffic-light position clearing the custom draggable title row. */
 const MAC_WINDOW_BUTTON_POSITION = { x: 16, y: 18 } as const;
 
 /**
- * Owns the single compact MoStats window and its show/hide lifecycle.
- *
- * Closing the window hides it so the app keeps running in the background; the
- * window only truly closes when the application is quitting. The window is
- * created lazily and recreated if it was destroyed, so the tray can always
- * bring the UI back.
+ * Owns the single compact window and its show/hide lifecycle. Closing hides
+ * the window so the app keeps running in the tray; it truly closes only when
+ * the app quits. Created lazily and recreated if destroyed, so the tray can
+ * always bring the UI back.
  */
 export class ApplicationWindow {
   private window: BrowserWindow | null = null;
 
-  /**
-   * Target height for the active view; used when creating or re-showing.
-   */
+  /** Target height for the active view; used when creating or re-showing. */
   private targetHeight = VIEW_HEIGHT[INITIAL_VIEW];
 
-  /**
-   * Active resize animation timer, if a grow/shrink is in flight.
-   */
   private resizeTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
    * @param onVisibilityChange Notified after the window is shown, hidden, or
-   *   destroyed so observers (for example the tray menu) can stay in sync.
+   *   destroyed so observers (e.g. the tray menu) can stay in sync.
    */
   constructor(private readonly onVisibilityChange?: () => void) {}
 
-  /**
-   * Shows the window, creating it if needed, and brings it to the front.
-   */
+  /** Shows the window, creating it if needed, and brings it to the front. */
   show(): void {
     const window = this.getOrCreateWindow();
-    if (window.isVisible) {
-      window.focus();
-      return;
+    if (!window.isVisible) {
+      window.show();
     }
-    window.show();
     window.focus();
   }
 
-  /**
-   * Hides the window if it currently exists and is visible.
-   */
   hide(): void {
-    if (this.window && !this.window.isClosed && this.window.isVisible) {
-      this.settleResize(this.window);
-      this.window.hide();
+    const window = this.instance;
+    if (window?.isVisible) {
+      this.settleResize(window);
+      window.hide();
     }
   }
 
-  /**
-   * Toggles window visibility for tray/menu-bar interactions.
-   */
   toggle(): void {
-    if (this.window && !this.window.isClosed && this.window.isVisible) {
+    if (this.isVisible) {
       this.hide();
-      return;
+    } else {
+      this.show();
     }
-    this.show();
   }
 
-  /**
-   * Whether the window currently exists and is visible to the user.
-   */
   get isVisible(): boolean {
-    return this.window !== null && !this.window.isClosed && this.window.isVisible;
+    return this.instance?.isVisible ?? false;
   }
 
   /**
-   * The live window instance, or null when none exists (it is created lazily and
-   * dropped on close). Exposed so main can parent a native dialog to the window;
-   * callers must tolerate null (the dialog is then app-modal).
+   * The live window instance, or null when none exists. Exposed so main can
+   * parent native dialogs; callers must tolerate null (then app-modal).
    */
   get instance(): BrowserWindow | null {
     return this.window !== null && !this.window.isClosed ? this.window : null;
   }
 
-  /**
-   * Pins or unpins the window above other windows.
-   */
   setAlwaysOnTop(alwaysOnTop: boolean): void {
     this.getOrCreateWindow().setAlwaysOnTop(alwaysOnTop);
   }
 
   /**
-   * Resizes the window to the active view's height, animating the change with a
-   * short eased setBounds loop so the grow/shrink reads as smooth. The top-left
-   * corner stays fixed by preserving the current bounds origin, like a menu-bar
-   * popover. If no live window exists, it just records the target height so the
-   * next create() opens at the right size.
+   * Resizes to the active view's height with a short eased animation, keeping
+   * the top-left corner fixed like a menu-bar popover. With no live window it
+   * just records the target so the next create() opens at the right size.
    */
   resizeForView(view: WindowView): void {
     const target = VIEW_HEIGHT[view];
-    const window = this.window;
-    if (window === null || window.isClosed) {
-      // No window to animate; remember the target for the next create().
+    const window = this.instance;
+    if (window === null) {
       this.targetHeight = target;
       return;
     }
 
     if (target === this.targetHeight && this.resizeTimer !== null) {
-      return;
+      return; // Already animating to this target.
     }
 
     this.targetHeight = target;
@@ -169,25 +133,19 @@ export class ApplicationWindow {
 
   private create(): BrowserWindow {
     const isMac = process.platform === "darwin";
-    const initialHeight = this.targetHeight;
     const window = new BrowserWindow({
-      // The URL of the app frontend entry point.
       url: app.url,
-      // Branded name for the user-visible title.
       title: DISPLAY_NAME,
-      // The size is just big enough for the initial view.
-      size: { width: WINDOW_WIDTH, height: initialHeight },
+      size: { width: WINDOW_WIDTH, height: this.targetHeight },
       minimumSize: { width: WINDOW_WIDTH, height: VIEW_HEIGHT.stats },
       resizable: false,
-      // Hide the green maximize/zoom button: there is no larger layout to
-      // expand into. Close and minimize stay so the window behaves natively.
+      // No larger layout to expand into; close and minimize stay native.
       windowButtonVisible: { maximize: false, zoom: false },
       windowTitleVisible: false,
       // Keep the native title bar off on macOS for a compact utility look.
       windowTitlebarVisible: !isMac,
     });
 
-    // Disable content zoom entirely.
     window.browser.zoom.setEnabled(false);
 
     if (isMac) {
@@ -196,13 +154,10 @@ export class ApplicationWindow {
 
     window.centerWindow();
 
-    // Hide instead of close so the app keeps running in the background. When
-    // the app is quitting, allow the window to close so the process can exit.
+    // Hide instead of close so the app keeps running; allow a real close only
+    // while quitting so the process can exit.
     window.handle("close", async (params: CloseBrowserWindowParams): Promise<CloseBrowserWindowAction> => {
-      if (params.isQuitting) {
-        return "close";
-      }
-      return "hide";
+      return params.isQuitting ? "close" : "hide";
     });
 
     window.on("shown", () => {
@@ -221,9 +176,9 @@ export class ApplicationWindow {
   }
 
   /**
-   * Steps the window height from `from` to `to` over RESIZE_DURATION_MS using an
-   * ease-out curve. A new call cancels any in-flight animation so rapid view
-   * switches always settle on the latest target rather than fighting each other.
+   * Steps the height from `from` to `to` with an ease-out curve. A new call
+   * cancels any in-flight animation, so rapid view switches settle on the
+   * latest target instead of fighting each other.
    */
   private animateHeight(window: BrowserWindow, from: number, to: number): void {
     this.stopResize();
@@ -235,8 +190,7 @@ export class ApplicationWindow {
     this.resizeTimer = setInterval(() => {
       step += 1;
       const t = Math.min(1, step / steps);
-      // Ease-out cubic for a natural deceleration.
-      const eased = 1 - Math.pow(1 - t, 3);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
       const height = Math.round(from + (to - from) * eased);
 
       if (this.window !== window || window.isClosed) {
@@ -251,9 +205,6 @@ export class ApplicationWindow {
     }, RESIZE_STEP_MS);
   }
 
-  /**
-   * Applies a bounded per-view height while preserving the chosen frame origin.
-   */
   private setWindowHeight(
     window: BrowserWindow,
     height: number,
@@ -265,9 +216,7 @@ export class ApplicationWindow {
     });
   }
 
-  /**
-   * Finishes any in-flight resize at the latest target while the frame is hidden.
-   */
+  /** Finishes any in-flight resize at the latest target while the frame is hidden. */
   private settleResize(window: BrowserWindow): void {
     this.stopResize();
     if (!window.isClosed && Math.round(window.size.height) !== this.targetHeight) {
@@ -275,9 +224,6 @@ export class ApplicationWindow {
     }
   }
 
-  /**
-   * Clears the resize animation timer if one is running.
-   */
   private stopResize(): void {
     if (this.resizeTimer !== null) {
       clearInterval(this.resizeTimer);

@@ -8,14 +8,12 @@ import { DiskRow } from "@/components/metrics/disk-row";
 import { NetworkRow } from "@/components/metrics/network-row";
 import { metricsGateway } from "@/gateway/metrics-gateway";
 import type { MetricsSnapshot } from "@/gen/metrics";
-import { baseState, isLive } from "@/domain/metric-view";
-import { UNAVAILABLE_TEXT, formatCelsius, formatUptime } from "@/lib/format";
+import { baseState, displayText, isLive } from "@/domain/metric-view";
+import { formatCelsius, formatUptime } from "@/lib/format";
 
 /**
- * Live overview (the Stats view). Owns the metrics-stream subscription but only
- * while active: it subscribes when `active` and unsubscribes when hidden,
- * retaining the last rows across tab switches. The renderer holds no sampling
- * timer.
+ * Live overview (the Stats view). Subscribes to the metrics stream only while
+ * active and keeps the last rows across tab switches; main owns the cadence.
  */
 export function MetricsOverview({ active }: { active: boolean }) {
   const [snapshot, setSnapshot] = useState<MetricsSnapshot | null>(null);
@@ -24,7 +22,6 @@ export function MetricsOverview({ active }: { active: boolean }) {
     if (!active) {
       return;
     }
-    // Subscribe while active; the returned unsubscribe is the cleanup on hide.
     return metricsGateway.subscribe(setSnapshot, () => setSnapshot(null));
   }, [active]);
 
@@ -52,50 +49,29 @@ export function MetricsOverview({ active }: { active: boolean }) {
 }
 
 /**
- * Compact footer: Uptime on the left, CPU temperature on the right. Temperature
- * is best-effort on Apple Silicon, so it is shown only when a sensor reading is
+ * Compact footer: Uptime left, CPU temperature right. Temperature is
+ * best-effort on Apple Silicon, so it renders only when a sensor reading is
  * actually available rather than as a dead placeholder.
  */
 function FooterStats({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const uptime = snapshot?.uptime;
   const uptimeState = uptime ? baseState(uptime.status) : "pending";
-  const uptimeLive = isLive(uptimeState);
-  const uptimeValue = uptime && uptimeLive
-    ? formatUptime(uptime.uptimeSeconds)
-    : uptimeState === "pending"
-      ? "--"
-      : UNAVAILABLE_TEXT;
+  const uptimeValue = displayText(uptimeState, formatUptime(uptime?.uptimeSeconds ?? 0));
 
   const temperature = snapshot?.temperature;
   const temperatureLive = temperature ? isLive(baseState(temperature.status)) : false;
 
   return (
     <div className="flex items-center justify-between text-[11px]">
-      <div>
-        <FooterStat icon={Clock} label="Uptime" value={uptimeValue} />
-      </div>
-
-      <div>
-        {temperature && temperatureLive ? (
-          <FooterStat icon={Thermometer} label="CPU Temp" value={formatCelsius(temperature.celsius)} />
-        ) : null}
-      </div>
+      <FooterStat icon={Clock} label="Uptime" value={uptimeValue} />
+      {temperature && temperatureLive ? (
+        <FooterStat icon={Thermometer} label="CPU Temp" value={formatCelsius(temperature.celsius)} />
+      ) : null}
     </div>
   );
 }
 
-/**
- * A single footer stat: quiet icon + label, then the value.
- */
-function FooterStat({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: LucideIcon
-  label: string
-  value: string
-}) {
+function FooterStat({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
   return (
     <div className="flex items-center gap-1.5">
       <Icon className="h-3 w-3 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />

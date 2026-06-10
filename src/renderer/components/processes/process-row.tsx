@@ -1,18 +1,17 @@
 import { memo } from "react";
 
 import { cn } from "@/lib/utils";
-import { UNAVAILABLE_TEXT } from "@/lib/format";
 import { ProcessIcon } from "@/components/processes/process-icon";
-import type { DetailSelection, ProcessGroup } from "@/domain/process-list";
+import { metricValueText, type DetailSelection, type ProcessGroup } from "@/domain/process-list";
 
 /**
  * One fixed-height process row: app icon, name, an optional "+N" grouped-child
- * badge, and the right-aligned active metric. The whole row is a button opening
- * the detail view for the row's selection target.
+ * badge, and the right-aligned active metric. The whole row is a button
+ * opening the detail view.
  *
- * Wrapped in {@link memo} with a field-wise comparator: the projection rebuilds
- * fresh group objects every 2s tick, so comparing the rendered fields lets an
- * unchanged row skip re-rendering instead of reconciling on every snapshot.
+ * Memoized with a field-wise comparator: the projection rebuilds fresh group
+ * objects every tick, so comparing the rendered fields lets an unchanged row
+ * skip re-rendering. `onOpen` is a stable callback and is not compared.
  */
 export const ProcessRow = memo(function ProcessRow({
   group,
@@ -47,18 +46,12 @@ export const ProcessRow = memo(function ProcessRow({
           group.metricState === "ok" ? "text-foreground" : "text-muted-foreground",
         )}
       >
-        {metricText(group)}
+        {metricValueText(group.metricState, group.metricText)}
       </span>
     </button>
   );
 }, areGroupsEqual);
 
-/**
- * Equality check for the memoized row: compares the displayed fields plus the
- * group `key` (so React never reuses a row across distinct groups) and the open
- * target (a search can keep the visible name while changing which matched member
- * opens). `onOpen` is a stable callback, so it is not compared.
- */
 function areGroupsEqual(
   previous: { group: ProcessGroup; onOpen: (selection: DetailSelection) => void },
   next: { group: ProcessGroup; onOpen: (selection: DetailSelection) => void },
@@ -78,9 +71,6 @@ function areGroupsEqual(
   );
 }
 
-/**
- * True when two row open targets point to the same detail selection.
- */
 function areSelectionsEqual(left: DetailSelection, right: DetailSelection): boolean {
   if (left.kind === "group" && right.kind === "group") {
     return left.key === right.key;
@@ -89,20 +79,4 @@ function areSelectionsEqual(left: DetailSelection, right: DetailSelection): bool
     return left.pid === right.pid && left.startedAtUnixMs === right.startedAtUnixMs;
   }
   return false;
-}
-
-/**
- * The right-aligned value text for a row: the formatted value when OK, a quiet
- * `--` while the metric is still pending (e.g. a first-sample CPU delta), and
- * the explicit unavailable text only when the source could not be read.
- */
-function metricText(group: ProcessGroup): string {
-  switch (group.metricState) {
-    case "ok":
-      return group.metricText ?? UNAVAILABLE_TEXT;
-    case "pending":
-      return "--";
-    default:
-      return UNAVAILABLE_TEXT;
-  }
 }

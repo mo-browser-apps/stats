@@ -66,11 +66,11 @@ describe("buildProcessDetail - identity from representative", () => {
     expect(detail.name).toBe("Chrome");
     expect(detail.pid).toBe(100);
     expect(detail.bundleIdentifier).toBe("com.google.Chrome");
-    expect(detail.parent).toEqual({ available: true, pid: 1 });
+    expect(detail.parentPid).toBe(1);
     expect(detail.startedAt).toBe("ok");
     expect(detail.startedAtUnixMs).toBe(1000);
-    expect(detail.path).toBe("ok");
-    expect(detail.pathText).toBe("/Applications/Chrome.app/Contents/MacOS/Chrome");
+    expect(detail.path.state).toBe("ok");
+    expect(detail.path.text).toBe("/Applications/Chrome.app/Contents/MacOS/Chrome");
     expect(detail.commandLine.state).toBe("ok");
   });
 });
@@ -158,9 +158,9 @@ describe("buildProcessDetail - availability", () => {
     // No start time given -> identity startedAtStatus defaults to UNKNOWN -> pending.
     expect(detail.startedAt).toBe("pending");
     // No path / command line -> pending (proto-default UNKNOWN distinguished from unavailable).
-    expect(detail.path).toBe("pending");
+    expect(detail.path.state).toBe("pending");
     expect(detail.commandLine.state).toBe("pending");
-    expect(detail.parent.available).toBe(false);
+    expect(detail.parentPid).toBeUndefined();
   });
 
   it("distinguishes permission-denied command line as unavailable, not pending", () => {

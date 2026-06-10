@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { cn } from "@/lib/utils";
 import { formatBytes } from "@/lib/format";
+import { MeterTooltip } from "@/components/metrics/metric-row-header";
 
 export interface MeterSegment {
   key: string;
@@ -11,10 +12,10 @@ export interface MeterSegment {
 }
 
 /**
- * A composition bar: a rail split into byte-weighted colored segments that sum to
- * `totalBytes`, with a labels-only legend. Hovering a segment (or its legend
- * item) brightens and lifts it, dims the rest, and shows its value in a tooltip
- * centered above the segment.
+ * A composition bar: a rail split into byte-weighted colored segments that sum
+ * to `totalBytes`, with a labels-only legend. Hovering a segment (or its
+ * legend item) brightens and lifts it, dims the rest, and shows its value in a
+ * tooltip centered above the segment.
  */
 export function SegmentedMeter({
   segments,
@@ -32,12 +33,12 @@ export function SegmentedMeter({
   const enter = (key: string) => setHovered(key);
   const leave = (key: string) => setHovered((current) => (current === key ? null : current));
 
-  // Center of each segment as a clamped percent of the bar, for static tooltips.
+  // Center of each segment as a percent of the bar, for the static tooltip.
   const drawableTotal = drawable.reduce((sum, segment) => sum + segment.bytes, 0) || 1;
   let running = 0;
   const centerByKey = new Map<string, number>();
   for (const segment of drawable) {
-    centerByKey.set(segment.key, Math.min(92, Math.max(8, ((running + segment.bytes / 2) / drawableTotal) * 100)));
+    centerByKey.set(segment.key, ((running + segment.bytes / 2) / drawableTotal) * 100);
     running += segment.bytes;
   }
 
@@ -70,20 +71,13 @@ export function SegmentedMeter({
             );
           })}
         </div>
-        {hoveredSegment ? <SegmentTooltip segment={hoveredSegment} centerPercent={centerByKey.get(hoveredSegment.key)!} /> : null}
+        {hoveredSegment ? (
+          <MeterTooltip leftPercent={centerByKey.get(hoveredSegment.key) ?? 50} className="-top-6">
+            {formatBytes(hoveredSegment.bytes)}
+          </MeterTooltip>
+        ) : null}
       </div>
       <MeterLegend segments={drawable} hovered={hovered} onEnter={enter} onLeave={leave} />
-    </div>
-  );
-}
-
-function SegmentTooltip({ segment, centerPercent }: { segment: MeterSegment; centerPercent: number }) {
-  return (
-    <div
-      className="pointer-events-none absolute -top-6 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-popover-foreground shadow-sm"
-      style={{ left: `${centerPercent}%` }}
-    >
-      {formatBytes(segment.bytes)}
     </div>
   );
 }

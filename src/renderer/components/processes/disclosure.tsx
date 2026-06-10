@@ -5,19 +5,14 @@ import { appGateway } from "@/gateway/app-gateway";
 import { cn } from "@/lib/utils";
 
 /**
- * Reusable disclosure and copy primitives for the detail view.
- *
- * Two generic building blocks: the smooth open/close wrapper used by the Members
- * section, and the clipboard copy button used by the inline Path / Command line
- * fields. Sensitive process text (paths, argv) is copied only on explicit user
- * action and is never logged, persisted, or auto-copied; copy routes through main
- * because the renderer is sandboxed.
+ * Reusable disclosure and copy primitives for the detail view. Sensitive
+ * process text (paths, argv) is copied only on explicit user action and
+ * routes through main because the renderer is sandboxed.
  */
 
 /**
- * Smooth height/opacity wrapper for compact disclosure bodies. It keeps content
- * mounted so close animations can run, while `inert` prevents hidden controls
- * from being reachable by keyboard.
+ * Smooth height/opacity wrapper for disclosure bodies. Content stays mounted
+ * so close animations can run; `inert` keeps hidden controls unreachable.
  */
 export function DisclosureContent({
   open,

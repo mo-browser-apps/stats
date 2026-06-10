@@ -35,16 +35,18 @@ vi.mock("@main/metrics/metrics-sampler", () => ({
   }),
 }));
 
+import { MetricStatus } from "@main/gen/metrics";
 import { MetricsService } from "@main/metrics/metrics-service";
 
 const PUBLISH_INTERVAL_MS = 1000;
+const UNAVAILABLE = MetricStatus.METRIC_STATUS_UNAVAILABLE;
 
-/** A minimal snapshot; the gating tests only care about call counts. */
+/** A minimal reading; the gating tests only care about call counts. */
 function emptyReading() {
   return {
-    cpu: { status: "unavailable", usagePercent: 0 },
+    cpu: { status: UNAVAILABLE, usagePercent: 0 },
     memory: {
-      status: "unavailable",
+      status: UNAVAILABLE,
       usedBytes: 0,
       totalBytes: 0,
       availableBytes: 0,
@@ -54,10 +56,10 @@ function emptyReading() {
       compressedBytes: 0,
       usedPercent: 0,
     },
-    disk: { status: "unavailable", usedBytes: 0, totalBytes: 0, freeBytes: 0, usedPercent: 0 },
-    network: { status: "unavailable", rxBytesPerSec: 0, txBytesPerSec: 0 },
-    uptime: { status: "unavailable", uptimeSeconds: 0 },
-    temperature: { status: "unavailable", celsius: 0 },
+    disk: { status: UNAVAILABLE, usedBytes: 0, totalBytes: 0, freeBytes: 0, usedPercent: 0 },
+    network: { status: UNAVAILABLE, rxBytesPerSec: 0, txBytesPerSec: 0 },
+    uptime: { status: UNAVAILABLE, uptimeSeconds: 0 },
+    temperature: { status: UNAVAILABLE, celsius: 0 },
   };
 }
 

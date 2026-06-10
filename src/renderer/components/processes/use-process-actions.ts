@@ -10,34 +10,24 @@ import {
 } from "@/gen/process_explorer";
 import type { ProcessDetail } from "@/domain/process-detail";
 
-/**
- * What {@link useProcessActions} exposes to the detail view's action row.
- */
 interface ProcessActionsState {
-  /**
-   * Main's authoritative per-action availability for the current target.
-   */
+  /** Main's authoritative per-action availability for the current target. */
   actions: ActionState[];
-  /**
-   * True while an action is in flight; the whole row disables.
-   */
+  /** True while an action is in flight; the whole row disables. */
   actionsBusy: boolean;
-  /**
-   * Transient, non-sensitive message for an OS refusal / failure, else undefined.
-   */
+  /** Transient, non-sensitive message for an OS refusal / failure. */
   actionMessage?: string;
   /**
-   * Forwards a chosen action kind to main, then re-pulls; action states are
-   * refreshed unless the action terminated the target (the detail navigates
-   * away from it then).
+   * Forwards an action kind to main, then re-pulls; action states refresh
+   * unless the action terminated the target (the detail navigates away then).
    */
   runAction: (kind: ProcessActionKind) => Promise<void>;
 }
 
 /**
  * Owns the detail's process-action concerns: the action target, its
- * main-authoritative {@link ActionState} list, the in-flight flag, a transient
- * non-success message, and the action runner.
+ * main-authoritative {@link ActionState} list, the in-flight flag, and the
+ * action runner.
  */
 export function useProcessActions(
   detail: ProcessDetail | undefined,

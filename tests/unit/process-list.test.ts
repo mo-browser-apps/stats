@@ -80,7 +80,7 @@ describe("projectProcessList - grouping", () => {
       makeRow({ pid: 200, executableName: "Chrome Helper", bundlePath: "/Applications/Chrome.app", cpuPercent: 3 }),
       makeRow({ pid: 300, executableName: "Chrome Helper", bundlePath: "/Applications/Chrome.app", cpuPercent: 2 }),
     ];
-    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "");
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "");
     expect(groups).toHaveLength(1);
     const chrome = groups[0];
     expect(chrome.name).toBe("Chrome");
@@ -111,7 +111,7 @@ describe("projectProcessList - grouping", () => {
         footprintBytes: 30 * MB,
       }),
     ];
-    const { groups } = projectProcessList(makeSnapshot(rows), "memory", "");
+    const groups = projectProcessList(makeSnapshot(rows), "memory", "");
     expect(groups.map((group) => group.name)).toEqual(["AutoFill (Chrome)", "AutoFill (MoStats)"]);
     expect(groups.every((group) => group.memberCount === 1)).toBe(true);
   });
@@ -121,7 +121,7 @@ describe("projectProcessList - grouping", () => {
       makeRow({ pid: 1, commandName: "node", startedAtUnixMs: 1 }),
       makeRow({ pid: 2, commandName: "node", startedAtUnixMs: 2 }),
     ];
-    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "");
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "");
     // Two unrelated "node" CLIs are NOT merged into one misleading row.
     expect(groups).toHaveLength(2);
     expect(groups.every((g) => g.memberCount === 1)).toBe(true);
@@ -135,7 +135,7 @@ describe("projectProcessList - sorting", () => {
       makeRow({ pid: 2, commandName: "high", startedAtUnixMs: 2, cpuPercent: 90 }),
       makeRow({ pid: 3, commandName: "mid", startedAtUnixMs: 3, cpuPercent: 40 }),
     ];
-    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "");
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "");
     expect(groups.map((g) => g.name)).toEqual(["high", "mid", "low"]);
   });
 
@@ -144,8 +144,8 @@ describe("projectProcessList - sorting", () => {
       makeRow({ pid: 1, commandName: "cpuHog", startedAtUnixMs: 1, cpuPercent: 80, footprintBytes: 10 * MB }),
       makeRow({ pid: 2, commandName: "ramHog", startedAtUnixMs: 2, cpuPercent: 5, footprintBytes: 900 * MB }),
     ];
-    expect(projectProcessList(makeSnapshot(rows), "cpu", "").groups[0].name).toBe("cpuHog");
-    expect(projectProcessList(makeSnapshot(rows), "memory", "").groups[0].name).toBe("ramHog");
+    expect(projectProcessList(makeSnapshot(rows), "cpu", "")[0].name).toBe("cpuHog");
+    expect(projectProcessList(makeSnapshot(rows), "memory", "")[0].name).toBe("ramHog");
   });
 
   it("preserves snapshot order on a cold start (all pending, no value)", () => {
@@ -155,7 +155,7 @@ describe("projectProcessList - sorting", () => {
       makeRow({ pid: 1, commandName: "zeta", startedAtUnixMs: 1, cpuStatus: FieldStatus.FIELD_STATUS_UNKNOWN }),
       makeRow({ pid: 2, commandName: "alpha", startedAtUnixMs: 2, cpuStatus: FieldStatus.FIELD_STATUS_UNKNOWN }),
     ];
-    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "");
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "");
     expect(groups.map((g) => g.name)).toEqual(["zeta", "alpha"]);
     expect(groups.every((g) => g.metricState === "pending")).toBe(true);
   });
@@ -166,7 +166,7 @@ describe("pinGroupOrder", () => {
     const rows = Object.entries(cpuByName).map(([name, cpu], index) =>
       makeRow({ pid: index + 1, commandName: name, startedAtUnixMs: index + 1, cpuPercent: cpu }),
     );
-    return projectProcessList(makeSnapshot(rows), "cpu", "").groups;
+    return projectProcessList(makeSnapshot(rows), "cpu", "");
   }
 
   it("replays the pinned order over a re-ranked projection, keeping fresh values", () => {
@@ -191,7 +191,7 @@ describe("pinGroupOrder", () => {
       makeRow({ pid: 3, commandName: "gamma", startedAtUnixMs: 3, cpuPercent: 30 }),
       makeRow({ pid: 4, commandName: "delta", startedAtUnixMs: 4, cpuPercent: 95 }),
     ];
-    const next = projectProcessList(makeSnapshot(nextRows), "cpu", "").groups;
+    const next = projectProcessList(makeSnapshot(nextRows), "cpu", "");
 
     expect(pinGroupOrder(next, pinned).map((group) => group.name)).toEqual(["alpha", "gamma", "delta"]);
   });
@@ -224,39 +224,39 @@ describe("projectProcessList - search", () => {
   ];
 
   it("matches an app group by name and keeps it grouped", () => {
-    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "chrome");
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "chrome");
     expect(groups).toHaveLength(1);
     expect(groups[0].memberCount).toBe(2);
   });
 
   it("matches by bundle identifier", () => {
-    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "com.google.chrome");
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "com.google.chrome");
     expect(groups).toHaveLength(1);
     expect(groups[0].name).toBe("Chrome");
   });
 
   it("matches by PID", () => {
-    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "900");
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "900");
     expect(groups).toHaveLength(1);
     expect(groups[0].name).toBe("postgres");
   });
 
   it("matches by executable path", () => {
-    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "/usr/local/bin/postgres");
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "/usr/local/bin/postgres");
     expect(groups.map((g) => g.name)).toContain("postgres");
   });
 
   it("matches a helper by command-line args and returns it as its own row", () => {
     // The app group does not match "--type=renderer" by name, so only the
     // matching helper is returned (as a singleton), not the whole Chrome group.
-    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "--type=renderer");
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "--type=renderer");
     expect(groups).toHaveLength(1);
     expect(groups[0].memberCount).toBe(1);
     expect(groups[0].pid).toBe(200);
   });
 
   it("returns no groups when nothing matches", () => {
-    expect(projectProcessList(makeSnapshot(rows), "cpu", "nonexistent").groups).toHaveLength(0);
+    expect(projectProcessList(makeSnapshot(rows), "cpu", "nonexistent")).toHaveLength(0);
   });
 });
 
@@ -265,7 +265,7 @@ describe("projectProcessList - display cap", () => {
     const rows = Array.from({ length: DISPLAY_LIMIT + 25 }, (_, i) =>
       makeRow({ pid: i + 1, commandName: `proc${i}`, startedAtUnixMs: i + 1, cpuPercent: i + 1 }),
     );
-    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "");
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "");
     expect(groups).toHaveLength(DISPLAY_LIMIT);
     // The cap keeps the highest-ranked rows (largest cpu first).
     expect(groups[0].sortValue).toBe(rows.length);
@@ -346,7 +346,7 @@ describe("projectProcessList - icon resolution", () => {
     // makeSnapshot tables the row's icon key (the base64 itself, in fixtures), so
     // the projection resolves the row's icon back through the table by its key.
     const rows = [makeRow({ pid: 1, commandName: "tool", iconPngBase64: "ICON-BYTES" })];
-    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "");
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "");
     expect(groups[0].iconPngBase64).toBe("ICON-BYTES");
   });
 
@@ -355,13 +355,13 @@ describe("projectProcessList - icon resolution", () => {
       makeRow({ pid: 100, bundlePath: "/Applications/App.app", bundleName: "App", iconPngBase64: "APP-ICON", cpuPercent: 1 }),
       makeRow({ pid: 200, bundlePath: "/Applications/App.app", iconPngBase64: "APP-ICON", cpuPercent: 1 }),
     ];
-    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "");
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "");
     expect(groups).toHaveLength(1);
     expect(groups[0].iconPngBase64).toBe("APP-ICON");
   });
 
   it("leaves the icon undefined when the row has no icon key", () => {
-    const { groups } = projectProcessList(makeSnapshot([makeRow({ pid: 1, commandName: "tool" })]), "cpu", "");
+    const groups = projectProcessList(makeSnapshot([makeRow({ pid: 1, commandName: "tool" })]), "cpu", "");
     expect(groups[0].iconPngBase64).toBeUndefined();
   });
 });
@@ -374,7 +374,7 @@ describe("projectProcessList - System group", () => {
   ];
 
   it("buckets Apple-path non-app processes into one System group", () => {
-    const { groups } = projectProcessList(makeSnapshot(daemons), "cpu", "");
+    const groups = projectProcessList(makeSnapshot(daemons), "cpu", "");
 
     expect(groups).toHaveLength(1);
     const system = groups[0];
@@ -400,7 +400,7 @@ describe("projectProcessList - System group", () => {
       makeRow({ pid: 503, commandName: "fake-pathless", startedAtUnixMs: 7, cpuPercent: 1 }),
     ];
 
-    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "");
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "");
     const names = groups.map((group) => group.name).sort();
 
     expect(names).toEqual(["Fake Dock", "System", "fake-node", "fake-pathless", "fake-postgres"]);
@@ -408,7 +408,7 @@ describe("projectProcessList - System group", () => {
   });
 
   it("search surfaces a matching daemon as its own row, not the whole bucket", () => {
-    const { groups } = projectProcessList(makeSnapshot(daemons), "cpu", "fake-sharingd");
+    const groups = projectProcessList(makeSnapshot(daemons), "cpu", "fake-sharingd");
 
     expect(groups).toHaveLength(1);
     expect(groups[0].system).toBe(false);
@@ -417,7 +417,7 @@ describe("projectProcessList - System group", () => {
   });
 
   it("searching 'system' surfaces the System group itself", () => {
-    const { groups } = projectProcessList(makeSnapshot(daemons), "cpu", "system");
+    const groups = projectProcessList(makeSnapshot(daemons), "cpu", "system");
 
     expect(groups.some((group) => group.key === SYSTEM_GROUP_KEY)).toBe(true);
   });

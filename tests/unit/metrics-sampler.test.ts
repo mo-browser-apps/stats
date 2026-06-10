@@ -25,7 +25,10 @@ vi.mock("@main/gen/native", () => ({
 vi.mock("node:os", () => ({ cpus: h.cpus, uptime: h.uptime }));
 vi.mock("node:fs", () => ({ statfsSync: h.statfsSync }));
 
+import { MetricStatus } from "@main/gen/metrics";
 import { MetricsSampler } from "@main/metrics/metrics-sampler";
+
+const { METRIC_STATUS_UNKNOWN: UNKNOWN, METRIC_STATUS_OK: OK, METRIC_STATUS_UNAVAILABLE: UNAVAILABLE } = MetricStatus;
 
 const GB = 1024 * 1024 * 1024;
 
@@ -56,7 +59,7 @@ describe("CPU delta math", () => {
   it("reports unknown on the first sample (no delta yet)", async () => {
     const sampler = new MetricsSampler();
     const reading = await sampler.sample();
-    expect(reading.cpu.status).toBe("unknown");
+    expect(reading.cpu.status).toBe(UNKNOWN);
   });
 
   it("computes usage from busy/total tick deltas on the second sample", async () => {
@@ -65,7 +68,7 @@ describe("CPU delta math", () => {
     await sampler.sample();
     h.cpus.mockReturnValue([core("M2", 175, 125)]); // +75 busy, +25 idle -> 75/100 = 75%
     const reading = await sampler.sample();
-    expect(reading.cpu.status).toBe("ok");
+    expect(reading.cpu.status).toBe(OK);
     expect(reading.cpu.usagePercent).toBeCloseTo(75);
   });
 
@@ -75,7 +78,7 @@ describe("CPU delta math", () => {
     await sampler.sample();
     // Identical counters: totalDelta 0 -> unknown, not a fake 0%.
     const reading = await sampler.sample();
-    expect(reading.cpu.status).toBe("unknown");
+    expect(reading.cpu.status).toBe(UNKNOWN);
   });
 
   it("reports unknown when the counters went backwards (reset)", async () => {
@@ -84,7 +87,7 @@ describe("CPU delta math", () => {
     await sampler.sample();
     h.cpus.mockReturnValue([core("M2", 100, 100)]); // busy delta negative
     const reading = await sampler.sample();
-    expect(reading.cpu.status).toBe("unknown");
+    expect(reading.cpu.status).toBe(UNKNOWN);
   });
 
   it("clamps usage into 0-100", async () => {
@@ -94,7 +97,7 @@ describe("CPU delta math", () => {
     // Busy grows far more than total would allow -> clamped at 100.
     h.cpus.mockReturnValue([core("M2", 1000, 0)]);
     const reading = await sampler.sample();
-    expect(reading.cpu.status).toBe("ok");
+    expect(reading.cpu.status).toBe(OK);
     expect(reading.cpu.usagePercent).toBe(100);
   });
 
@@ -107,14 +110,14 @@ describe("CPU delta math", () => {
       throw new Error("os boom");
     });
     const failed = await sampler.sample();
-    expect(failed.cpu.status).toBe("unavailable");
+    expect(failed.cpu.status).toBe(UNAVAILABLE);
     // Other groups stay produced.
-    expect(failed.uptime.status).toBe("ok");
+    expect(failed.uptime.status).toBe(OK);
 
     // The catch reset the baseline, so the next successful read is a first sample
     // again (unknown), not a delta against the pre-failure ticks.
     h.cpus.mockReturnValue([core("M2", 500, 500)]);
-    expect((await sampler.sample()).cpu.status).toBe("unknown");
+    expect((await sampler.sample()).cpu.status).toBe(UNKNOWN);
   });
 });
 
@@ -123,7 +126,7 @@ describe("network delta math", () => {
     h.readNetwork.mockResolvedValue({ available: true, rxBytes: 1000, txBytes: 2000 });
     const sampler = new MetricsSampler();
     const reading = await sampler.sample();
-    expect(reading.network.status).toBe("unknown");
+    expect(reading.network.status).toBe(UNKNOWN);
   });
 
   it("computes per-second rates over the elapsed window", async () => {
@@ -135,7 +138,7 @@ describe("network delta math", () => {
     h.readNetwork.mockResolvedValue({ available: true, rxBytes: 3000, txBytes: 6000 });
     clockMs = 3000;
     const reading = await sampler.sample();
-    expect(reading.network.status).toBe("ok");
+    expect(reading.network.status).toBe(OK);
     expect(reading.network.rxBytesPerSec).toBe(1000);
     expect(reading.network.txBytesPerSec).toBe(500);
   });
@@ -149,7 +152,7 @@ describe("network delta math", () => {
     h.readNetwork.mockResolvedValue({ available: true, rxBytes: 10, txBytes: 10 });
     clockMs = 2000;
     const reading = await sampler.sample();
-    expect(reading.network.status).toBe("ok");
+    expect(reading.network.status).toBe(OK);
     expect(reading.network.rxBytesPerSec).toBe(0);
     expect(reading.network.txBytesPerSec).toBe(0);
   });
@@ -175,11 +178,11 @@ describe("network delta math", () => {
     // Counters drop out -> unavailable; the baseline is cleared.
     h.readNetwork.mockResolvedValue({ available: false, rxBytes: 0, txBytes: 0 });
     clockMs = 2000;
-    expect((await sampler.sample()).network.status).toBe("unavailable");
+    expect((await sampler.sample()).network.status).toBe(UNAVAILABLE);
     // Next available sample is a first sample again -> unknown, not a giant rate.
     h.readNetwork.mockResolvedValue({ available: true, rxBytes: 9999, txBytes: 9999 });
     clockMs = 3000;
-    expect((await sampler.sample()).network.status).toBe("unknown");
+    expect((await sampler.sample()).network.status).toBe(UNKNOWN);
   });
 
   it("reports unknown when the clock did not advance (no divide-by-zero rate)", async () => {
@@ -190,7 +193,7 @@ describe("network delta math", () => {
     // Two samples at the same timestamp: elapsed <= 0 -> unknown, never a rate.
     h.readNetwork.mockResolvedValue({ available: true, rxBytes: 9000, txBytes: 9000 });
     const reading = await sampler.sample();
-    expect(reading.network.status).toBe("unknown");
+    expect(reading.network.status).toBe(UNKNOWN);
   });
 });
 
@@ -198,7 +201,7 @@ describe("disk", () => {
   it("computes used/free/percent from statfs blocks", async () => {
     h.statfsSync.mockReturnValue({ blocks: 100, bsize: GB, bavail: 40 }); // 100 GB total, 40 free
     const reading = await new MetricsSampler().sample();
-    expect(reading.disk.status).toBe("ok");
+    expect(reading.disk.status).toBe(OK);
     expect(reading.disk.totalBytes).toBe(100 * GB);
     expect(reading.disk.freeBytes).toBe(40 * GB);
     expect(reading.disk.usedBytes).toBe(60 * GB);
@@ -208,9 +211,9 @@ describe("disk", () => {
   it("degrades only disk to unavailable when the total is non-positive", async () => {
     h.statfsSync.mockReturnValue({ blocks: 0, bsize: GB, bavail: 0 });
     const reading = await new MetricsSampler().sample();
-    expect(reading.disk.status).toBe("unavailable");
+    expect(reading.disk.status).toBe(UNAVAILABLE);
     // Other groups are unaffected (uptime still ok).
-    expect(reading.uptime.status).toBe("ok");
+    expect(reading.uptime.status).toBe(OK);
   });
 
   it("degrades only disk to unavailable when statfs throws", async () => {
@@ -218,8 +221,8 @@ describe("disk", () => {
       throw new Error("EACCES");
     });
     const reading = await new MetricsSampler().sample();
-    expect(reading.disk.status).toBe("unavailable");
-    expect(reading.uptime.status).toBe("ok");
+    expect(reading.disk.status).toBe(UNAVAILABLE);
+    expect(reading.uptime.status).toBe(OK);
   });
 });
 
@@ -236,7 +239,7 @@ describe("memory", () => {
       compressedBytes: 1 * GB,
     });
     const reading = await new MetricsSampler().sample();
-    expect(reading.memory.status).toBe("ok");
+    expect(reading.memory.status).toBe(OK);
     expect(reading.memory.usedBytes).toBe(8 * GB);
     expect(reading.memory.usedPercent).toBe(50);
   });
@@ -291,7 +294,7 @@ describe("memory", () => {
 
   it("is unavailable when the native probe reports unavailable", async () => {
     h.readMemory.mockResolvedValue({ available: false, totalBytes: 0, usedBytes: 0, availableBytes: 0, cachedBytes: 0 });
-    expect((await new MetricsSampler().sample()).memory.status).toBe("unavailable");
+    expect((await new MetricsSampler().sample()).memory.status).toBe(UNAVAILABLE);
   });
 
   it("is unavailable when available but the total is non-finite (garbage probe)", async () => {
@@ -303,7 +306,7 @@ describe("memory", () => {
       cachedBytes: 0,
     });
     // A NaN/<=0 total must not divide into a nonsense percent.
-    expect((await new MetricsSampler().sample()).memory.status).toBe("unavailable");
+    expect((await new MetricsSampler().sample()).memory.status).toBe(UNAVAILABLE);
   });
 });
 
@@ -311,23 +314,23 @@ describe("temperature", () => {
   it("is ok with a finite reading when the probe reports available", async () => {
     h.readTemp.mockResolvedValue({ available: true, celsius: 57.3 });
     const reading = await new MetricsSampler().sample();
-    expect(reading.temperature.status).toBe("ok");
+    expect(reading.temperature.status).toBe(OK);
     expect(reading.temperature.celsius).toBeCloseTo(57.3);
   });
 
   it("is unavailable when the probe reports unavailable", async () => {
     h.readTemp.mockResolvedValue({ available: false, celsius: 0 });
-    expect((await new MetricsSampler().sample()).temperature.status).toBe("unavailable");
+    expect((await new MetricsSampler().sample()).temperature.status).toBe(UNAVAILABLE);
   });
 
   it("is unavailable when the probe returns a non-finite value", async () => {
     h.readTemp.mockResolvedValue({ available: true, celsius: Number.NaN });
-    expect((await new MetricsSampler().sample()).temperature.status).toBe("unavailable");
+    expect((await new MetricsSampler().sample()).temperature.status).toBe(UNAVAILABLE);
   });
 
   it("is unavailable when the probe returns an implausible value", async () => {
     h.readTemp.mockResolvedValue({ available: true, celsius: 300 });
-    expect((await new MetricsSampler().sample()).temperature.status).toBe("unavailable");
+    expect((await new MetricsSampler().sample()).temperature.status).toBe(UNAVAILABLE);
   });
 
   it("reads ok temperature live on every tick (no caching)", async () => {
@@ -351,11 +354,11 @@ describe("temperature", () => {
       .mockResolvedValueOnce({ available: true, celsius: 48.2 });
 
     const sampler = new MetricsSampler();
-    expect((await sampler.sample()).temperature.status).toBe("unavailable");
+    expect((await sampler.sample()).temperature.status).toBe(UNAVAILABLE);
     expect(h.readTemp).toHaveBeenCalledTimes(1);
 
     const reading = await sampler.sample();
-    expect(reading.temperature.status).toBe("ok");
+    expect(reading.temperature.status).toBe(OK);
     expect(reading.temperature.celsius).toBeCloseTo(48.2);
     expect(h.readTemp).toHaveBeenCalledTimes(2);
   });
@@ -364,9 +367,9 @@ describe("temperature", () => {
     h.readTemp.mockResolvedValue({ available: false, celsius: 0 });
 
     const sampler = new MetricsSampler();
-    expect((await sampler.sample()).temperature.status).toBe("unavailable");
-    expect((await sampler.sample()).temperature.status).toBe("unavailable");
-    expect((await sampler.sample()).temperature.status).toBe("unavailable");
+    expect((await sampler.sample()).temperature.status).toBe(UNAVAILABLE);
+    expect((await sampler.sample()).temperature.status).toBe(UNAVAILABLE);
+    expect((await sampler.sample()).temperature.status).toBe(UNAVAILABLE);
     expect(h.readTemp).toHaveBeenCalledTimes(3);
   });
 });
@@ -375,7 +378,7 @@ describe("uptime", () => {
   it("reports floored uptime", async () => {
     h.uptime.mockReturnValue(123.9);
     const reading = await new MetricsSampler().sample();
-    expect(reading.uptime.status).toBe("ok");
+    expect(reading.uptime.status).toBe(OK);
     expect(reading.uptime.uptimeSeconds).toBe(123);
   });
 
@@ -384,9 +387,9 @@ describe("uptime", () => {
       throw new Error("uptime boom");
     });
     const reading = await new MetricsSampler().sample();
-    expect(reading.uptime.status).toBe("unavailable");
+    expect(reading.uptime.status).toBe(UNAVAILABLE);
     // Disk (another sync group) is unaffected.
-    expect(reading.disk.status).toBe("ok");
+    expect(reading.disk.status).toBe(OK);
   });
 });
 
@@ -394,9 +397,9 @@ describe("failure isolation", () => {
   it("a native memory rejection degrades only memory, not the snapshot", async () => {
     h.readMemory.mockRejectedValue(new Error("native boom"));
     const reading = await new MetricsSampler().sample();
-    expect(reading.memory.status).toBe("unavailable");
+    expect(reading.memory.status).toBe(UNAVAILABLE);
     // CPU/disk/uptime are still produced.
-    expect(reading.disk.status).toBe("ok");
-    expect(reading.uptime.status).toBe("ok");
+    expect(reading.disk.status).toBe(OK);
+    expect(reading.uptime.status).toBe(OK);
   });
 });

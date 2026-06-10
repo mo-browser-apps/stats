@@ -1,6 +1,6 @@
 import { MemoryStick } from "lucide-react";
 
-import { MetricRowHeader } from "@/components/metrics/metric-row-header";
+import { MetricRowHeader, ValueUnit } from "@/components/metrics/metric-row-header";
 import { SegmentedMeter, type MeterSegment } from "@/components/metrics/segmented-meter";
 import type { MetricsSnapshot } from "@/gen/metrics";
 import { isLive, usageState } from "@/domain/metric-view";
@@ -15,15 +15,11 @@ const CATEGORIES: { key: "appBytes" | "wiredBytes" | "compressedBytes" | "cached
   { key: "cachedBytes", label: "Cache", fillClass: "bg-mem-cached" },
 ];
 
-function freeBytes(memory: Memory): number {
-  const accounted = CATEGORIES.reduce((sum, category) => sum + memory[category.key], 0);
-  return Math.max(0, memory.totalBytes - accounted);
-}
-
 function buildSegments(memory: Memory): MeterSegment[] {
+  const accounted = CATEGORIES.reduce((sum, category) => sum + memory[category.key], 0);
   return [
     ...CATEGORIES.map((category) => ({ ...category, bytes: memory[category.key] })),
-    { key: "free", label: "Free", fillClass: "bg-mem-free", bytes: freeBytes(memory) },
+    { key: "free", label: "Free", fillClass: "bg-mem-free", bytes: Math.max(0, memory.totalBytes - accounted) },
   ];
 }
 
@@ -36,11 +32,12 @@ export function MemoryRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const memory = snapshot?.memory;
   const live = memory ? isLive(usageState(memory.status, memory.usedPercent)) : false;
   const segments = memory ? buildSegments(memory) : [];
+  const [totalValue, totalUnit] = memory ? formatBytes(memory.totalBytes).split(" ") : [];
 
   return (
     <div className="flex flex-col gap-3">
       <MetricRowHeader icon={MemoryStick} label="Memory">
-        {live && memory ? <TotalValue bytes={memory.totalBytes} /> : null}
+        {live && totalValue ? <ValueUnit value={totalValue} unit={totalUnit} /> : null}
       </MetricRowHeader>
       {memory ? (
         <SegmentedMeter segments={segments} totalBytes={memory.totalBytes} ariaLabel={ariaLabel(segments, memory.totalBytes)} />
@@ -48,18 +45,5 @@ export function MemoryRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
         <div className="h-1 w-full" aria-hidden="true" />
       )}
     </div>
-  );
-}
-
-/**
- * Total as a big number + small muted unit, matching the other rows' headlines.
- */
-function TotalValue({ bytes }: { bytes: number }) {
-  const [value, unit] = formatBytes(bytes).split(" ");
-  return (
-    <span className="flex items-baseline gap-1">
-      <span className="text-base font-medium tabular-nums leading-none text-foreground">{value}</span>
-      <span className="text-[13px] font-light text-muted-foreground">{unit}</span>
-    </span>
   );
 }

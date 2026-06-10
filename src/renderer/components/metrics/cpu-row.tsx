@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Cpu } from "lucide-react";
 
-import { MetricRowHeader } from "@/components/metrics/metric-row-header";
+import { MeterTooltip, MetricRowHeader, ValueUnit } from "@/components/metrics/metric-row-header";
 import { CpuGraph } from "@/components/metrics/cpu-graph";
 import type { MetricsSnapshot } from "@/gen/metrics";
 import { MetricStatus } from "@/gen/metrics";
@@ -20,11 +20,11 @@ export function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
     setHistory((prev) => pushSample(prev, sample));
   }, [snapshot, cpu]);
 
-  const live = cpu ? isLive(usageState(cpu.status, cpu.usagePercent)) : false;
   const state = cpu ? usageState(cpu.status, cpu.usagePercent) : "pending";
+  const live = isLive(state);
 
   const scrubbed = scrubIndex !== null ? history[scrubIndex] : null;
-  const shown = scrubbed != null ? scrubbed : live ? cpu!.usagePercent : null;
+  const shown = scrubbed ?? (live && cpu ? cpu.usagePercent : null);
   const value = shown != null ? formatPercentParts(shown) : undefined;
   // History index -> viewBox slot center, as a percent for the tooltip x.
   const scrubPercent =
@@ -33,20 +33,14 @@ export function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   return (
     <div className="flex flex-col gap-2">
       <MetricRowHeader icon={Cpu} label="CPU">
-        <span className="flex items-baseline gap-1">
-          <span className="text-base font-medium tabular-nums leading-none text-foreground">{value?.value ?? "--"}</span>
-          {value ? <span className="text-[13px] font-light text-muted-foreground">{value.unit}</span> : null}
-        </span>
+        <ValueUnit value={value?.value ?? "--"} unit={value?.unit} />
       </MetricRowHeader>
       <div className="relative h-20 w-full">
         <CpuGraph history={history} scrubIndex={scrubIndex} state={state} onScrub={setScrubIndex} />
         {scrubbed != null && scrubPercent !== null ? (
-          <div
-            className="pointer-events-none absolute -top-1 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-popover-foreground shadow-sm"
-            style={{ left: `${Math.min(92, Math.max(8, scrubPercent))}%` }}
-          >
+          <MeterTooltip leftPercent={scrubPercent} className="-top-1">
             {scrubbed.toFixed(0)}%
-          </div>
+          </MeterTooltip>
         ) : null}
       </div>
     </div>

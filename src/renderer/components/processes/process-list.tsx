@@ -2,29 +2,28 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } fr
 
 import { SnapshotStatus } from "@/gen/process_explorer";
 import { ProcessRow } from "@/components/processes/process-row";
-import { pinGroupOrder, type DetailSelection, type ProcessListProjection } from "@/domain/process-list";
+import { pinGroupOrder, type DetailSelection, type ProcessGroup } from "@/domain/process-list";
 
 /**
- * The ranked, grouped process rows plus the loading/empty/unavailable/
- * permission-limited states, all sharing one scroll area so the panel never
- * resizes. Each row opens the detail view via {@link onOpenSelection} (a stable
- * callback, so the memoized rows are not invalidated each tick).
+ * The ranked, grouped process rows plus the loading/empty/unavailable states,
+ * sharing one scroll area so the panel never resizes.
  *
- * While the pointer is inside the list, row order is pinned ({@link
- * pinGroupOrder}): a snapshot tick re-ranks rows, and a reorder landing between
- * aiming and clicking would open the wrong process. Values keep updating; only
- * the order holds. Live ranking resumes when the pointer leaves (opening a
- * detail unmounts the list, so a stale pin cannot outlive the interaction).
+ * While the pointer is inside the list, row order is pinned via
+ * {@link pinGroupOrder}: a snapshot tick re-ranks rows, and a reorder landing
+ * between aiming and clicking would open the wrong process. Values keep
+ * updating; only the order holds. Live ranking resumes when the pointer
+ * leaves (opening a detail unmounts the list, so a stale pin cannot outlive
+ * the interaction).
  */
 export function ProcessList({
-  projection,
+  groups: rankedGroups,
   status,
   hasQuery,
   onOpenSelection,
   containerRef,
   onExitTop,
 }: {
-  projection: ProcessListProjection
+  groups: ProcessGroup[]
   status: SnapshotStatus
   hasQuery: boolean
   onOpenSelection: (selection: DetailSelection) => void
@@ -36,8 +35,8 @@ export function ProcessList({
   const pinnedKeys = useRef<string[]>([]);
 
   const groups = useMemo(
-    () => (pointerInside ? pinGroupOrder(projection.groups, pinnedKeys.current) : projection.groups),
-    [pointerInside, projection],
+    () => (pointerInside ? pinGroupOrder(rankedGroups, pinnedKeys.current) : rankedGroups),
+    [pointerInside, rankedGroups],
   );
 
   // Track the order actually displayed: unpinned it follows the live ranking;
@@ -84,29 +83,15 @@ export function ProcessList({
           ))}
         </ul>
       ) : (
-        <ListPlaceholder status={status} hasQuery={hasQuery} />
+        <div className="flex h-full items-center justify-center px-6 text-center">
+          <p className="text-[12px] text-muted-foreground">{placeholderMessage(status, hasQuery)}</p>
+        </div>
       )}
     </div>
   );
 }
 
-/**
- * Quiet centered message for the non-row states (loading, unavailable,
- * permission-limited, empty, or a search with no matches), so the panel shows an
- * honest line rather than a blank.
- */
-function ListPlaceholder({ status, hasQuery }: { status: SnapshotStatus; hasQuery: boolean }) {
-  const message = placeholderMessage(status, hasQuery);
-  return (
-    <div className="flex h-full items-center justify-center px-6 text-center">
-      <p className="text-[12px] text-muted-foreground">{message}</p>
-    </div>
-  );
-}
-
-/**
- * Picks the placeholder line; search-with-no-matches takes priority over state.
- */
+/** Honest placeholder line for the non-row states; no-matches takes priority. */
 function placeholderMessage(status: SnapshotStatus, hasQuery: boolean): string {
   if (hasQuery) {
     return "No matching processes";

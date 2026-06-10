@@ -9,13 +9,10 @@ import {
 } from "@/gen/process_explorer";
 
 /**
- * The fixed bottom action row of the detail view: Open (reveal in Finder), Quit,
- * and Force Quit for the selected process.
- *
- * Presentation-only. Each button's enabled state and disabled reason come from
- * main (the authoritative {@link ActionState} list), and running an action just
- * forwards the kind through {@link onRun}; the renderer never executes an action
- * itself. Disabled buttons carry an honest tooltip explaining why.
+ * The fixed bottom action row of the detail view: Open (reveal in Finder),
+ * Quit, and Force Quit. Presentation-only: enabled states come from main's
+ * authoritative {@link ActionState} list and running an action just forwards
+ * the kind; disabled buttons carry an honest tooltip explaining why.
  */
 export function ProcessActions({
   actions,
@@ -71,9 +68,6 @@ export function ProcessActions({
   );
 }
 
-/**
- * One compact action button, styled to match the detail view's quiet controls.
- */
 function ActionButton({
   label,
   title,
@@ -109,9 +103,6 @@ function ActionButton({
   );
 }
 
-/**
- * Tooltip for the reveal button, honest about why it is unavailable.
- */
 function revealTitle(reveal: ActionState | undefined): string {
   if (reveal?.enabled) {
     return "Show the executable in Finder";
@@ -122,9 +113,6 @@ function revealTitle(reveal: ActionState | undefined): string {
   return "Reveal is unavailable for this process";
 }
 
-/**
- * Tooltip for a destructive button, honest about why it is unavailable.
- */
 function destructiveTitle(verb: string, action: ActionState | undefined): string {
   if (action?.enabled) {
     return `${verb} this process`;

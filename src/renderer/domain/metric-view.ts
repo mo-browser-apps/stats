@@ -1,26 +1,19 @@
 import { MetricStatus } from "@/gen/metrics";
+import { UNAVAILABLE_TEXT } from "@/lib/format";
 
 /**
- * UI-facing types and pure derivations that sit between the generated snapshot
- * shape and the presentation components. This keeps components free of raw enum
- * checks and threshold math, and keeps that logic testable in isolation.
- *
- * Nothing here touches the OS or IPC; it only interprets values main already
- * sent.
+ * Pure derivations between the generated snapshot shape and the presentation
+ * components, keeping raw enum checks and threshold math out of the JSX.
  */
 
 /**
- * Presentation availability of a single metric card.
- *
- * - `pending`: not yet determined (proto UNKNOWN / before the first real sample).
- * - `ok` / `elevated` / `critical`: live value, colored by usage thresholds.
- * - `unavailable`: the source was tried and could not be read reliably.
+ * Presentation availability of a metric: `pending` is not yet determined,
+ * `ok`/`elevated`/`critical` is a live value colored by usage thresholds,
+ * `unavailable` was tried and could not be read.
  */
 export type MetricState = "pending" | "ok" | "elevated" | "critical" | "unavailable";
 
-/**
- * Maps the generated {@link MetricStatus} enum to a base presentation state.
- */
+/** Maps the generated {@link MetricStatus} enum to a base presentation state. */
 export function baseState(status: MetricStatus): MetricState {
   switch (status) {
     case MetricStatus.METRIC_STATUS_OK:
@@ -34,8 +27,8 @@ export function baseState(status: MetricStatus): MetricState {
 }
 
 /**
- * Refines an OK metric to `ok` / `elevated` / `critical` by percent used. Non-OK
- * states pass through unchanged (elevated at 75%, critical at 90%).
+ * Refines an OK metric to `ok` / `elevated` / `critical` by percent used;
+ * non-OK states pass through unchanged.
  */
 export function usageState(
   status: MetricStatus,
@@ -51,9 +44,13 @@ export function usageState(
   return "ok";
 }
 
-/**
- * Whether a state has a live, meaningful value to display.
- */
+/** Whether a state has a live, meaningful value to display. */
 export function isLive(state: MetricState): boolean {
   return state === "ok" || state === "elevated" || state === "critical";
+}
+
+/** The formatted text when live, else the pending/unavailable placeholder. */
+export function displayText(state: MetricState, text: string): string {
+  if (isLive(state)) return text;
+  return state === "pending" ? "--" : UNAVAILABLE_TEXT;
 }

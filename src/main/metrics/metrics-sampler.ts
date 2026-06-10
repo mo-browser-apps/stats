@@ -2,88 +2,67 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { native } from "../gen/native";
 import {
-  CpuReading,
-  DiskReading,
-  MemoryReading,
-  MetricsReading,
-  NetworkReading,
-  TemperatureReading,
-  UptimeReading,
-} from "./metric-types";
+  CpuMetric,
+  DiskMetric,
+  MemoryMetric,
+  MetricStatus,
+  NetworkMetric,
+  TemperatureMetric,
+  UptimeMetric,
+} from "../gen/metrics";
 
-/**
- * Filesystem path of the main system volume on macOS.
- */
+const { METRIC_STATUS_UNKNOWN: UNKNOWN, METRIC_STATUS_OK: OK, METRIC_STATUS_UNAVAILABLE: UNAVAILABLE } = MetricStatus;
+
 const SYSTEM_VOLUME_PATH = "/";
 
-/**
- * Temperature values outside this Celsius range are treated as bad sensor data.
- */
+/** Temperature values outside this Celsius range are treated as bad sensor data. */
 const MIN_PLAUSIBLE_TEMPERATURE_CELSIUS = 10;
 const MAX_PLAUSIBLE_TEMPERATURE_CELSIUS = 120;
 
 /**
- * Upper bound on a plausible per-interface throughput, in bytes per second
- * (100 Gbps). A single-tick delta above this is treated as a counter
- * discontinuity and dropped to a 0 rate rather than reported as a spike. The
- * ceiling sits well above any current Mac NIC so it never clips real traffic.
+ * Upper bound on a plausible per-interface throughput (100 Gbps, in bytes/s).
+ * A single-tick delta above it is a counter discontinuity, dropped to a 0 rate
+ * rather than reported as a spike.
  */
 const MAX_PLAUSIBLE_BYTES_PER_SEC = 100_000_000_000 / 8;
 
-/**
- * Cumulative interface byte counters captured at a point in time.
- */
+/** Cumulative interface byte counters at a monotonic timestamp. */
 interface NetworkCounters {
   rxBytes: number;
   txBytes: number;
-  /**
-   * `performance.now()`-style monotonic timestamp in milliseconds.
-   */
   atMs: number;
 }
 
-/**
- * Aggregate CPU tick counters summed across all logical cores, in milliseconds.
- * Mirrors the categories Node exposes per core via `os.cpus()[].times`.
- */
+/** CPU tick counters summed across all logical cores, in milliseconds. */
 interface CpuTicks {
-  /**
-   * user + nice + sys + irq: time the CPU was doing work.
-   */
   busy: number;
-  /**
-   * busy + idle: total observed CPU time.
-   */
   total: number;
 }
 
+/** One sampling pass: every metric group of a snapshot except the timestamp. */
+export interface MetricsReading {
+  cpu: CpuMetric;
+  memory: MemoryMetric;
+  disk: DiskMetric;
+  network: NetworkMetric;
+  uptime: UptimeMetric;
+  temperature: TemperatureMetric;
+}
+
 /**
- * Samples the system metrics for one snapshot: CPU usage, CPU identity, load
- * average, memory, disk capacity, network throughput, uptime, and optional CPU
- * temperature. CPU/disk/uptime come from Node `os`/`fs`; memory, network
- * throughput, and temperature come from native probes (Node cannot expose the
- * macOS VM cache breakdown, rx/tx byte counters, or thermal sensors).
+ * Samples all metric groups for one snapshot. CPU/disk/uptime come from Node
+ * `os`/`fs`; memory, network throughput, and temperature come from native
+ * probes. CPU usage and network throughput are deltas between successive
+ * samples, so the sampler is stateful; the first sample of each reports UNKNOWN.
  *
- * CPU usage and network throughput are deltas between successive samples, so
- * this class is stateful: it holds the previous CPU tick counters and the
- * previous network byte counters. The first sample of each has no delta and
- * reports `unknown`; subsequent samples report `ok`. Temperature is best-effort
- * and frequently `unavailable` on Apple Silicon (no documented public sensor).
- *
- * Every group is sampled defensively: a failure in one group degrades only that
- * group to `unavailable` and never throws, so one bad source cannot poison the
- * whole snapshot or crash the main process.
+ * Every group is sampled defensively: a failure degrades only that group to
+ * UNAVAILABLE and never throws, so one bad source cannot poison the snapshot.
  */
 export class MetricsSampler {
   private previousCpuTicks: CpuTicks | null = null;
 
   private previousNetworkCounters: NetworkCounters | null = null;
 
-  /**
-   * Produces one reading of all sampled metric groups. Async because the network
-   * counters and temperature are read over native RPCs; the Node `os`/`fs` groups
-   * are synchronous and gathered first.
-   */
   async sample(): Promise<MetricsReading> {
     return {
       cpu: this.sampleCpu(),
@@ -97,45 +76,34 @@ export class MetricsSampler {
 
   /**
    * Aggregate CPU usage across all logical cores via successive tick deltas.
-   *
-   * Returns `unknown` (not a fake 0%) when there is no previous sample to diff
-   * against, or when the delta is non-positive - which also covers a zero-delta
-   * tick and a logical-core-count change that would make a raw delta meaningless.
+   * UNKNOWN (not a fake 0%) without a previous sample to diff against, or on a
+   * non-positive delta (idle tick, counter reset, core-count change).
    */
-  private sampleCpu(): CpuReading {
+  private sampleCpu(): CpuMetric {
     try {
-      const cores = os.cpus();
-
-      const current = aggregateCpuTicks(cores);
+      const current = aggregateCpuTicks(os.cpus());
       const previous = this.previousCpuTicks;
       this.previousCpuTicks = current;
 
       if (previous === null) {
-        // First sample: no delta yet. Pending until the next tick.
-        return { status: "unknown", usagePercent: 0 };
+        return { status: UNKNOWN, usagePercent: 0 };
       }
 
       const busyDelta = current.busy - previous.busy;
       const totalDelta = current.total - previous.total;
-
       if (totalDelta <= 0 || busyDelta < 0) {
-        // Zero/negative delta (idle tick, counter reset, or core-count change):
-        // not a meaningful percentage this tick.
-        return { status: "unknown", usagePercent: 0 };
+        return { status: UNKNOWN, usagePercent: 0 };
       }
 
-      const usagePercent = clampPercent((busyDelta / totalDelta) * 100);
-      return { status: "ok", usagePercent };
+      return { status: OK, usagePercent: clampPercent((busyDelta / totalDelta) * 100) };
     } catch {
       this.previousCpuTicks = null;
-      return { status: "unavailable", usagePercent: 0 };
+      return { status: UNAVAILABLE, usagePercent: 0 };
     }
   }
 
-  /**
-   * Physical memory usage from the native macOS VM-statistics probe.
-   */
-  private async sampleMemory(): Promise<MemoryReading> {
+  /** Physical memory usage from the native macOS VM-statistics probe. */
+  private async sampleMemory(): Promise<MemoryMetric> {
     try {
       const usage = await native.memory.ReadUsage({});
       if (!usage.available || !Number.isFinite(usage.totalBytes) || usage.totalBytes <= 0) {
@@ -144,22 +112,16 @@ export class MetricsSampler {
 
       const totalBytes = usage.totalBytes;
       const usedBytes = clampBytes(usage.usedBytes, totalBytes);
-      const availableBytes = clampBytes(usage.availableBytes, totalBytes);
-      const cachedBytes = clampBytes(usage.cachedBytes, totalBytes);
-      const wiredBytes = clampBytes(usage.wiredBytes, usedBytes);
-      const compressedBytes = clampBytes(usage.compressedBytes, usedBytes);
-      const appBytes = clampBytes(usage.appBytes, usedBytes);
-      const usedPercent = clampPercent((usedBytes / totalBytes) * 100);
       return {
-        status: "ok",
+        status: OK,
         usedBytes,
         totalBytes,
-        availableBytes,
-        cachedBytes,
-        appBytes,
-        wiredBytes,
-        compressedBytes,
-        usedPercent,
+        availableBytes: clampBytes(usage.availableBytes, totalBytes),
+        cachedBytes: clampBytes(usage.cachedBytes, totalBytes),
+        appBytes: clampBytes(usage.appBytes, usedBytes),
+        wiredBytes: clampBytes(usage.wiredBytes, usedBytes),
+        compressedBytes: clampBytes(usage.compressedBytes, usedBytes),
+        usedPercent: clampPercent((usedBytes / totalBytes) * 100),
       };
     } catch {
       return unavailableMemory();
@@ -167,120 +129,99 @@ export class MetricsSampler {
   }
 
   /**
-   * Main system volume capacity via Node's built-in `fs.statfsSync` (no native
-   * code). `bavail` is the space available to the current unprivileged user, so
-   * it is the honest free figure for a user-facing monitor (it excludes the
-   * blocks the filesystem reserves for the superuser); `used` is total minus
-   * that available space. A non-positive total degrades disk to `unavailable` to
-   * avoid a divide-by-zero, and any read/permission error is caught so only disk
-   * degrades, never the whole snapshot.
+   * Main system volume capacity via `fs.statfsSync`. `bavail` (space available
+   * to the unprivileged user) is the honest free figure; used is total minus it.
    */
-  private sampleDisk(): DiskReading {
+  private sampleDisk(): DiskMetric {
     try {
       const stats = fs.statfsSync(SYSTEM_VOLUME_PATH);
       const totalBytes = stats.blocks * stats.bsize;
       if (totalBytes <= 0) {
-        return { status: "unavailable", usedBytes: 0, totalBytes: 0, freeBytes: 0, usedPercent: 0 };
+        return { status: UNAVAILABLE, usedBytes: 0, totalBytes: 0, freeBytes: 0, usedPercent: 0 };
       }
 
       const freeBytes = Math.max(0, stats.bavail * stats.bsize);
       const usedBytes = Math.max(0, totalBytes - freeBytes);
-      const usedPercent = clampPercent((usedBytes / totalBytes) * 100);
-      return { status: "ok", usedBytes, totalBytes, freeBytes, usedPercent };
+      return {
+        status: OK,
+        usedBytes,
+        totalBytes,
+        freeBytes,
+        usedPercent: clampPercent((usedBytes / totalBytes) * 100),
+      };
     } catch {
-      return { status: "unavailable", usedBytes: 0, totalBytes: 0, freeBytes: 0, usedPercent: 0 };
+      return { status: UNAVAILABLE, usedBytes: 0, totalBytes: 0, freeBytes: 0, usedPercent: 0 };
     }
   }
 
   /**
-   * Instantaneous network throughput from the native interface counter probe.
-   *
-   * The native side sums the kernel's cumulative rx/tx byte counters across the
-   * active non-loopback interfaces; this method turns successive readings into a
-   * per-second rate over the measured elapsed time. The first sample (or any
-   * sample after the counters were unavailable) has no baseline and reports
-   * `unknown`, so the card shows a pending placeholder rather than a fake 0 B/s.
-   *
-   * Counter discontinuities are handled instead of surfaced as spikes: a counter
-   * that went backwards (interface reset/reconnect, or a different interface set)
-   * yields a 0 rate while the baseline re-arms, and a forward jump above
-   * {@link MAX_PLAUSIBLE_BYTES_PER_SEC} is also dropped to 0. A non-positive
-   * elapsed time is ignored to avoid dividing by zero. Any native/read error
-   * degrades only this group to `unavailable`.
+   * Network throughput from the native interface counter probe: successive
+   * cumulative readings turned into a per-second rate over the measured elapsed
+   * time. UNKNOWN without a baseline (first sample, or after the counters were
+   * unavailable) or when the clock did not advance; a counter that went
+   * backwards re-arms via {@link rate} as a 0 rate instead of a spike.
    */
-  private async sampleNetwork(): Promise<NetworkReading> {
+  private async sampleNetwork(): Promise<NetworkMetric> {
     try {
       const counters = await native.network.ReadCounters({});
       if (!counters.available) {
         this.previousNetworkCounters = null;
-        return { status: "unavailable", rxBytesPerSec: 0, txBytesPerSec: 0 };
+        return { status: UNAVAILABLE, rxBytesPerSec: 0, txBytesPerSec: 0 };
       }
 
       const current: NetworkCounters = {
         rxBytes: counters.rxBytes,
         txBytes: counters.txBytes,
-        atMs: nowMs(),
+        // performance.now() is monotonic, so the rate window survives
+        // wall-clock/NTP adjustments.
+        atMs: performance.now(),
       };
       const previous = this.previousNetworkCounters;
       this.previousNetworkCounters = current;
 
-      if (previous === null) {
-        // No baseline yet: pending until the next tick produces a delta.
-        return { status: "unknown", rxBytesPerSec: 0, txBytesPerSec: 0 };
+      const elapsedSeconds = previous === null ? 0 : (current.atMs - previous.atMs) / 1000;
+      if (previous === null || elapsedSeconds <= 0) {
+        return { status: UNKNOWN, rxBytesPerSec: 0, txBytesPerSec: 0 };
       }
 
-      const elapsedSeconds = (current.atMs - previous.atMs) / 1000;
-      if (elapsedSeconds <= 0) {
-        return { status: "unknown", rxBytesPerSec: 0, txBytesPerSec: 0 };
-      }
-
-      const rxBytesPerSec = rate(current.rxBytes - previous.rxBytes, elapsedSeconds);
-      const txBytesPerSec = rate(current.txBytes - previous.txBytes, elapsedSeconds);
-      return { status: "ok", rxBytesPerSec, txBytesPerSec };
+      return {
+        status: OK,
+        rxBytesPerSec: rate(current.rxBytes - previous.rxBytes, elapsedSeconds),
+        txBytesPerSec: rate(current.txBytes - previous.txBytes, elapsedSeconds),
+      };
     } catch {
       this.previousNetworkCounters = null;
-      return { status: "unavailable", rxBytesPerSec: 0, txBytesPerSec: 0 };
+      return { status: UNAVAILABLE, rxBytesPerSec: 0, txBytesPerSec: 0 };
     }
   }
 
   /**
-   * Optional CPU temperature from the native sensor probe.
-   *
-   * The native side averages the per-core CPU temperatures from AppleSMC core
-   * keys and the HID CPU-core sensors, and reports `available=false` when
-   * neither yields a plausible reading. macOS has no documented public CPU
-   * temperature source on Apple Silicon, so `unavailable` is an honest outcome
-   * here rather than a guessed value. Any native/read error also degrades only
-   * this group to `unavailable`.
+   * Best-effort CPU temperature from the native sensor probe. macOS has no
+   * documented public CPU temperature source on Apple Silicon, so UNAVAILABLE
+   * is a common, honest outcome.
    */
-  private async sampleTemperature(): Promise<TemperatureReading> {
+  private async sampleTemperature(): Promise<TemperatureMetric> {
     try {
       const result = await native.temperature.ReadCpuTemperature({});
       if (!result.available || !isPlausibleTemperature(result.celsius)) {
-        return { status: "unavailable", celsius: 0 };
+        return { status: UNAVAILABLE, celsius: 0 };
       }
-      return { status: "ok", celsius: result.celsius };
+      return { status: OK, celsius: result.celsius };
     } catch {
-      return { status: "unavailable", celsius: 0 };
+      return { status: UNAVAILABLE, celsius: 0 };
     }
   }
 
-  /**
-   * System uptime from Node `os`.
-   */
-  private sampleUptime(): UptimeReading {
+  private sampleUptime(): UptimeMetric {
     try {
-      const uptimeSeconds = Math.max(0, Math.floor(os.uptime()));
-      return { status: "ok", uptimeSeconds };
+      return { status: OK, uptimeSeconds: Math.max(0, Math.floor(os.uptime())) };
     } catch {
-      return { status: "unavailable", uptimeSeconds: 0 };
+      return { status: UNAVAILABLE, uptimeSeconds: 0 };
     }
   }
 }
 
-/**
- * Sums per-core CPU tick categories into a single busy/total pair.
- */
+/** Sums per-core CPU tick categories into a single busy/total pair. */
 function aggregateCpuTicks(cores: os.CpuInfo[]): CpuTicks {
   let busy = 0;
   let idle = 0;
@@ -292,29 +233,19 @@ function aggregateCpuTicks(cores: os.CpuInfo[]): CpuTicks {
   return { busy, total: busy + idle };
 }
 
-/**
- * Clamps a percentage into the 0-100 range; non-finite values become 0.
- */
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(100, Math.max(0, value));
 }
 
-/**
- * Clamps a byte count to the 0-total range; non-finite values become 0.
- */
 function clampBytes(value: number, totalBytes: number): number {
   if (!Number.isFinite(value) || !Number.isFinite(totalBytes)) return 0;
   return Math.min(Math.max(0, totalBytes), Math.max(0, value));
 }
 
-/**
- * A zeroed, unavailable memory reading. Shared by the early-return and catch
- * paths so the full field set stays in one place as the shape grows.
- */
-function unavailableMemory(): MemoryReading {
+function unavailableMemory(): MemoryMetric {
   return {
-    status: "unavailable",
+    status: UNAVAILABLE,
     usedBytes: 0,
     totalBytes: 0,
     availableBytes: 0,
@@ -333,10 +264,9 @@ function isPlausibleTemperature(celsius: number): boolean {
 }
 
 /**
- * Converts a byte delta over an elapsed window into a per-second rate. A
- * negative delta (counter reset) or a jump above the plausible ceiling is a
- * discontinuity and yields 0 rather than a spurious spike; non-finite results
- * also yield 0.
+ * Byte delta over an elapsed window as a per-second rate. A negative delta
+ * (counter reset), a jump above the plausible ceiling, or a non-finite result
+ * yields 0 rather than a spurious spike.
  */
 function rate(deltaBytes: number, elapsedSeconds: number): number {
   if (deltaBytes < 0) return 0;
@@ -345,13 +275,4 @@ function rate(deltaBytes: number, elapsedSeconds: number): number {
     return 0;
   }
   return Math.round(bytesPerSec);
-}
-
-/**
- * Monotonic millisecond clock for measuring the elapsed time between counter
- * reads. `performance.now()` is unaffected by wall-clock/NTP adjustments, so the
- * rate stays correct across system time changes.
- */
-function nowMs(): number {
-  return performance.now();
 }

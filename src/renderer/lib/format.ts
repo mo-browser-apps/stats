@@ -1,22 +1,16 @@
 /**
  * Pure presentation formatters for metric values.
- *
- * These convert raw snapshot numbers into compact, human-readable strings for
- * the overview cards. They are intentionally side effect free and hold no OS or
- * IPC knowledge, so they stay easy to reason about and test.
  */
 
-/**
- * Shown wherever a value cannot be read or has not arrived yet.
- */
+/** Shown wherever a value cannot be read or has not arrived yet. */
 export const UNAVAILABLE_TEXT = "Unavailable";
 
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"] as const;
 
 /**
- * A formatted metric value split into its numeric text and unit suffix, so the
- * overview can render the number large and the unit small and muted. `unit` is
- * empty when the input could not be formatted (the value slot then carries
+ * A formatted value split into numeric text and unit suffix, so the overview
+ * can render the number large and the unit small and muted. `unit` is empty
+ * when the input could not be formatted (`value` then carries
  * {@link UNAVAILABLE_TEXT}).
  */
 export interface ValueParts {
@@ -25,9 +19,8 @@ export interface ValueParts {
 }
 
 /**
- * Formats a 0-100 percentage with a single fractional digit, e.g. `42.0` + `%`.
- * The fixed precision keeps the string width stable across updates. Intended for
- * whole-machine gauges (CPU/memory/disk overview) that are bounded at 100%.
+ * Formats a 0-100 percentage with one fractional digit (stable width), e.g.
+ * `42.0` + `%`. For whole-machine gauges bounded at 100%.
  */
 export function formatPercentParts(value: number): ValueParts {
   if (!Number.isFinite(value)) return { value: UNAVAILABLE_TEXT, unit: "" };
@@ -36,9 +29,8 @@ export function formatPercentParts(value: number): ValueParts {
 }
 
 /**
- * Formats a per-process CPU percentage. Uses Activity Monitor semantics, so the
- * value is NOT clamped at 100: one fully busy core is ~100% and a multithreaded
- * process can read higher (e.g. `240.0%`). Negative noise is floored at 0.
+ * Formats a per-process CPU percentage with Activity Monitor semantics: NOT
+ * clamped at 100 (a multithreaded process can read e.g. `240.0%`).
  */
 export function formatCpuPercent(value: number): string {
   if (!Number.isFinite(value)) return UNAVAILABLE_TEXT;
@@ -46,9 +38,8 @@ export function formatCpuPercent(value: number): string {
 }
 
 /**
- * Formats a per-process CPU percentage with two decimals, e.g. `13.04%`. Used in
- * the detail panel, where the extra digit helps distinguish near-idle processes
- * that the list's single-decimal format rounds to the same value.
+ * Two-decimal per-process CPU percentage for the detail panel, where the extra
+ * digit distinguishes near-idle processes the list rounds to the same value.
  */
 export function formatCpuPercentPrecise(value: number): string {
   if (!Number.isFinite(value)) return UNAVAILABLE_TEXT;
@@ -56,10 +47,9 @@ export function formatCpuPercentPrecise(value: number): string {
 }
 
 /**
- * Formats a byte count using binary units (1024) with adaptive precision, e.g.
- * `512 MB`, `15.6 GB`. Sub-GB values stay whole; larger values keep one digit.
- * Pass `precise` for one extra decimal (`512.4 MB`, `15.63 GB`) in the detail
- * panel, where the finer figure is useful.
+ * Formats a byte count using binary units (1024), e.g. `512 MB`, `15.6 GB`.
+ * Sub-GB values stay whole; larger keep one digit. `precise` adds one more
+ * digit each for the detail panel.
  */
 export function formatBytes(bytes: number, precise = false): string {
   if (!Number.isFinite(bytes) || bytes < 0) return UNAVAILABLE_TEXT;
@@ -72,18 +62,16 @@ export function formatBytes(bytes: number, precise = false): string {
     unit += 1;
   }
 
-  // One decimal from GB up, whole below; `precise` adds one more digit each.
   const baseDigits = unit >= 3 ? 1 : 0;
-  const digits = precise ? baseDigits + 1 : baseDigits;
-  return `${value.toFixed(digits)} ${BYTE_UNITS[unit]}`;
+  return `${value.toFixed(precise ? baseDigits + 1 : baseDigits)} ${BYTE_UNITS[unit]}`;
 }
 
 /**
- * Formats a per-second byte rate split into number and unit, e.g. `2.1` +
- * `KB/s`. Unlike {@link formatBytes}, the unit is promoted at 1000 (not 1024),
- * so the numeric part never exceeds three digits — a rate hovering just under
- * 1 KB/s reads `1.0 KB/s` instead of a wide `1018 B/s`. Sub-10 values keep one
- * decimal so a slow rate still visibly moves; larger values stay whole.
+ * Formats a per-second byte rate, e.g. `2.1` + `KB/s`. Unlike
+ * {@link formatBytes}, the unit is promoted at 1000 (not 1024) so the numeric
+ * part never exceeds three digits - a rate just under 1 KB/s reads `1.0 KB/s`
+ * instead of a wide `1018 B/s`. Sub-10 values keep one decimal so a slow rate
+ * still visibly moves.
  */
 export function formatRateParts(bytesPerSecond: number): ValueParts {
   if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) return { value: UNAVAILABLE_TEXT, unit: "" };
@@ -100,8 +88,8 @@ export function formatRateParts(bytesPerSecond: number): ValueParts {
 }
 
 /**
- * Formats an uptime in seconds as a compact duration, e.g. `3d 4h`, `5h 12m`,
- * `8m`. Only the two most significant non-zero units are shown to stay compact.
+ * Formats an uptime in seconds as a compact duration showing the two most
+ * significant non-zero units, e.g. `3d 4h`, `5h 12m`, `8m`.
  */
 export function formatUptime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return UNAVAILABLE_TEXT;
@@ -118,14 +106,10 @@ export function formatUptime(seconds: number): string {
 }
 
 /**
- * Formats a cumulative CPU time given in nanoseconds as a compact duration,
- * matching Activity Monitor's "CPU Time" column: `4.62s` below a minute and
- * `40:31.84` (m:ss.cc) below an hour both carry centiseconds, so the value
- * visibly advances on each refresh even when a near-idle process only accrues a
- * few milliseconds per tick. From an hour up it is `1:00:05` (h:mm:ss) without
- * centiseconds - it still ticks every second and keeps the width bounded.
- * Tabular figures (applied where it is rendered) keep the width stable as the
- * value changes.
+ * Formats cumulative CPU time (nanoseconds) like Activity Monitor's "CPU
+ * Time" column: `4.62s` below a minute and `40:31.84` (m:ss.cc) below an hour
+ * carry centiseconds so a near-idle process still visibly advances each
+ * refresh; from an hour up `1:00:05` (h:mm:ss) keeps the width bounded.
  */
 export function formatCpuTime(nanos: number): string {
   if (!Number.isFinite(nanos) || nanos < 0) return UNAVAILABLE_TEXT;
@@ -136,46 +120,34 @@ export function formatCpuTime(nanos: number): string {
   const seconds = totalSeconds % 60;
 
   if (hours > 0) {
-    const wholeSeconds = Math.floor(seconds);
-    return `${hours}:${pad2(minutes)}:${pad2(wholeSeconds)}`;
+    return `${hours}:${pad2(minutes)}:${pad2(Math.floor(seconds))}`;
   }
   if (minutes > 0) {
-    // m:ss.cc - centiseconds keep the value visibly ticking each refresh.
     return `${minutes}:${pad2(Math.floor(seconds))}.${centis(seconds)}`;
   }
   return `${seconds.toFixed(2)}s`;
 }
 
-/**
- * Two-digit zero-padded integer, for the mm/ss fields.
- */
 function pad2(value: number): string {
   return value.toString().padStart(2, "0");
 }
 
-/**
- * The centiseconds (00-99) of a fractional second, zero-padded.
- */
+/** The centiseconds (00-99) of a fractional second, zero-padded. */
 function centis(seconds: number): string {
   return Math.floor((seconds % 1) * 100)
     .toString()
     .padStart(2, "0");
 }
 
-/**
- * Formats a CPU temperature in Celsius, e.g. `48°C`. Whole degrees keep the
- * width stable and match how macOS surfaces temperatures.
- */
+/** Whole-degree Celsius, e.g. `48°C`, matching how macOS surfaces temperatures. */
 export function formatCelsius(celsius: number): string {
   if (!Number.isFinite(celsius)) return UNAVAILABLE_TEXT;
   return `${Math.round(celsius)}°C`;
 }
 
 /**
- * Formats a process start time (Unix milliseconds) as a local date and time,
- * e.g. `Oct 29, 2025, 15:34:39`, for the detail view's "Started" line. Uses the
- * locale's medium date with a 24-hour clock so the string stays compact and
- * stable.
+ * Formats a process start time (Unix ms) as a compact local date and time
+ * with a 24-hour clock, e.g. `Oct 29, 2025, 15:34:39`.
  */
 export function formatStartTime(epochMs: number): string {
   if (!Number.isFinite(epochMs) || epochMs <= 0) return UNAVAILABLE_TEXT;

@@ -4,16 +4,9 @@ import { Box, Cog } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * App icon for a process row or the detail header. Renders the volatile base64
- * PNG from NSWorkspace when one is available; otherwise (and if the image fails
- * to decode) it falls back to a neutral lucide glyph so every row keeps the same
- * icon footprint. The synthetic System group has no PNG by design and gets a
- * gear glyph instead of the generic box. `size` scales the box for the larger
- * detail header.
- *
- * Shared by {@link "@/components/processes/process-row".ProcessRow} (the list
- * rows and member rows) and the detail header, so it lives on its own rather
- * than inside the row component.
+ * App icon for a process row or the detail header: the base64 PNG when
+ * available, else (or if it fails to decode) a neutral glyph so every row
+ * keeps the same footprint. The System group gets a gear glyph by design.
  */
 export function ProcessIcon({
   iconPngBase64,

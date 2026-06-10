@@ -16,18 +16,14 @@ import {
 import { buildProcessDetail } from "@/domain/process-detail";
 
 /**
- * The Processes view: a compact searchable, CPU/Memory-ranked, app-grouped
- * process list, plus the in-panel detail view that can drill from a group into
- * its individual member processes.
+ * The Processes view: a searchable, CPU/Memory-ranked, app-grouped process
+ * list plus the in-panel detail view that can drill from a group into its
+ * member processes.
  *
- * It owns the process-explorer data lifecycle while active: App.tsx keeps the
- * view mounted across tab switches, reports the active top-level view to main,
- * and this component pulls the cached snapshot plus revision updates only while
- * Processes is visible. Search/sort and the drill-in stack are local presentation
- * state; the heavy projection and the detail model are memoized and live in pure
- * code. Command-line arguments are used only as a local search haystack and, once
- * a process is selected, in the detail display model; they are never logged or
- * persisted here.
+ * Owns the process-explorer data lifecycle while active: it pulls the cached
+ * snapshot once on activation and again on each revision ping; main pauses
+ * collection while the view is hidden. Search/sort and the drill-in stack are
+ * local presentation state; the projection and detail model live in pure code.
  */
 export function ProcessExplorerView({ active }: { active: boolean }) {
   const [snapshot, setSnapshot] = useState<ProcessSnapshot>(() =>
@@ -35,9 +31,9 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
   );
   const [sort, setSort] = useState<SortMode>("cpu");
   const [query, setQuery] = useState("");
-  // The drill-in stack: list -> group -> member. Empty is the list. Each entry is
-  // re-resolved from every fresh snapshot so the detail stays live; the top entry
-  // is the shown detail, and Back pops one level.
+  // The drill-in stack: list -> group -> member. Empty is the list; the top
+  // entry is the shown detail (re-resolved from every fresh snapshot so it
+  // stays live), and Back pops one level.
   const [selectionStack, setSelectionStack] = useState<DetailSelection[]>([]);
 
   // Highest revision applied, so an out-of-order pull cannot show stale rows.
@@ -55,27 +51,19 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
         setSnapshot(next);
       }
     } catch {
-      // A failed pull leaves the last snapshot in place; the next revision ping
-      // (or the cadence) retries. No diagnostic is logged - it could carry
-      // process-identifying data.
+      // Keep the last snapshot; the next revision ping retries. No diagnostic
+      // is logged - it could carry process-identifying data.
     }
   }, []);
 
   useEffect(() => {
-    // The view stays mounted across tab switches (so it keeps its rows, sort,
-    // search, selection, and scroll), but only consumes data while it is the
-    // active view. While hidden it holds its last rows and does nothing; main
-    // pauses collection then anyway.
     if (!active) {
+      // Stay mounted with the last rows; main pauses collection anyway.
       return;
     }
 
     let live = true;
-
-    // Pull immediately on becoming active so the (cached) rows show at once,
-    // then re-pull on each revision ping.
     void pull();
-
     const unsubscribe = processExplorerGateway.subscribeRevisions(() => {
       if (live) void pull();
     });
@@ -97,6 +85,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
   );
   const goBack = useCallback(() => setSelectionStack((stack) => stack.slice(0, -1)), []);
 
+  // Drop stack entries whose process/group no longer exists in the snapshot.
   useEffect(() => {
     setSelectionStack((stack) => {
       let length = stack.length;
@@ -106,15 +95,14 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
       return length === stack.length ? stack : stack.slice(0, length);
     });
   }, [snapshot, sort]);
+
+  // After a quit/force-quit, pop past every level that still resolves to the
+  // terminated process so the detail does not linger on a dead target.
   const popAfterTerminate = useCallback((terminatedPid: number) => {
     setSelectionStack((stack) => {
       const next = stack.slice(0, -1);
       while (next.length > 0) {
-        const resolved = resolveSelection(
-          snapshotRef.current,
-          sortRef.current,
-          next[next.length - 1],
-        );
+        const resolved = resolveSelection(snapshotRef.current, sortRef.current, next[next.length - 1]);
         if (resolved !== undefined && resolved.pid !== terminatedPid) {
           break;
         }
@@ -123,6 +111,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
       return next;
     });
   }, []);
+
   const detail = useMemo(() => {
     for (let depth = selectionStack.length - 1; depth >= 0; depth -= 1) {
       const group = resolveSelection(snapshot, sort, selectionStack[depth]);
@@ -217,7 +206,7 @@ function ProcessListPanel({
   onOpenSelection: (selection: DetailSelection) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
-  const projection = useMemo(
+  const groups = useMemo(
     () => projectProcessList(snapshot, sort, query),
     [snapshot, sort, query],
   );
@@ -234,14 +223,11 @@ function ProcessListPanel({
   }, []);
 
   const openTopMatch = useCallback(() => {
-    if (query.trim().length === 0) {
-      return;
-    }
-    const top = projection.groups[0];
-    if (top) {
+    const top = groups[0];
+    if (query.trim().length > 0 && top) {
       onOpenSelection(top.openSelection);
     }
-  }, [query, projection, onOpenSelection]);
+  }, [query, groups, onOpenSelection]);
 
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-hidden px-4 pb-4 pt-3">
@@ -257,7 +243,7 @@ function ProcessListPanel({
       </div>
 
       <ProcessList
-        projection={projection}
+        groups={groups}
         status={snapshot.status}
         hasQuery={query.trim().length > 0}
         onOpenSelection={onOpenSelection}

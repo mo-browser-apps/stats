@@ -2,16 +2,11 @@ import { FieldStatus, type ProcessRow, type ProcessSnapshot } from "@/gen/proces
 import { rowIdentityKey } from "@/domain/process-list";
 
 /**
- * Merges a delta {@link ProcessSnapshot} (see the proto's `ProcessSnapshot.delta`)
- * with the full base snapshot it was built against, producing a self-contained
- * snapshot for presentation code.
- *
- * Main sends a delta only when the pull's have_revision named a snapshot the
- * renderer holds, so `base` is that snapshot. argv is the only reduced field:
- * rows marked `commandLine.from_prev` take their argv from the base row with
- * the same identity. Icons are not handled here - they never ride the snapshot
- * wire; the gateway assembles the icon table separately. Pure and side-effect
- * free; the gateway owns the base bookkeeping.
+ * Merges a delta {@link ProcessSnapshot} with the full base snapshot it was
+ * built against. argv is the only reduced field: rows marked
+ * `commandLine.from_prev` take their argv from the base row with the same
+ * identity. Icons never ride the snapshot wire; the gateway assembles the
+ * icon table separately.
  */
 export function mergeSnapshotDelta(
   base: ProcessSnapshot | null,

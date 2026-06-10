@@ -1,10 +1,10 @@
 import { HardDrive } from "lucide-react";
 
-import { MetricRowHeader } from "@/components/metrics/metric-row-header";
+import { MetricRowHeader, ValueUnit } from "@/components/metrics/metric-row-header";
 import type { MetricsSnapshot } from "@/gen/metrics";
 import { cn } from "@/lib/utils";
-import { isLive, usageState, type MetricState } from "@/domain/metric-view";
-import { UNAVAILABLE_TEXT, formatBytes, formatPercentParts } from "@/lib/format";
+import { displayText, isLive, usageState, type MetricState } from "@/domain/metric-view";
+import { formatBytes, formatPercentParts } from "@/lib/format";
 
 const VALUE_COLOR_BY_STATE: Record<MetricState, string> = {
   ok: "text-foreground",
@@ -27,15 +27,15 @@ export function DiskRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const state = disk ? usageState(disk.status, disk.usedPercent) : "pending";
   const live = isLive(state);
   const percent = disk ? formatPercentParts(disk.usedPercent) : undefined;
-  const primary = live && percent ? percent.value : state === "pending" ? "--" : UNAVAILABLE_TEXT;
 
   return (
     <div className="flex flex-col gap-2">
       <MetricRowHeader icon={HardDrive} label="Disk">
-        <span className="flex items-baseline gap-1">
-          <span className={cn("text-base font-medium tabular-nums leading-none", VALUE_COLOR_BY_STATE[state])}>{primary}</span>
-          {live && percent ? <span className="text-[13px] font-light text-muted-foreground">{percent.unit}</span> : null}
-        </span>
+        <ValueUnit
+          value={displayText(state, percent?.value ?? "")}
+          unit={live ? percent?.unit : undefined}
+          valueClassName={VALUE_COLOR_BY_STATE[state]}
+        />
       </MetricRowHeader>
       <Meter state={state} percent={live ? disk?.usedPercent : undefined} />
       <span className="h-3.5 truncate text-[11px] text-muted-foreground/80 tabular-nums">
@@ -47,14 +47,12 @@ export function DiskRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
 
 /** Rounded rail with a fill whose width encodes the value; mirrored onto ARIA. */
 function Meter({ state, percent }: { state: MetricState; percent?: number }) {
-  const live = isLive(state);
-  const hasValue = live && percent !== undefined && Number.isFinite(percent);
-  const clamped = hasValue ? Math.min(100, Math.max(0, percent)) : 0;
-
+  const hasValue = isLive(state) && percent !== undefined && Number.isFinite(percent);
   if (!hasValue) {
     return <div className="relative h-1 w-full" aria-hidden="true" />;
   }
 
+  const clamped = Math.min(100, Math.max(0, percent));
   return (
     <div
       className="relative h-1 w-full overflow-hidden rounded-full bg-track"

@@ -1,6 +1,6 @@
 import { Network } from "lucide-react";
 
-import { MetricRowHeader } from "@/components/metrics/metric-row-header";
+import { MetricRowHeader, ValueUnit } from "@/components/metrics/metric-row-header";
 import type { MetricsSnapshot } from "@/gen/metrics";
 import { baseState, isLive } from "@/domain/metric-view";
 import { formatRateParts } from "@/lib/format";
@@ -27,8 +27,7 @@ function Rate({ prefix, bytesPerSec }: { prefix: string; bytesPerSec: number }) 
   return (
     <span className="flex items-baseline gap-1">
       <span className="text-sm font-light text-muted-foreground">{prefix}</span>
-      <span className="text-base font-medium tabular-nums leading-none text-foreground">{value}</span>
-      <span className="text-[13px] font-light text-muted-foreground">{unit}</span>
+      <ValueUnit value={value} unit={unit} />
     </span>
   );
 }

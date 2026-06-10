@@ -9,23 +9,19 @@ import { ActiveView, CopyTextRequest, SetActiveViewRequest, SetAlwaysOnTopReques
 import { AppServiceDescriptor } from "./gen/ipc_service";
 import { DISPLAY_NAME } from "./branding";
 
-/**
- * Opened from the About dialog's button.
- */
+/** Opened from the About dialog's button. */
 const REPOSITORY_URL = "https://github.com/mo-browser-apps/stats";
 
 /**
- * Composition root for the MoStats main process: owns the single compact window,
- * the menu-bar tray, app lifecycle wiring, and the renderer-facing IPC services
- * (metrics stream + process explorer).
+ * Composition root for the main process: the single compact window, the
+ * menu-bar tray, lifecycle wiring, and the renderer-facing IPC services.
  *
  * The window hides instead of closing, so the app keeps running in the tray.
- * Per-view background work is gated on two signals this class owns, window
- * visibility and the active view, combined in {@link updateServiceActivation} so
- * exactly the on-screen view's service runs and neither while hidden. This keeps
- * the process collector's sensitive command-line reads off until the user is on
- * the Processes view. Quit is routed through {@link quit} so the services and
- * tray are torn down before exit.
+ * Per-view background work is gated on window visibility plus the active view
+ * (combined in {@link updateServiceActivation}), so exactly the on-screen
+ * view's service runs and neither while hidden - keeping the process
+ * collector's sensitive command-line reads off until the user is on the
+ * Processes view.
  */
 export class Application {
   private readonly window = new ApplicationWindow(() => {
@@ -41,35 +37,26 @@ export class Application {
   private quitting = false;
 
   /**
-   * The view the renderer reports as on screen. Defaults to Stats, the launch
-   * view, so the metrics gate is correct even before the renderer's first
-   * {@link ActiveView} report arrives.
+   * The view the renderer reports as on screen. Defaults to Stats (the launch
+   * view) so the gate is correct before the first renderer report arrives.
    */
   private activeView: ActiveView = ActiveView.ACTIVE_VIEW_STATS;
 
-  /**
-   * Wires lifecycle handlers, registers IPC services, and shows the window.
-   */
   initialize(): void {
-    // MoStats is dark-only: fix the native theme to dark so the window chrome
-    // matches the renderer rather than following the OS appearance. There is no
-    // in-app theme switch.
+    // Dark-only app: fix the native theme so the window chrome matches the
+    // renderer rather than following the OS appearance.
     app.setTheme("dark");
 
-    // Install the macOS app menu so About sits under the app-name menu (the
-    // native location) with standard Hide/Quit, Edit, and Window items. Quit is
-    // routed through quit() so it disposes services like the tray Quit does.
+    // Quit routes through quit() so it disposes services like the tray Quit.
     app.setMenu(buildApplicationMenu(() => this.showAbout(), () => this.quit()));
 
     this.registerAppService();
 
-    // On macOS, reopen the window when the app is activated (Dock click or
-    // Cmd+Tab) after all windows were hidden or closed.
+    // macOS: reopen on activation (Dock click / Cmd+Tab) after a hide or close.
     app.on("activated", () => {
-      if (this.quitting) {
-        return;
+      if (!this.quitting) {
+        this.window.show();
       }
-      this.window.show();
     });
     app.on("allWindowsClosed", () => {
       if (process.platform !== "darwin") {
@@ -78,26 +65,19 @@ export class Application {
     });
 
     this.window.show();
-    // Showing the window normally emits the visibility change that drives
-    // activation and the tray label; sync explicitly too so startup never
-    // depends on event ordering. With the default active view (Stats), this
-    // starts metrics and leaves the process collector idle until the renderer
-    // reports the Processes view.
+    // Showing normally emits the visibility change; sync explicitly too so
+    // startup never depends on event ordering.
     this.handleWindowVisibilityChange();
   }
 
   /**
-   * Tears down runtime services and quits. Disposing the services stops the
-   * sampling interval and closes their broadcast streams, and destroying the tray
-   * releases the native status item, so nothing is left dangling at exit. This
-   * MoBrowser version has no before-quit/will-quit app event, so quit is funneled
-   * here (from the menu/tray Quit actions) rather than hooked after the fact.
+   * Tears down the services and tray, then quits. This MoBrowser version has
+   * no before-quit app event, so every quit path (menu, tray) funnels here.
    */
   quit(): void {
     if (this.quitting) {
       return;
     }
-
     this.quitting = true;
     this.metrics.dispose();
     this.processExplorer.dispose();
@@ -105,12 +85,7 @@ export class Application {
     app.quit();
   }
 
-  /**
-   * Shows the About dialog from the app menu. A native message dialog keeps the
-   * app single-window: it shows the branded name, live version, and description,
-   * and offers a button that opens the GitHub repository. The version comes from
-   * app metadata, not a hardcoded string.
-   */
+  /** Shows the About dialog: branded name, live version, and a repository link. */
   private async showAbout(): Promise<void> {
     const result = await app.showMessageDialog({
       parentWindow: this.window.instance ?? undefined,
@@ -127,21 +102,14 @@ export class Application {
     }
   }
 
-  /**
-   * Reacts to the window being shown, hidden, or destroyed: keeps the tray menu
-   * label in sync and re-evaluates which service should be active, since window
-   * visibility is one of the two activation gates.
-   */
   private handleWindowVisibilityChange(): void {
     this.tray.refresh();
     this.updateServiceActivation();
   }
 
   /**
-   * Activates exactly the service whose view is on screen, and neither while the
-   * window is hidden. The single place the two gates, window visibility and the
-   * active view, are combined: each service runs iff the window is visible and
-   * its view is the active one. Both setActive calls are idempotent, so
+   * Activates exactly the service whose view is on screen, and neither while
+   * the window is hidden. Both setActive calls are idempotent, so
    * re-evaluating on every signal change is cheap.
    */
   private updateServiceActivation(): void {
@@ -152,11 +120,6 @@ export class Application {
     );
   }
 
-  /**
-   * Registers the app-level IPC service: the always-on-top pin toggle, the
-   * active-view report that drives per-view activation, and the user-initiated
-   * clipboard copy.
-   */
   private registerAppService(): void {
     const window = this.window;
     ipc.registerService(AppServiceDescriptor, {
@@ -173,9 +136,8 @@ export class Application {
         return {};
       },
       async CopyText(request: CopyTextRequest) {
-        // The renderer is sandboxed and cannot reach the clipboard, so the copy
-        // happens here. The text may be a sensitive command line, so it is
-        // written to the clipboard on request and never logged or persisted.
+        // The sandboxed renderer cannot reach the clipboard. The text may be a
+        // sensitive command line; it is never logged or persisted.
         clipboard.write("text/plain", request.text);
         return {};
       },

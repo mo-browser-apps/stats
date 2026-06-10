@@ -2,32 +2,24 @@ import { ipc } from "@/gen/ipc";
 import { ActiveView } from "@/gen/app";
 
 /**
- * Renderer-side wrapper over the generated app-level IPC client. Keeps
- * presentation components free of generated-IPC details, mirroring
- * {@link metricsGateway}.
+ * Renderer-side wrapper over the app-level IPC client, keeping presentation
+ * components free of generated-IPC details.
  */
 export const appGateway = {
-  /**
-   * Pins or unpins the window above other windows.
-   */
+  /** Pins or unpins the window above other windows. */
   setAlwaysOnTop(alwaysOnTop: boolean): Promise<unknown> {
     return ipc.app.SetAlwaysOnTop({ alwaysOnTop });
   },
 
-  /**
-   * Reports the on-screen view to main so it can gate per-view background work
-   * (metrics sampling vs process collection). Fire-and-forget: the caller does
-   * not need the acknowledgement.
-   */
+  /** Reports the on-screen view so main can gate per-view background work. */
   setActiveView(view: ActiveView): Promise<unknown> {
     return ipc.app.SetActiveView({ view });
   },
 
   /**
-   * Copies user-selected text (an executable path or a process command line) to
-   * the system clipboard via main, which holds the privileged clipboard access.
-   * The text is sensitive and is passed here only on an explicit user action; it
-   * is never logged in the renderer or in main.
+   * Copies user-selected text (a path or command line) via main, which holds
+   * the privileged clipboard access. The text is sensitive: passed only on an
+   * explicit user action and never logged.
    */
   copyText(text: string): Promise<unknown> {
     return ipc.app.CopyText({ text });

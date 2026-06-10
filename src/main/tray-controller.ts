@@ -4,7 +4,8 @@ import type { ApplicationWindow } from "./application-window";
 import { DISPLAY_NAME } from "./branding";
 
 /**
- * Owns the macOS menu-bar tray item and its menu.
+ * Owns the macOS menu-bar tray item and its menu. Primary click toggles the
+ * window; secondary click opens the menu.
  */
 export class TrayController {
   private readonly tray: Tray;
@@ -12,11 +13,6 @@ export class TrayController {
   private readonly launchAtLoginItem: CheckboxMenuItem;
   private readonly quitItem: MenuItem;
 
-  /**
-   * @param window The compact window the tray shows, hides, and toggles.
-   * @param onQuit Invoked when the user selects Quit; the owner disposes
-   *   services and then quits the app.
-   */
   constructor(
     private readonly window: ApplicationWindow,
     private readonly onQuit: () => void,
@@ -62,10 +58,8 @@ export class TrayController {
   }
 
   /**
-   * Refreshes the stateful tray menu label. Called when window visibility
-   * changes so the Show/Hide label matches the current state. A no-op once the
-   * tray is destroyed, since a window visibility event can still fire during
-   * quit (after `destroy()`) when the window is closed.
+   * Syncs the Show/Hide label with the window state. A no-op once destroyed:
+   * a visibility event can still fire during quit when the window closes.
    */
   refresh(): void {
     if (this.tray.destroyed) {
@@ -74,9 +68,7 @@ export class TrayController {
     this.toggleWindowItem.setLabel(this.getToggleLabel());
   }
 
-  /**
-   * Releases the native tray resource. Idempotent.
-   */
+  /** Releases the native tray resource. Idempotent. */
   destroy(): void {
     if (this.tray.destroyed) {
       return;
@@ -100,19 +92,15 @@ export class TrayController {
     return this.window.isVisible ? `Hide ${DISPLAY_NAME}` : `Show ${DISPLAY_NAME}`;
   }
 
-  /**
-   * Flips the login-item registration to the opposite of the current OS state,
-   * then re-reads it. The checkbox is set from the read-back, not the request,
-   * so a refused change (e.g. the system denying background-item registration)
-   * leaves the menu honest instead of showing a checkmark that lies.
-   */
   private toggleLaunchAtLogin(): void {
     app.setLoginItemSettings({ openAtLogin: !app.loginItemSettings.openAtLogin });
     this.syncLaunchAtLogin();
   }
 
   /**
-   * Re-reads the authoritative OS login-item state into the checkbox.
+   * Re-reads the authoritative OS login-item state into the checkbox, so a
+   * refused change (e.g. denied background-item registration) never shows a
+   * checkmark that lies.
    */
   private syncLaunchAtLogin(): void {
     this.launchAtLoginItem.setChecked(app.loginItemSettings.openAtLogin);
