@@ -213,6 +213,14 @@ export interface ProcessDetail {
    * when there are many, so no cap is applied here.
    */
   members: DetailMember[];
+  /**
+   * True only for the synthetic System group. The view then shows the member
+   * count instead of one process's identity, hides the single-process fields
+   * (started/path/command line, owning user) and the action row - the bucket has
+   * no single target - while the summed stats and the drillable member list
+   * still apply. Each drilled-in member gets its full normal detail.
+   */
+  system: boolean;
 }
 
 /**
@@ -417,5 +425,6 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: I
     totalSort: sort,
     memberCount: group.memberCount,
     members,
+    system: group.system,
   };
 }

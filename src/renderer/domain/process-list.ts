@@ -99,6 +99,12 @@ export interface ProcessGroup {
    */
   openSelection: DetailSelection;
   /**
+   * True only for the synthetic System group. Presentation uses it for the gear
+   * glyph, the member-count subtitle, and to hide the single-process fields and
+   * actions that make no sense for a bucket of unrelated daemons.
+   */
+  system: boolean;
+  /**
    * The group's member rows, with the representative (the lowest-PID main
    * process) first. Carried so the detail view can show identity, command line,
    * path, hierarchy, and per-member totals without re-deriving them. Sensitive
@@ -226,12 +232,46 @@ export function cellState(cell: MetricCell): ProcessMetricState {
 }
 
 /**
- * Group key. Only an owning `.app` path groups rows.
+ * Key of the synthetic System group that buckets Apple's non-app system
+ * processes (daemons and helpers under SIP-protected paths) into one compact
+ * row, so the list stays focused on the user's own apps and processes instead
+ * of a long tail of idle macOS daemons.
+ */
+export const SYSTEM_GROUP_KEY = "system";
+
+/**
+ * Apple-owned executable locations - the SIP-protected prefixes. `/usr/local/`
+ * is deliberately excluded: it is the user-writable exception under SIP where
+ * developer tools live (manual installs, postgres, older Homebrew), and those
+ * are exactly the processes this product exists to surface individually.
+ */
+const SYSTEM_PATH_PREFIXES = ["/System/", "/usr/", "/sbin/", "/bin/"];
+
+/**
+ * True when an executable path lives in an Apple-owned (SIP-protected) location.
+ */
+function isSystemPath(path: string): boolean {
+  if (path.startsWith("/usr/local/")) {
+    return false;
+  }
+  return SYSTEM_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
+
+/**
+ * Group key. An owning `.app` path groups an app's processes (including Apple's
+ * bundled apps, which keep their own rows); a non-app process in an Apple-owned
+ * path joins the synthetic System group; everything else stays a singleton. A
+ * row with no readable path stays a singleton too - its identity is uncertain,
+ * so it is not silently buried in System.
  */
 function rowGroupKey(row: ProcessRow): string {
   const bundlePath = okString(row.app?.bundle?.path);
   if (bundlePath) {
     return `app:${bundlePath}`;
+  }
+  const path = okString(row.executablePath);
+  if (path !== undefined && isSystemPath(path)) {
+    return SYSTEM_GROUP_KEY;
   }
   return rowIdentityKey(row);
 }
@@ -388,18 +428,21 @@ function representativeOf(members: ProcessRow[]): ProcessRow {
 function buildGroupRow(group: GroupAccumulator, sort: SortMode, icons: IconTable): ProcessGroup {
   const representative = representativeOf(group.members);
   const isGroup = group.members.length > 1;
+  const isSystem = group.key === SYSTEM_GROUP_KEY;
   const metricState: ProcessMetricState = group.hasMetric ? "ok" : group.anyPending ? "pending" : "unavailable";
   const icon =
     rowIcon(representative, icons) ??
     group.members.map((row) => rowIcon(row, icons)).find(Boolean);
   // A multi-process group shows the owning `.app` name; a single process (incl. a
-  // drilled-in member) shows its own display name, not its app's.
+  // drilled-in member) shows its own display name, not its app's. The synthetic
+  // System group shows its fixed label and the gear glyph (no member's generic
+  // executable icon should brand the whole bucket).
   const appName = isGroup ? okString(representative.app?.bundle?.name) : undefined;
   return {
     key: group.key,
-    name: appName ?? rowDisplayName(representative),
+    name: isSystem ? "System" : appName ?? rowDisplayName(representative),
     pid: rowPid(representative),
-    iconPngBase64: icon,
+    iconPngBase64: isSystem ? undefined : icon,
     memberCount: group.members.length,
     childCount: group.members.length - 1,
     metricState,
@@ -407,6 +450,7 @@ function buildGroupRow(group: GroupAccumulator, sort: SortMode, icons: IconTable
     sortValue: group.sortValueSum,
     openSelection: { kind: "group", key: group.key },
     members: representativeFirst(group.members, representative),
+    system: isSystem,
   };
 }
 
@@ -468,7 +512,14 @@ function buildSearchGroups(
 
   for (const group of groups) {
     const representative = group.members[0];
-    if (groupHaystack(group).includes(query) || rowHaystack(representative).includes(query)) {
+    // The representative shortcut keeps an app group whole when its main process
+    // matches. It is skipped for the synthetic System group: its members are
+    // unrelated daemons, so a match (e.g. "launchd") should surface that daemon
+    // as its own row, not the whole bucket.
+    if (
+      groupHaystack(group).includes(query) ||
+      (!group.system && rowHaystack(representative).includes(query))
+    ) {
       projected.push(group);
       continue;
     }

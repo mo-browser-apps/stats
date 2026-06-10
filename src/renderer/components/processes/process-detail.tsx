@@ -66,9 +66,13 @@ export function ProcessDetailView({
   onRunAction: (kind: ProcessActionKind) => void
 }) {
   const secondary = detail.bundleIdentifier ?? detail.executableName;
-  const metadata = `${secondary ? `${secondary} - ` : ""}PID ${detail.pid}${
-    detail.parent.available ? ` - Parent ${detail.parent.pid}` : ""
-  }`;
+  // The synthetic System group has no single identity: its subtitle is the
+  // member count, and the per-process fields/actions below are omitted.
+  const metadata = detail.system
+    ? `${detail.memberCount} ${detail.memberCount === 1 ? "process" : "processes"}`
+    : `${secondary ? `${secondary} - ` : ""}PID ${detail.pid}${
+      detail.parent.available ? ` - Parent ${detail.parent.pid}` : ""
+    }`;
   const grouped = detail.memberCount > 1;
 
   return (
@@ -88,7 +92,12 @@ export function ProcessDetailView({
 
       <div className="scrollbar-hidden flex flex-1 flex-col gap-4 overflow-y-auto pb-1">
         <header className="flex items-center gap-3">
-          <ProcessIcon iconPngBase64={detail.iconPngBase64} name={detail.name} size="lg" />
+          <ProcessIcon
+            iconPngBase64={detail.iconPngBase64}
+            name={detail.name}
+            size="lg"
+            system={detail.system}
+          />
           <div className="min-w-0 flex-1 space-y-0.5">
             <ScrollFade title={detail.name}>
               <h2 className="w-max whitespace-nowrap text-[15px] font-medium text-foreground">
@@ -105,30 +114,32 @@ export function ProcessDetailView({
 
         <HeaderStats detail={detail} grouped={grouped} />
 
-        <dl className="flex flex-col gap-3">
-          <Field label="Started">
-            <StateText
-              state={detail.startedAt}
-              text={
-                detail.startedAtUnixMs !== undefined
-                  ? formatStartTime(detail.startedAtUnixMs)
-                  : undefined
-              }
-            />
-          </Field>
+        {detail.system ? null : (
+          <dl className="flex flex-col gap-3">
+            <Field label="Started">
+              <StateText
+                state={detail.startedAt}
+                text={
+                  detail.startedAtUnixMs !== undefined
+                    ? formatStartTime(detail.startedAtUnixMs)
+                    : undefined
+                }
+              />
+            </Field>
 
-          <Field label="Path">
-            <ScrollableValue
-              state={detail.path}
-              text={detail.path === "ok" ? (detail.pathText ?? "") : undefined}
-              copyLabel="Copy executable path"
-            />
-          </Field>
+            <Field label="Path">
+              <ScrollableValue
+                state={detail.path}
+                text={detail.path === "ok" ? (detail.pathText ?? "") : undefined}
+                copyLabel="Copy executable path"
+              />
+            </Field>
 
-          <Field label="Command line">
-            <CommandLineValue commandLine={detail.commandLine} />
-          </Field>
-        </dl>
+            <Field label="Command line">
+              <CommandLineValue commandLine={detail.commandLine} />
+            </Field>
+          </dl>
+        )}
 
         {grouped ? (
           <Members
@@ -142,12 +153,14 @@ export function ProcessDetailView({
         )}
       </div>
 
-      <ProcessActions
-        actions={actions}
-        busy={actionsBusy}
-        message={actionMessage}
-        onRun={onRunAction}
-      />
+      {detail.system ? null : (
+        <ProcessActions
+          actions={actions}
+          busy={actionsBusy}
+          message={actionMessage}
+          onRun={onRunAction}
+        />
+      )}
     </div>
   );
 }
@@ -170,6 +183,8 @@ function SingleProcessMetric({ detail }: { detail: ProcessDetail }) {
 
 /**
  * The compact secondary-stat strip under the header (user, threads, CPU time).
+ * The System group hides the user stat - its members run as many different
+ * users, so the representative's would be misleading.
  */
 function HeaderStats({ detail, grouped }: { detail: ProcessDetail; grouped: boolean }) {
   const threadsText =
@@ -179,15 +194,19 @@ function HeaderStats({ detail, grouped }: { detail: ProcessDetail; grouped: bool
 
   return (
     <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
-      <HeaderStat
-        icon={<User className="h-3 w-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
-        state={detail.user.state}
-        text={detail.user.text}
-        label="User"
-        placeholder="n/a"
-        className="min-w-0 flex-1"
-        valueClassName="truncate"
-      />
+      {detail.system ? (
+        <span className="min-w-0 flex-1" aria-hidden="true" />
+      ) : (
+        <HeaderStat
+          icon={<User className="h-3 w-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
+          state={detail.user.state}
+          text={detail.user.text}
+          label="User"
+          placeholder="n/a"
+          className="min-w-0 flex-1"
+          valueClassName="truncate"
+        />
+      )}
       <div className="flex shrink-0 items-center gap-2">
         <HeaderStat
           icon={<Cpu className="h-3 w-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />}

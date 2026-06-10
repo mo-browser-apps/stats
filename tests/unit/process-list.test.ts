@@ -15,6 +15,7 @@ import {
   rowMetric,
   rowPid,
   singleProcessGroup,
+  SYSTEM_GROUP_KEY,
 } from "@/domain/process-list";
 import { makeRow, makeSnapshot } from "../helpers/process-fixtures";
 
@@ -362,5 +363,74 @@ describe("projectProcessList - icon resolution", () => {
   it("leaves the icon undefined when the row has no icon key", () => {
     const { groups } = projectProcessList(makeSnapshot([makeRow({ pid: 1, commandName: "tool" })]), "cpu", "");
     expect(groups[0].iconPngBase64).toBeUndefined();
+  });
+});
+
+describe("projectProcessList - System group", () => {
+  const daemons = [
+    makeRow({ pid: 1, commandName: "launchd", startedAtUnixMs: 1, executablePath: "/sbin/launchd", cpuPercent: 0.5 }),
+    makeRow({ pid: 400, commandName: "fake-sharingd", startedAtUnixMs: 2, executablePath: "/usr/libexec/fake-sharingd", cpuPercent: 1 }),
+    makeRow({ pid: 401, commandName: "fake-mds", startedAtUnixMs: 3, executablePath: "/System/Library/fake-mds", cpuPercent: 2 }),
+  ];
+
+  it("buckets Apple-path non-app processes into one System group", () => {
+    const { groups } = projectProcessList(makeSnapshot(daemons), "cpu", "");
+
+    expect(groups).toHaveLength(1);
+    const system = groups[0];
+    expect(system.key).toBe(SYSTEM_GROUP_KEY);
+    expect(system.system).toBe(true);
+    expect(system.name).toBe("System");
+    // No member's generic executable icon brands the bucket.
+    expect(system.iconPngBase64).toBeUndefined();
+    expect(system.memberCount).toBe(3);
+    expect(system.metricText).toBe("3.5%");
+  });
+
+  it("keeps user-owned and app-bundled processes out of System", () => {
+    const rows = [
+      ...daemons,
+      // /usr/local is the SIP user-writable exception - a developer's tool.
+      makeRow({ pid: 500, commandName: "fake-postgres", startedAtUnixMs: 4, executablePath: "/usr/local/bin/fake-postgres", cpuPercent: 1 }),
+      // A user CLI outside Apple paths.
+      makeRow({ pid: 501, commandName: "fake-node", startedAtUnixMs: 5, executablePath: "/Users/fixture/work/fake-node", cpuPercent: 1 }),
+      // An Apple *app* under /System keeps its own app group.
+      makeRow({ pid: 502, localizedName: "Fake Dock", startedAtUnixMs: 6, executablePath: "/System/Library/CoreServices/FakeDock.app/Contents/MacOS/FakeDock", bundlePath: "/System/Library/CoreServices/FakeDock.app", bundleName: "Fake Dock", cpuPercent: 1 }),
+      // A row with no readable path stays a singleton, not buried in System.
+      makeRow({ pid: 503, commandName: "fake-pathless", startedAtUnixMs: 7, cpuPercent: 1 }),
+    ];
+
+    const { groups } = projectProcessList(makeSnapshot(rows), "cpu", "");
+    const names = groups.map((group) => group.name).sort();
+
+    expect(names).toEqual(["Fake Dock", "System", "fake-node", "fake-pathless", "fake-postgres"]);
+    expect(groups.filter((group) => group.system)).toHaveLength(1);
+  });
+
+  it("search surfaces a matching daemon as its own row, not the whole bucket", () => {
+    const { groups } = projectProcessList(makeSnapshot(daemons), "cpu", "fake-sharingd");
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].system).toBe(false);
+    expect(groups[0].name).toBe("fake-sharingd");
+    expect(groups[0].openSelection).toEqual({ kind: "process", pid: 400, startedAtUnixMs: 2 });
+  });
+
+  it("searching 'system' surfaces the System group itself", () => {
+    const { groups } = projectProcessList(makeSnapshot(daemons), "cpu", "system");
+
+    expect(groups.some((group) => group.key === SYSTEM_GROUP_KEY)).toBe(true);
+  });
+
+  it("resolves the System selection from a fresh snapshot like any group", () => {
+    const resolved = resolveSelection(makeSnapshot(daemons), "cpu", {
+      kind: "group",
+      key: SYSTEM_GROUP_KEY,
+    });
+
+    expect(resolved?.system).toBe(true);
+    expect(resolved?.memberCount).toBe(3);
+    // Representative is the lowest PID, but the display identity stays "System".
+    expect(resolved?.name).toBe("System");
   });
 });
