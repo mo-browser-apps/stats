@@ -182,8 +182,6 @@ function toCpuMetric(reading: CpuReading): CpuMetric {
   return {
     status: toMetricStatus(reading.status),
     usagePercent: reading.usagePercent,
-    model: reading.model,
-    coreCount: reading.coreCount,
     loadAverage: reading.loadAverage,
   };
 }

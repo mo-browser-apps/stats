@@ -30,7 +30,7 @@ interface MetricRowProps {
    */
   valuePrefix?: string;
   /**
-   * Optional detail line (e.g. "10.2 / 16 GB" or a CPU model).
+   * Optional detail line.
    */
   detail?: string;
   /**

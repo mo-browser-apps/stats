@@ -59,8 +59,6 @@ describe("CPU delta math", () => {
     const sampler = new MetricsSampler();
     const reading = await sampler.sample();
     expect(reading.cpu.status).toBe("unknown");
-    expect(reading.cpu.model).toBe("M2");
-    expect(reading.cpu.coreCount).toBe(1);
   });
 
   it("computes usage from busy/total tick deltas on the second sample", async () => {

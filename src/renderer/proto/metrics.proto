@@ -17,14 +17,11 @@ enum MetricStatus {
   METRIC_STATUS_UNAVAILABLE = 2;
 }
 
-// Overall CPU usage plus static identity. Values are only meaningful when
-// status is OK.
+// Overall CPU usage and load. Values are only meaningful when status is OK.
 message CpuMetric {
   MetricStatus status = 1;
   double usage_percent = 2; // 0-100 aggregate usage across all cores.
-  string model = 3;         // Empty when unknown.
-  uint32 core_count = 4;    // Logical core count; 0 when unknown.
-  repeated double load_average = 5; // 1/5/15 minute load averages.
+  repeated double load_average = 3; // 1/5/15 minute load averages.
 }
 
 // Physical memory usage. The primary used value excludes reclaimable cache so

@@ -106,8 +106,6 @@ export class MetricsSampler {
     const loadAverage = this.readLoadAverage();
     try {
       const cores = os.cpus();
-      const model = cores[0]?.model ?? "";
-      const coreCount = cores.length;
 
       const current = aggregateCpuTicks(cores);
       const previous = this.previousCpuTicks;
@@ -115,7 +113,7 @@ export class MetricsSampler {
 
       if (previous === null) {
         // First sample: no delta yet. Pending until the next tick.
-        return { status: "unknown", usagePercent: 0, model, coreCount, loadAverage };
+        return { status: "unknown", usagePercent: 0, loadAverage };
       }
 
       const busyDelta = current.busy - previous.busy;
@@ -124,14 +122,14 @@ export class MetricsSampler {
       if (totalDelta <= 0 || busyDelta < 0) {
         // Zero/negative delta (idle tick, counter reset, or core-count change):
         // not a meaningful percentage this tick.
-        return { status: "unknown", usagePercent: 0, model, coreCount, loadAverage };
+        return { status: "unknown", usagePercent: 0, loadAverage };
       }
 
       const usagePercent = clampPercent((busyDelta / totalDelta) * 100);
-      return { status: "ok", usagePercent, model, coreCount, loadAverage };
+      return { status: "ok", usagePercent, loadAverage };
     } catch {
       this.previousCpuTicks = null;
-      return { status: "unavailable", usagePercent: 0, model: "", coreCount: 0, loadAverage };
+      return { status: "unavailable", usagePercent: 0, loadAverage };
     }
   }
 
