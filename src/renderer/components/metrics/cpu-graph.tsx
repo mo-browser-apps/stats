@@ -17,12 +17,7 @@ const MIN_BAR = 1.5; // floor so a ~0% sample is still a visible nub
 const AXIS_FLOOR = 20; // smallest y-axis max, so a flat-idle graph is not "maxed"
 
 /**
- * Column graph of recent CPU usage: one bar per sample in a
- * {@link CPU_HISTORY_CAPACITY} x 100 viewBox, right-aligned (newest at the right).
- * The y-axis scales to the tallest visible sample (never below {@link AXIS_FLOOR})
- * so idle values stay readable and clickable while spikes still fit; bar heights
- * ease to the new scale. Hovering scrubs: `onScrub` reports the index under the
- * cursor (null on leave) and that bar brightens.
+ * Column graph of recent CPU usage.
  */
 export function CpuGraph({
   history,
@@ -72,7 +67,6 @@ export function CpuGraph({
             className={active ? "text-foreground" : undefined}
             fill="currentColor"
             fillOpacity={active ? 1 : 0.55}
-            style={{ transition: "y 150ms ease-out, height 150ms ease-out" }}
           />
         );
       })}
