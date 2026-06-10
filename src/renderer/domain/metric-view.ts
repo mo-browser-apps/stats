@@ -35,12 +35,12 @@ export function baseState(status: MetricStatus): MetricState {
 
 /**
  * Refines an OK metric to `ok` / `elevated` / `critical` by percent used. Non-OK
- * states pass through unchanged (elevated at 70%, critical at 90%).
+ * states pass through unchanged (elevated at 75%, critical at 90%).
  */
 export function usageState(
   status: MetricStatus,
   usedPercent: number,
-  elevatedAt = 70,
+  elevatedAt = 75,
   criticalAt = 90,
 ): MetricState {
   const base = baseState(status);
