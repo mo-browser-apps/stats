@@ -38,7 +38,7 @@ export function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
           {value ? <span className="text-[13px] font-light text-muted-foreground">{value.unit}</span> : null}
         </span>
       </MetricRowHeader>
-      <div className="relative h-12 w-full">
+      <div className="relative h-20 w-full">
         <CpuGraph history={history} scrubIndex={scrubIndex} state={state} onScrub={setScrubIndex} />
         {scrubbed != null && scrubPercent !== null ? (
           <div

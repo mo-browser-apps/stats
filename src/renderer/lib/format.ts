@@ -100,16 +100,6 @@ export function formatRateParts(bytesPerSecond: number): ValueParts {
 }
 
 /**
- * Formats a per-second byte rate as one string, e.g. `2.1 KB/s`. Joins
- * {@link formatRateParts} for places that render the rate at a single size
- * (the Network row's up-rate detail line).
- */
-export function formatRate(bytesPerSecond: number): string {
-  const parts = formatRateParts(bytesPerSecond);
-  return parts.unit ? `${parts.value} ${parts.unit}` : parts.value;
-}
-
-/**
  * Formats an uptime in seconds as a compact duration, e.g. `3d 4h`, `5h 12m`,
  * `8m`. Only the two most significant non-zero units are shown to stay compact.
  */

@@ -17,7 +17,7 @@ type WindowView = "stats" | "processes";
  */
 const WINDOW_WIDTH = 360;
 const VIEW_HEIGHT: Record<WindowView, number> = {
-  stats: 484,
+  stats: 465,
   processes: 560,
 };
 

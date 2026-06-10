@@ -6,7 +6,6 @@ import {
   formatCpuPercentPrecise,
   formatCpuTime,
   formatPercentParts,
-  formatRate,
   formatRateParts,
   formatStartTime,
   formatUptime,
@@ -112,18 +111,6 @@ describe("formatRateParts", () => {
   });
 });
 
-describe("formatRate", () => {
-  it("joins the rate parts into one string", () => {
-    expect(formatRate(1.2 * 1024 * 1024 * 1024)).toBe("1.2 GB/s");
-    expect(formatRate(1018)).toBe("1.0 KB/s");
-    expect(formatRate(0)).toBe("0 B/s");
-  });
-
-  it("is unavailable for negative or non-finite input", () => {
-    expect(formatRate(-1)).toBe(UNAVAILABLE_TEXT);
-    expect(formatRate(Number.POSITIVE_INFINITY)).toBe(UNAVAILABLE_TEXT);
-  });
-});
 
 describe("formatUptime", () => {
   it("shows the two most significant units", () => {

@@ -3,20 +3,8 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import { isLive, type MetricState } from "@/domain/metric-view";
-import { UNAVAILABLE_TEXT } from "@/lib/format";
 
-interface MetricRowProps {
-  icon: LucideIcon;
-  label: string;
-  state: MetricState;
-  value?: string;
-  valueUnit?: string;
-  valuePrefix?: string;
-  detail?: string;
-  percent?: number;
-}
-
-const VALUE_COLOR_BY_STATE: Record<MetricState, string> = {
+export const VALUE_COLOR_BY_STATE: Record<MetricState, string> = {
   ok: "text-foreground",
   elevated: "text-warning",
   critical: "text-destructive",
@@ -45,37 +33,8 @@ export function MetricRowHeader({ icon: Icon, label, children }: { icon: LucideI
   );
 }
 
-/** A metric as a header + single-fill meter + detail line (CPU, Disk, Network). */
-export function MetricRow({ icon, label, state, value, valueUnit, valuePrefix, detail, percent }: MetricRowProps) {
-  const live = isLive(state);
-  const primaryText = live && value ? value : state === "pending" ? "--" : UNAVAILABLE_TEXT;
-  const showAffixes = live && Boolean(value);
-
-  return (
-    <div className="flex flex-col gap-2">
-      <MetricRowHeader icon={icon} label={label}>
-        <span className="flex items-baseline gap-1">
-          {showAffixes && valuePrefix ? (
-            <span className="text-sm font-light text-muted-foreground">{valuePrefix}</span>
-          ) : null}
-          <span className={cn("text-base font-medium tabular-nums leading-none", VALUE_COLOR_BY_STATE[state])}>
-            {primaryText}
-          </span>
-          {showAffixes && valueUnit ? (
-            <span className="text-[13px] font-light text-muted-foreground">{valueUnit}</span>
-          ) : null}
-        </span>
-      </MetricRowHeader>
-      <Meter label={label} state={state} percent={percent} />
-      <span className="h-3.5 truncate text-[11px] text-muted-foreground/80 tabular-nums">
-        {live && detail ? detail : null}
-      </span>
-    </div>
-  );
-}
-
 /** Rounded rail with a fill whose width encodes the value; mirrored onto ARIA. */
-function Meter({ label, state, percent }: { label: string; state: MetricState; percent?: number }) {
+export function Meter({ label, state, percent }: { label: string; state: MetricState; percent?: number }) {
   const live = isLive(state);
   const hasValue = live && percent !== undefined && Number.isFinite(percent);
   const clamped = hasValue ? Math.min(100, Math.max(0, percent)) : 0;

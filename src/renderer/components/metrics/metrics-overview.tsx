@@ -1,22 +1,15 @@
 import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Clock, HardDrive, Network, Thermometer } from "lucide-react";
+import { Clock, Thermometer } from "lucide-react";
 
-import { MetricRow } from "@/components/metrics/metric-row";
 import { CpuRow } from "@/components/metrics/cpu-row";
 import { MemoryRow } from "@/components/metrics/memory-row";
+import { DiskRow } from "@/components/metrics/disk-row";
+import { NetworkRow } from "@/components/metrics/network-row";
 import { metricsGateway } from "@/gateway/metrics-gateway";
 import type { MetricsSnapshot } from "@/gen/metrics";
-import { baseState, isLive, usageState } from "@/domain/metric-view";
-import {
-  UNAVAILABLE_TEXT,
-  formatBytes,
-  formatCelsius,
-  formatPercentParts,
-  formatRate,
-  formatRateParts,
-  formatUptime,
-} from "@/lib/format";
+import { baseState, isLive } from "@/domain/metric-view";
+import { UNAVAILABLE_TEXT, formatCelsius, formatUptime } from "@/lib/format";
 
 /**
  * Live overview (the Stats view). Owns the metrics-stream subscription but only
@@ -36,8 +29,8 @@ export function MetricsOverview({ active }: { active: boolean }) {
   }, [active]);
 
   return (
-    <div className="flex flex-1 flex-col px-6 pb-5">
-      <div className="flex flex-1 flex-col justify-center divide-y divide-border/50">
+    <div className="flex flex-1 flex-col justify-center px-6 pb-5 pt-2">
+      <div className="flex flex-col divide-y divide-border/50">
         <div className="pb-4">
           <CpuRow snapshot={snapshot} />
         </div>
@@ -47,51 +40,14 @@ export function MetricsOverview({ active }: { active: boolean }) {
         <div className="py-4">
           <DiskRow snapshot={snapshot} />
         </div>
-        <div className="pt-4">
+        <div className="py-4">
           <NetworkRow snapshot={snapshot} />
         </div>
-      </div>
-      <div className="flex flex-col gap-3">
-        <div className="h-px bg-border/50" />
-        <FooterStats snapshot={snapshot} />
+        <div className="pt-4">
+          <FooterStats snapshot={snapshot} />
+        </div>
       </div>
     </div>
-  );
-}
-
-function DiskRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
-  const disk = snapshot?.disk;
-  const state = disk ? usageState(disk.status, disk.usedPercent) : "pending";
-  const live = isLive(state);
-  const percent = disk ? formatPercentParts(disk.usedPercent) : undefined;
-  return (
-    <MetricRow
-      icon={HardDrive}
-      label="Disk"
-      state={state}
-      value={percent?.value}
-      valueUnit={percent?.unit}
-      detail={live ? `${formatBytes(disk!.usedBytes)} / ${formatBytes(disk!.totalBytes)}` : undefined}
-      percent={live ? disk?.usedPercent : undefined}
-    />
-  );
-}
-
-function NetworkRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
-  const network = snapshot?.network;
-  const state = network ? baseState(network.status) : "pending";
-  const live = isLive(state);
-  const down = network && live ? formatRateParts(network.rxBytesPerSec) : undefined;
-  return (
-    <MetricRow
-      icon={Network}
-      label="Network"
-      state={state}
-      value={down?.value}
-      valueUnit={down?.unit}
-      valuePrefix="↓"
-      detail={network && live ? `↑ ${formatRate(network.txBytesPerSec)}` : undefined}
-    />
   );
 }
 
