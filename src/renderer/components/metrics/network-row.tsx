@@ -1,6 +1,6 @@
 import { Network } from "lucide-react";
 
-import { MetricRowHeader } from "@/components/metrics/metric-row";
+import { MetricRowHeader } from "@/components/metrics/metric-row-header";
 import type { MetricsSnapshot } from "@/gen/metrics";
 import { baseState, isLive } from "@/domain/metric-view";
 import { formatRateParts } from "@/lib/format";

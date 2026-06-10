@@ -1,6 +1,6 @@
 import { MemoryStick } from "lucide-react";
 
-import { MetricRowHeader } from "@/components/metrics/metric-row";
+import { MetricRowHeader } from "@/components/metrics/metric-row-header";
 import { SegmentedMeter, type MeterSegment } from "@/components/metrics/segmented-meter";
 import type { MetricsSnapshot } from "@/gen/metrics";
 import { isLive, usageState } from "@/domain/metric-view";

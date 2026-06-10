@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Cpu } from "lucide-react";
 
-import { MetricRowHeader } from "@/components/metrics/metric-row";
+import { MetricRowHeader } from "@/components/metrics/metric-row-header";
 import { CpuGraph } from "@/components/metrics/cpu-graph";
 import type { MetricsSnapshot } from "@/gen/metrics";
 import { MetricStatus } from "@/gen/metrics";
