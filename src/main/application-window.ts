@@ -171,24 +171,19 @@ export class ApplicationWindow {
     const isMac = process.platform === "darwin";
     const initialHeight = this.targetHeight;
     const window = new BrowserWindow({
+      // The URL of the app frontend entry point.
       url: app.url,
-      // Branded name (with macron) for the user-visible title; app.name is the
-      // ASCII technical identifier and must not surface in the UI.
+      // Branded name for the user-visible title.
       title: DISPLAY_NAME,
+      // The size is just big enough for the initial view.
       size: { width: WINDOW_WIDTH, height: initialHeight },
-      // Minimum is the smallest (Stats) height so a shrink animation is never
-      // clamped; the exact per-view height is driven by setBounds, not the user.
       minimumSize: { width: WINDOW_WIDTH, height: VIEW_HEIGHT.stats },
-      // The user cannot resize the compact window; the app sets its size per view
-      // (Stats vs Processes). resizable:false only blocks user drag, not setBounds.
       resizable: false,
       // Hide the green maximize/zoom button: there is no larger layout to
       // expand into. Close and minimize stay so the window behaves natively.
       windowButtonVisible: { maximize: false, zoom: false },
       windowTitleVisible: false,
-      // Keep the native title bar off on macOS for a compact utility look; the
-      // renderer provides its own draggable region. Other platforms keep the
-      // standard title bar so the window stays draggable.
+      // Keep the native title bar off on macOS for a compact utility look.
       windowTitlebarVisible: !isMac,
     });
 
