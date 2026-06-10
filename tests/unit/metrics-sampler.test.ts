@@ -337,20 +337,12 @@ describe("temperature", () => {
   });
 });
 
-describe("uptime and load", () => {
-  it("reports floored uptime and finite load averages", async () => {
+describe("uptime", () => {
+  it("reports floored uptime", async () => {
     h.uptime.mockReturnValue(123.9);
-    h.loadavg.mockReturnValue([2.5, 1.25, 0.75]);
     const reading = await new MetricsSampler().sample();
     expect(reading.uptime.status).toBe("ok");
     expect(reading.uptime.uptimeSeconds).toBe(123);
-    expect(reading.uptime.loadAverage).toEqual([2.5, 1.25, 0.75]);
-  });
-
-  it("drops non-finite load entries (e.g. a platform without loadavg)", async () => {
-    h.loadavg.mockReturnValue([1.5, Number.NaN, Number.POSITIVE_INFINITY]);
-    const reading = await new MetricsSampler().sample();
-    expect(reading.uptime.loadAverage).toEqual([1.5]);
   });
 
   it("degrades only uptime to unavailable when os.uptime() throws", async () => {
@@ -361,6 +353,36 @@ describe("uptime and load", () => {
     expect(reading.uptime.status).toBe("unavailable");
     // Disk (another sync group) is unaffected.
     expect(reading.disk.status).toBe("ok");
+  });
+});
+
+describe("load average", () => {
+  it("reports finite load averages on the CPU reading", async () => {
+    h.loadavg.mockReturnValue([2.5, 1.25, 0.75]);
+    const reading = await new MetricsSampler().sample();
+    expect(reading.cpu.loadAverage).toEqual([2.5, 1.25, 0.75]);
+  });
+
+  it("drops non-finite load entries (e.g. a platform without loadavg)", async () => {
+    h.loadavg.mockReturnValue([1.5, Number.NaN, Number.POSITIVE_INFINITY]);
+    const reading = await new MetricsSampler().sample();
+    expect(reading.cpu.loadAverage).toEqual([1.5]);
+  });
+
+  it("keeps the CPU usage reading even when loadavg() throws", async () => {
+    h.loadavg.mockImplementation(() => {
+      throw new Error("loadavg boom");
+    });
+    // Two samples with a real tick delta so usage is meaningful (first is always
+    // pending); load failing independently must not downgrade that usage status.
+    const sampler = new MetricsSampler();
+    h.cpus.mockReturnValue([core("M2", 100, 100)]);
+    await sampler.sample();
+    h.cpus.mockReturnValue([core("M2", 175, 125)]); // +75 busy / +100 total = 75%
+    const reading = await sampler.sample();
+    expect(reading.cpu.loadAverage).toEqual([]);
+    expect(reading.cpu.status).toBe("ok");
+    expect(reading.cpu.usagePercent).toBeCloseTo(75);
   });
 });
 

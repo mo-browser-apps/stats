@@ -24,6 +24,7 @@ message CpuMetric {
   double usage_percent = 2; // 0-100 aggregate usage across all cores.
   string model = 3;         // Empty when unknown.
   uint32 core_count = 4;    // Logical core count; 0 when unknown.
+  repeated double load_average = 5; // 1/5/15 minute load averages.
 }
 
 // Physical memory usage. The primary used value excludes reclaimable cache so
@@ -54,12 +55,10 @@ message NetworkMetric {
   uint64 tx_bytes_per_sec = 3; // Send rate.
 }
 
-// System uptime and load average. Load entries are 1/5/15 minute averages when
-// the platform provides them.
+// System uptime.
 message UptimeMetric {
   MetricStatus status = 1;
   uint64 uptime_seconds = 2;
-  repeated double load_average = 3;
 }
 
 // Optional CPU temperature. Frequently UNAVAILABLE on Apple Silicon because

@@ -5,6 +5,7 @@ import {
   formatCpuPercent,
   formatCpuPercentPrecise,
   formatCpuTime,
+  formatLoadAverage,
   formatPercentParts,
   formatRate,
   formatRateParts,
@@ -136,6 +137,31 @@ describe("formatUptime", () => {
   it("is unavailable for negative or non-finite input", () => {
     expect(formatUptime(-1)).toBe(UNAVAILABLE_TEXT);
     expect(formatUptime(Number.NaN)).toBe(UNAVAILABLE_TEXT);
+  });
+});
+
+describe("formatLoadAverage", () => {
+  it("formats 1/5/15 entries to one decimal, newest first", () => {
+    expect(formatLoadAverage([3.42, 2.91, 2.13])).toBe("3.4 / 2.9 / 2.1");
+  });
+
+  it("renders the entries it has when fewer than three are present", () => {
+    expect(formatLoadAverage([1.5])).toBe("1.5");
+    expect(formatLoadAverage([1.5, 0.8])).toBe("1.5 / 0.8");
+  });
+
+  it("caps at the first three entries", () => {
+    expect(formatLoadAverage([1, 2, 3, 4])).toBe("1.0 / 2.0 / 3.0");
+  });
+
+  it("drops non-finite entries", () => {
+    expect(formatLoadAverage([1.2, Number.NaN, 0.5])).toBe("1.2 / 0.5");
+  });
+
+  it("is undefined when there is no usable data", () => {
+    expect(formatLoadAverage(undefined)).toBeUndefined();
+    expect(formatLoadAverage([])).toBeUndefined();
+    expect(formatLoadAverage([Number.NaN])).toBeUndefined();
   });
 });
 

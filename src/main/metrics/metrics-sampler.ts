@@ -58,8 +58,8 @@ interface CpuTicks {
 }
 
 /**
- * Samples the system metrics for one snapshot: CPU usage, CPU identity, memory,
- * disk capacity, network throughput, uptime, load average, and optional CPU
+ * Samples the system metrics for one snapshot: CPU usage, CPU identity, load
+ * average, memory, disk capacity, network throughput, uptime, and optional CPU
  * temperature. CPU/disk/uptime come from Node `os`/`fs`; memory, network
  * throughput, and temperature come from native probes (Node cannot expose the
  * macOS VM cache breakdown, rx/tx byte counters, or thermal sensors).
@@ -103,6 +103,7 @@ export class MetricsSampler {
    * tick and a logical-core-count change that would make a raw delta meaningless.
    */
   private sampleCpu(): CpuReading {
+    const loadAverage = this.readLoadAverage();
     try {
       const cores = os.cpus();
       const model = cores[0]?.model ?? "";
@@ -114,7 +115,7 @@ export class MetricsSampler {
 
       if (previous === null) {
         // First sample: no delta yet. Pending until the next tick.
-        return { status: "unknown", usagePercent: 0, model, coreCount };
+        return { status: "unknown", usagePercent: 0, model, coreCount, loadAverage };
       }
 
       const busyDelta = current.busy - previous.busy;
@@ -123,14 +124,27 @@ export class MetricsSampler {
       if (totalDelta <= 0 || busyDelta < 0) {
         // Zero/negative delta (idle tick, counter reset, or core-count change):
         // not a meaningful percentage this tick.
-        return { status: "unknown", usagePercent: 0, model, coreCount };
+        return { status: "unknown", usagePercent: 0, model, coreCount, loadAverage };
       }
 
       const usagePercent = clampPercent((busyDelta / totalDelta) * 100);
-      return { status: "ok", usagePercent, model, coreCount };
+      return { status: "ok", usagePercent, model, coreCount, loadAverage };
     } catch {
       this.previousCpuTicks = null;
-      return { status: "unavailable", usagePercent: 0, model: "", coreCount: 0 };
+      return { status: "unavailable", usagePercent: 0, model: "", coreCount: 0, loadAverage };
+    }
+  }
+
+  /**
+   * 1/5/15 minute load averages from Node `os`. `loadavg()` is Unix-specific; on
+   * platforms without it the entries are 0, so non-finite values are dropped and
+   * an empty array signals "unavailable" to the formatter. Never throws.
+   */
+  private readLoadAverage(): number[] {
+    try {
+      return os.loadavg().filter((value) => Number.isFinite(value));
+    } catch {
+      return [];
     }
   }
 
@@ -260,16 +274,14 @@ export class MetricsSampler {
   }
 
   /**
-   * System uptime and load average from Node `os`.
+   * System uptime from Node `os`.
    */
   private sampleUptime(): UptimeReading {
     try {
       const uptimeSeconds = Math.max(0, Math.floor(os.uptime()));
-      // loadavg() is Unix-specific; on platforms without it the entries are 0.
-      const loadAverage = os.loadavg().filter((value) => Number.isFinite(value));
-      return { status: "ok", uptimeSeconds, loadAverage };
+      return { status: "ok", uptimeSeconds };
     } catch {
-      return { status: "unavailable", uptimeSeconds: 0, loadAverage: [] };
+      return { status: "unavailable", uptimeSeconds: 0 };
     }
   }
 }

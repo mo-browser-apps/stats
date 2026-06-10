@@ -184,6 +184,7 @@ function toCpuMetric(reading: CpuReading): CpuMetric {
     usagePercent: reading.usagePercent,
     model: reading.model,
     coreCount: reading.coreCount,
+    loadAverage: reading.loadAverage,
   };
 }
 
@@ -220,7 +221,6 @@ function toUptimeMetric(reading: UptimeReading): UptimeMetric {
   return {
     status: toMetricStatus(reading.status),
     uptimeSeconds: reading.uptimeSeconds,
-    loadAverage: reading.loadAverage,
   };
 }
 

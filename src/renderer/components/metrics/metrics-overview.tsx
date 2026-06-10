@@ -10,6 +10,7 @@ import {
   UNAVAILABLE_TEXT,
   formatBytes,
   formatCelsius,
+  formatLoadAverage,
   formatPercentParts,
   formatRate,
   formatRateParts,
@@ -61,7 +62,8 @@ function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const cpu = snapshot?.cpu;
   const state = cpu ? usageState(cpu.status, cpu.usagePercent) : "pending";
   const live = isLive(state);
-  const detail = cpu && cpu.model ? `${cpu.model}${cpu.coreCount ? ` - ${cpu.coreCount} cores` : ""}` : undefined;
+  const load = formatLoadAverage(cpu?.loadAverage);
+  const detail = load ? `Load ${load}` : undefined;
   const percent = cpu ? formatPercentParts(cpu.usagePercent) : undefined;
   return (
     <MetricRow

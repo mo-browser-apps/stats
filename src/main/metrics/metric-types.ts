@@ -32,6 +32,10 @@ export interface CpuReading {
    * Logical core count; 0 when unknown.
    */
   coreCount: number;
+  /**
+   * 1/5/15 minute load averages when the platform provides them.
+   */
+  loadAverage: number[];
 }
 
 /**
@@ -91,15 +95,11 @@ export interface NetworkReading {
 }
 
 /**
- * System uptime in seconds plus the 1/5/15 minute load averages.
+ * System uptime in seconds. Load average moved to {@link CpuReading}.
  */
 export interface UptimeReading {
   status: ReadingStatus;
   uptimeSeconds: number;
-  /**
-   * 1/5/15 minute averages when the platform provides them; otherwise empty.
-   */
-  loadAverage: number[];
 }
 
 /**
