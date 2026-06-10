@@ -108,6 +108,7 @@ export function useProcessActions(
         const response = await processExplorerGateway.runAction(kind, target);
         terminated =
           response.outcome === Outcome.OUTCOME_SUCCEEDED &&
+          response.affectedCount > 0 &&
           (kind === ProcessActionKind.PROCESS_ACTION_KIND_QUIT ||
             kind === ProcessActionKind.PROCESS_ACTION_KIND_FORCE_QUIT);
         setActionMessage(actionOutcomeMessage(response.outcome));
