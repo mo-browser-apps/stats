@@ -56,7 +56,7 @@ export function ProcessSearchField({
           }
         }}
         placeholder="Search processes"
-        aria-label="Search processes"
+        aria-label="Search processes by name, PID, path, or command-line arguments"
         spellCheck={false}
         autoComplete="off"
         className={searchInput()}
