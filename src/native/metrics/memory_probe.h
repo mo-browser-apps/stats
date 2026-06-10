@@ -5,12 +5,14 @@
 
 namespace mostats {
 
-// Reads an Activity Monitor-style memory breakdown into the generated response.
+// Reads an Activity Monitor-style memory composition into the generated
+// response: app + wired + compressed + cached + free sum to total.
 //
-// Reclaimable file cache is subtracted from "used" and reported separately so
-// the UI does not present cache as pressure. On any failure the response is
-// marked unavailable. The main-process sampler owns percentage derivation. See
-// memory_probe.cc for the page-counter sources and math.
+// Reclaimable file cache is subtracted from "used" (app + wired + compressed)
+// and reported separately so the UI does not present cache as pressure. On any
+// failure the response is marked unavailable. The main-process sampler owns
+// percentage derivation. See memory_probe.cc for the page-counter sources and
+// math.
 void ReadMemoryUsage(MemoryUsage* response);
 
 }  // namespace mostats

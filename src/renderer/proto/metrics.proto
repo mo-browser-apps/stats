@@ -24,9 +24,10 @@ message CpuMetric {
   repeated double load_average = 3; // 1/5/15 minute load averages.
 }
 
-// Physical memory usage. The primary used value excludes reclaimable cache so
-// the memory row does not present cached files as pressure. Bytes use uint64 to
-// stay correct above 4 GB.
+// Physical memory composition. used (= app + wired + compressed) excludes
+// reclaimable cache so the row does not present cached files as pressure. The
+// app/wired/compressed/cached/free parts sum to total for the segmented bar.
+// Bytes use uint64 to stay correct above 4 GB.
 message MemoryMetric {
   MetricStatus status = 1;
   uint64 used_bytes = 2;
@@ -34,6 +35,9 @@ message MemoryMetric {
   double used_percent = 4; // 0-100.
   uint64 available_bytes = 5; // Free/available to apps, including cache.
   uint64 cached_bytes = 6;    // Reclaimable cached files/purgeable memory.
+  uint64 app_bytes = 7;        // App (anonymous/private) memory.
+  uint64 wired_bytes = 8;      // Wired (unpageable) memory.
+  uint64 compressed_bytes = 9; // Compressed (OS-compressed inactive) memory.
 }
 
 // Usage for the main system volume.

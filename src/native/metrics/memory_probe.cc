@@ -82,12 +82,21 @@ void ReadMemoryUsage(MemoryUsage* response) {
   const uint64_t available_bytes = total_bytes - used_bytes;
   const uint64_t cached_bytes =
       std::min(PagesToBytes(cached_pages, page_size), available_bytes);
+  const uint64_t wired_bytes =
+      std::min(PagesToBytes(stats.wire_count, page_size), used_bytes);
+  const uint64_t compressed_bytes = std::min(
+      PagesToBytes(stats.compressor_page_count, page_size),
+      used_bytes - wired_bytes);
+  const uint64_t app_bytes = used_bytes - wired_bytes - compressed_bytes;
 
   response->set_available(true);
   response->set_total_bytes(total_bytes);
   response->set_used_bytes(used_bytes);
   response->set_available_bytes(available_bytes);
   response->set_cached_bytes(cached_bytes);
+  response->set_app_bytes(app_bytes);
+  response->set_wired_bytes(wired_bytes);
+  response->set_compressed_bytes(compressed_bytes);
 }
 
 }  // namespace mostats

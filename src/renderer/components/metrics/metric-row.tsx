@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import { isLive, type MetricState } from "@/domain/metric-view";
@@ -37,6 +38,22 @@ interface MetricRowProps {
    * When provided, a hairline meter is shown with a marker dot at value% (0-100).
    */
   percent?: number;
+  /**
+   * Replaces the single-fill meter (e.g. a segmented composition bar). When set,
+   * `percent` is ignored. Rendered only while live, like the default meter.
+   */
+  meterSlot?: ReactNode;
+  /**
+   * Replaces the text detail line (e.g. a swatch legend). When set, `detail` is
+   * ignored. Rendered only while live, in the same height-reserved slot.
+   */
+  detailSlot?: ReactNode;
+  /**
+   * Replaces the entire right-side value group (the big value + affixes). Use
+   * for rows that want a custom headline, e.g. a small muted total instead of a
+   * large number. When set, `value`/`valueUnit`/`valuePrefix` are ignored.
+   */
+  headlineSlot?: ReactNode;
 }
 
 const VALUE_COLOR_BY_STATE: Record<MetricState, string> = {
@@ -59,7 +76,19 @@ const FILL_BY_STATE: Record<MetricState, string> = {
   unavailable: "bg-muted-foreground/30",
 };
 
-export function MetricRow({ icon: Icon, label, state, value, valueUnit, valuePrefix, detail, percent }: MetricRowProps) {
+export function MetricRow({
+  icon: Icon,
+  label,
+  state,
+  value,
+  valueUnit,
+  valuePrefix,
+  detail,
+  percent,
+  meterSlot,
+  detailSlot,
+  headlineSlot,
+}: MetricRowProps) {
   const live = isLive(state);
   const primaryText = live && value ? value : state === "pending" ? "--" : UNAVAILABLE_TEXT;
   const showAffixes = live && Boolean(value);
@@ -71,22 +100,28 @@ export function MetricRow({ icon: Icon, label, state, value, valueUnit, valuePre
           <Icon className="h-3.5 w-3.5 shrink-0 self-center" strokeWidth={1.75} aria-hidden="true" />
           <span className="text-[11px] font-light uppercase tracking-[0.18em]">{label}</span>
         </span>
-        <span className="flex items-baseline gap-1">
-          {showAffixes && valuePrefix ? (
-            <span className="text-sm font-light text-muted-foreground">{valuePrefix}</span>
-          ) : null}
-          <span className={cn("text-2xl font-medium tabular-nums leading-none", VALUE_COLOR_BY_STATE[state])}>
-            {primaryText}
+        {headlineSlot ? (
+          headlineSlot
+        ) : (
+          <span className="flex items-baseline gap-1">
+            {showAffixes && valuePrefix ? (
+              <span className="text-sm font-light text-muted-foreground">{valuePrefix}</span>
+            ) : null}
+            <span className={cn("text-2xl font-medium tabular-nums leading-none", VALUE_COLOR_BY_STATE[state])}>
+              {primaryText}
+            </span>
+            {showAffixes && valueUnit ? (
+              <span className="text-[13px] font-light text-muted-foreground">{valueUnit}</span>
+            ) : null}
           </span>
-          {showAffixes && valueUnit ? (
-            <span className="text-[13px] font-light text-muted-foreground">{valueUnit}</span>
-          ) : null}
-        </span>
+        )}
       </div>
-      <Meter label={label} state={state} percent={percent} />
-      <span className="h-3.5 truncate text-[11px] text-muted-foreground/80 tabular-nums">
-        {live && detail ? detail : null}
-      </span>
+      {live && meterSlot ? meterSlot : <Meter label={label} state={state} percent={percent} />}
+      {detailSlot !== undefined || detail !== undefined ? (
+        <span className="h-3.5 truncate text-[11px] text-muted-foreground/80 tabular-nums">
+          {live ? (detailSlot ?? detail ?? null) : null}
+        </span>
+      ) : null}
     </div>
   );
 }

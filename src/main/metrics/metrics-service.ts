@@ -194,6 +194,9 @@ function toMemoryMetric(reading: MemoryReading): MemoryMetric {
     usedPercent: reading.usedPercent,
     availableBytes: reading.availableBytes,
     cachedBytes: reading.cachedBytes,
+    appBytes: reading.appBytes,
+    wiredBytes: reading.wiredBytes,
+    compressedBytes: reading.compressedBytes,
   };
 }
 

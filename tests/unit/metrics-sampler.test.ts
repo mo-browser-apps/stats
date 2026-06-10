@@ -233,11 +233,49 @@ describe("memory", () => {
       usedBytes: 8 * GB,
       availableBytes: 8 * GB,
       cachedBytes: 2 * GB,
+      appBytes: 5 * GB,
+      wiredBytes: 2 * GB,
+      compressedBytes: 1 * GB,
     });
     const reading = await new MetricsSampler().sample();
     expect(reading.memory.status).toBe("ok");
     expect(reading.memory.usedBytes).toBe(8 * GB);
     expect(reading.memory.usedPercent).toBe(50);
+  });
+
+  it("maps the composition parts and they sum back to used", async () => {
+    h.readMemory.mockResolvedValue({
+      available: true,
+      totalBytes: 16 * GB,
+      usedBytes: 8 * GB,
+      availableBytes: 8 * GB,
+      cachedBytes: 2 * GB,
+      appBytes: 5 * GB,
+      wiredBytes: 2 * GB,
+      compressedBytes: 1 * GB,
+    });
+    const { memory } = await new MetricsSampler().sample();
+    expect(memory.appBytes).toBe(5 * GB);
+    expect(memory.wiredBytes).toBe(2 * GB);
+    expect(memory.compressedBytes).toBe(1 * GB);
+    expect(memory.appBytes + memory.wiredBytes + memory.compressedBytes).toBe(memory.usedBytes);
+  });
+
+  it("clamps each composition part to used (no part can exceed the used segment)", async () => {
+    h.readMemory.mockResolvedValue({
+      available: true,
+      totalBytes: 16 * GB,
+      usedBytes: 4 * GB,
+      availableBytes: 12 * GB,
+      cachedBytes: 0,
+      appBytes: 99 * GB, // implausible; clamps to used
+      wiredBytes: 99 * GB,
+      compressedBytes: 99 * GB,
+    });
+    const { memory } = await new MetricsSampler().sample();
+    expect(memory.wiredBytes).toBe(4 * GB);
+    expect(memory.compressedBytes).toBe(4 * GB);
+    expect(memory.appBytes).toBe(4 * GB);
   });
 
   it("clamps an over-total used value to the total", async () => {

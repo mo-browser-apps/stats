@@ -148,27 +148,35 @@ export class MetricsSampler {
 
   /**
    * Physical memory usage from the native macOS VM-statistics probe.
-   *
-   * Node's `os.freemem()` cannot distinguish truly used memory from reclaimable
-   * file cache on macOS, so it makes healthy cache look like pressure. The native
-   * probe returns an Activity Monitor-style breakdown: used excludes
-   * reclaimable cache, while available/cache are kept as separate values.
    */
   private async sampleMemory(): Promise<MemoryReading> {
     try {
       const usage = await native.memory.ReadUsage({});
       if (!usage.available || !Number.isFinite(usage.totalBytes) || usage.totalBytes <= 0) {
-        return { status: "unavailable", usedBytes: 0, totalBytes: 0, availableBytes: 0, cachedBytes: 0, usedPercent: 0 };
+        return unavailableMemory();
       }
 
       const totalBytes = usage.totalBytes;
       const usedBytes = clampBytes(usage.usedBytes, totalBytes);
       const availableBytes = clampBytes(usage.availableBytes, totalBytes);
       const cachedBytes = clampBytes(usage.cachedBytes, totalBytes);
+      const wiredBytes = clampBytes(usage.wiredBytes, usedBytes);
+      const compressedBytes = clampBytes(usage.compressedBytes, usedBytes);
+      const appBytes = clampBytes(usage.appBytes, usedBytes);
       const usedPercent = clampPercent((usedBytes / totalBytes) * 100);
-      return { status: "ok", usedBytes, totalBytes, availableBytes, cachedBytes, usedPercent };
+      return {
+        status: "ok",
+        usedBytes,
+        totalBytes,
+        availableBytes,
+        cachedBytes,
+        appBytes,
+        wiredBytes,
+        compressedBytes,
+        usedPercent,
+      };
     } catch {
-      return { status: "unavailable", usedBytes: 0, totalBytes: 0, availableBytes: 0, cachedBytes: 0, usedPercent: 0 };
+      return unavailableMemory();
     }
   }
 
@@ -312,6 +320,24 @@ function clampPercent(value: number): number {
 function clampBytes(value: number, totalBytes: number): number {
   if (!Number.isFinite(value) || !Number.isFinite(totalBytes)) return 0;
   return Math.min(Math.max(0, totalBytes), Math.max(0, value));
+}
+
+/**
+ * A zeroed, unavailable memory reading. Shared by the early-return and catch
+ * paths so the full field set stays in one place as the shape grows.
+ */
+function unavailableMemory(): MemoryReading {
+  return {
+    status: "unavailable",
+    usedBytes: 0,
+    totalBytes: 0,
+    availableBytes: 0,
+    cachedBytes: 0,
+    appBytes: 0,
+    wiredBytes: 0,
+    compressedBytes: 0,
+    usedPercent: 0,
+  };
 }
 
 function isPlausibleTemperature(celsius: number): boolean {

@@ -36,7 +36,7 @@ export interface CpuReading {
 export interface MemoryReading {
   status: ReadingStatus;
   /**
-   * Memory in use after excluding reclaimable cache.
+   * Memory in use after excluding reclaimable cache: app + wired + compressed.
    */
   usedBytes: number;
   totalBytes: number;
@@ -48,6 +48,18 @@ export interface MemoryReading {
    * Reclaimable cached files/purgeable memory.
    */
   cachedBytes: number;
+  /**
+   * App (anonymous/private) memory: usedBytes minus wired and compressed.
+   */
+  appBytes: number;
+  /**
+   * Wired (unpageable) memory: kernel, drivers, locked pages.
+   */
+  wiredBytes: number;
+  /**
+   * Compressed (OS-compressed inactive) memory.
+   */
+  compressedBytes: number;
   /**
    * 0-100 used percentage.
    */

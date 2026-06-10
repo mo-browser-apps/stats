@@ -39,10 +39,17 @@
   --color-track:            var(--track);
 
   /* Metric status — saturated only for state, never decoration. */
-  --color-success:             var(--success);
-  --color-warning:             var(--warning);
-  --color-destructive:         var(--destructive);
+  --color-success:                var(--success);
+  --color-warning:                var(--warning);
+  --color-destructive:            var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+
+  /* Memory composition — the segmented RAM bar's categories. */
+  --color-mem-app:        var(--mem-app);
+  --color-mem-wired:      var(--mem-wired);
+  --color-mem-compressed: var(--mem-compressed);
+  --color-mem-cached:     var(--mem-cached);
+  --color-mem-free:       var(--mem-free);
 
   /* Border radius */
   --radius-sm: calc(var(--radius) - 4px);
@@ -91,6 +98,14 @@
   --destructive:            oklch(57% 0.235 12deg);
   --destructive-foreground: oklch(98.5% 0 0deg);
 
+  /* Memory composition (light fallback; app ships dark). Same hue assignments
+     as dark, shifted darker for contrast on a light rail. */
+  --mem-app:        oklch(55% 0.135 256deg);
+  --mem-wired:      oklch(50% 0.150 300deg);
+  --mem-compressed: oklch(55% 0.095 195deg);
+  --mem-cached:     oklch(60% 0.020 90deg);
+  --mem-free:       oklch(80% 0.006 258deg);
+
   /* Base radius — 10px, matching ../voice/../icons. */
   --radius: 0.625rem;
 }
@@ -131,6 +146,13 @@
   --warning:                oklch(75% 0.155 75deg);
   --destructive:            oklch(68% 0.230 12deg);
   --destructive-foreground: oklch(90% 0 0deg);
+
+  /* Memory composition segments. */
+  --mem-app:        oklch(70% 0.135 256deg); /* blue - anchor, the largest slice */
+  --mem-wired:      oklch(62% 0.150 300deg); /* violet/magenta-leaning */
+  --mem-compressed: oklch(68% 0.095 195deg); /* teal/cyan - cool, off the blue arc */
+  --mem-cached:     oklch(67% 0.020 90deg);  /* near-neutral taupe, only a touch warm */
+  --mem-free:       oklch(48% 0.006 258deg); /* dark neutral - the empty tail, visible */
 }
 
 @layer utilities {
