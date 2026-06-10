@@ -34,7 +34,7 @@ export function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
     <div className="flex flex-col gap-2">
       <MetricRowHeader icon={Cpu} label="CPU">
         <span className="flex items-baseline gap-1">
-          <span className="text-2xl font-medium tabular-nums leading-none text-foreground">{value?.value ?? "--"}</span>
+          <span className="text-base font-medium tabular-nums leading-none text-foreground">{value?.value ?? "--"}</span>
           {value ? <span className="text-[13px] font-light text-muted-foreground">{value.unit}</span> : null}
         </span>
       </MetricRowHeader>

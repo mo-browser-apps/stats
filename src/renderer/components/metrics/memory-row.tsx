@@ -38,11 +38,9 @@ export function MemoryRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const segments = memory ? buildSegments(memory) : [];
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       <MetricRowHeader icon={MemoryStick} label="Memory">
-        {live && memory ? (
-          <span className="text-[13px] font-light tabular-nums text-muted-foreground">{formatBytes(memory.totalBytes)}</span>
-        ) : null}
+        {live && memory ? <TotalValue bytes={memory.totalBytes} /> : null}
       </MetricRowHeader>
       {memory ? (
         <SegmentedMeter segments={segments} totalBytes={memory.totalBytes} ariaLabel={ariaLabel(segments, memory.totalBytes)} />
@@ -50,5 +48,18 @@ export function MemoryRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
         <div className="h-1 w-full" aria-hidden="true" />
       )}
     </div>
+  );
+}
+
+/**
+ * Total as a big number + small muted unit, matching the other rows' headlines.
+ */
+function TotalValue({ bytes }: { bytes: number }) {
+  const [value, unit] = formatBytes(bytes).split(" ");
+  return (
+    <span className="flex items-baseline gap-1">
+      <span className="text-base font-medium tabular-nums leading-none text-foreground">{value}</span>
+      <span className="text-[13px] font-light text-muted-foreground">{unit}</span>
+    </span>
   );
 }

@@ -58,7 +58,7 @@ export function MetricRow({ icon, label, state, value, valueUnit, valuePrefix, d
           {showAffixes && valuePrefix ? (
             <span className="text-sm font-light text-muted-foreground">{valuePrefix}</span>
           ) : null}
-          <span className={cn("text-2xl font-medium tabular-nums leading-none", VALUE_COLOR_BY_STATE[state])}>
+          <span className={cn("text-base font-medium tabular-nums leading-none", VALUE_COLOR_BY_STATE[state])}>
             {primaryText}
           </span>
           {showAffixes && valueUnit ? (

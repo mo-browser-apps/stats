@@ -100,7 +100,7 @@
 
   /* Memory composition (light fallback; app ships dark). Same hue assignments
      as dark, shifted darker for contrast on a light rail. */
-  --mem-app:        oklch(55% 0.135 256deg);
+  --mem-app:        oklch(58% 0.130 258deg); /* matches --success blue (own token, shared value) */
   --mem-wired:      oklch(50% 0.150 300deg);
   --mem-compressed: oklch(55% 0.095 195deg);
   --mem-cached:     oklch(60% 0.020 90deg);
@@ -148,7 +148,7 @@
   --destructive-foreground: oklch(90% 0 0deg);
 
   /* Memory composition segments. */
-  --mem-app:        oklch(70% 0.135 256deg); /* blue - anchor, the largest slice */
+  --mem-app:        oklch(72% 0.130 258deg); /* matches --success blue */
   --mem-wired:      oklch(62% 0.150 300deg); /* violet/magenta-leaning */
   --mem-compressed: oklch(68% 0.095 195deg); /* teal/cyan - cool, off the blue arc */
   --mem-cached:     oklch(67% 0.020 90deg);  /* near-neutral taupe, only a touch warm */
