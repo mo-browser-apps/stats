@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Clock, Cpu, HardDrive, MemoryStick, Network, Thermometer } from "lucide-react";
+import { Clock, Cpu, HardDrive, Network, Thermometer } from "lucide-react";
 
 import { MetricRow } from "@/components/metrics/metric-row";
-import { SegmentedMeter } from "@/components/metrics/segmented-meter";
+import { MemoryRow } from "@/components/metrics/memory-row";
 import { metricsGateway } from "@/gateway/metrics-gateway";
 import type { MetricsSnapshot } from "@/gen/metrics";
 import { baseState, isLive, usageState } from "@/domain/metric-view";
@@ -77,83 +77,6 @@ function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
       percent={live ? cpu?.usagePercent : undefined}
     />
   );
-}
-
-/**
- * Memory composition segments in bar order, each mapped to a color token. App,
- * wired, and compressed are the "in-use" family; cached is reclaimable; free is
- * the unfilled remainder (shown via the track rail, not an explicit segment).
- */
-const MEMORY_SEGMENTS: {
-  key: "appBytes" | "wiredBytes" | "compressedBytes" | "cachedBytes";
-  label: string;
-  fillClass: string;
-}[] = [
-  { key: "appBytes", label: "App", fillClass: "bg-mem-app" },
-  { key: "wiredBytes", label: "Wired", fillClass: "bg-mem-wired" },
-  { key: "compressedBytes", label: "Compressed", fillClass: "bg-mem-compressed" },
-  { key: "cachedBytes", label: "Cache", fillClass: "bg-mem-cached" },
-];
-
-function MemoryRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
-  const memory = snapshot?.memory;
-  const state = memory ? usageState(memory.status, memory.usedPercent) : "pending";
-  const live = isLive(state);
-
-  const segments = memory
-    ? [
-        ...MEMORY_SEGMENTS.map((segment) => ({
-          key: segment.key,
-          label: segment.label,
-          fillClass: segment.fillClass,
-          bytes: memory[segment.key],
-        })),
-        { key: "free", label: "Free", fillClass: "bg-mem-free", bytes: freeBytes(memory) },
-      ]
-    : [];
-
-  return (
-    <MetricRow
-      icon={MemoryStick}
-      label="Memory"
-      state={state}
-      headlineSlot={
-        live && memory ? (
-          <span className="text-[13px] font-light tabular-nums text-muted-foreground">
-            {formatBytes(memory.totalBytes)}
-          </span>
-        ) : undefined
-      }
-      meterSlot={
-        memory ? (
-          <SegmentedMeter
-            segments={segments}
-            totalBytes={memory.totalBytes}
-            ariaLabel={memoryAriaLabel(memory)}
-          />
-        ) : undefined
-      }
-    />
-  );
-}
-
-/**
- * Free memory: whatever the four in-use/cached categories do not account for,
- * floored at zero so rounding can never produce a negative slice.
- */
-function freeBytes(memory: NonNullable<MetricsSnapshot["memory"]>): number {
-  const accounted = MEMORY_SEGMENTS.reduce((sum, segment) => sum + memory[segment.key], 0);
-  return Math.max(0, memory.totalBytes - accounted);
-}
-
-/**
- * Spoken composition for the memory bar: the full breakdown that hover reveals
- * visually, so the categories are reachable without a pointer.
- */
-function memoryAriaLabel(memory: NonNullable<MetricsSnapshot["memory"]>): string {
-  const parts = MEMORY_SEGMENTS.map((segment) => `${segment.label} ${formatBytes(memory[segment.key])}`);
-  parts.push(`Free ${formatBytes(freeBytes(memory))}`);
-  return `Memory of ${formatBytes(memory.totalBytes)}: ${parts.join(", ")}`;
 }
 
 function DiskRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
