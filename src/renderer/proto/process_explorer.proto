@@ -10,12 +10,14 @@ syntax = "proto3";
 // be logged, persisted, exported, included in telemetry, or sent over a
 // network - and they must not be echoed back in action results.
 //
-// Delivery shape: full snapshots (hundreds of rows with argv and icons) are too
-// large to push every tick, so main owns the collection cadence/cache and the
-// renderer pulls a cached snapshot with GetProcessSnapshot while subscribing to
-// a lightweight StreamRevisions broadcast (revision id + timestamp only) to
-// learn when a newer snapshot exists. Actions stay unary because each has an
-// explicit user target validated in main.
+// Delivery shape: full snapshots (hundreds of rows with argv) are too large to
+// push every tick, so main owns the collection cadence/cache and the renderer
+// pulls a cached snapshot with GetProcessSnapshot while subscribing to a
+// lightweight StreamRevisions broadcast (revision id + timestamp only) to learn
+// when a newer snapshot exists. Icon bytes never ride snapshots: rows carry a
+// content-hash icon_key and the gateway fetches unknown keys once through
+// GetProcessIcons. Actions stay unary because each has an explicit user target
+// validated in main.
 
 // Availability of a single value or group inside a process snapshot. UNKNOWN is
 // the proto3 default and means "not yet determined"; the other states are
@@ -120,21 +122,16 @@ message AppBundle {
 // owning app bundle for grouping. The icon is volatile display-only data: it
 // must not be logged or persisted.
 message AppMetadata {
-  // Field 3 was icon_png_base64 (the icon bytes inline on every row); icons are
-  // now deduplicated into ProcessSnapshot.icons and referenced by icon_key, so a
-  // shared icon is sent once per snapshot instead of once per row.
-  reserved 3;
-  reserved "icon_png_base64";
   // Application bundle identifier (e.g. com.apple.dt.Xcode) when found.
   StringValue bundle_identifier = 1;
   // User-facing localized application name when found.
   StringValue localized_name = 2;
   // Owning `.app` bundle for grouping; absent for non-bundled processes.
-  AppBundle bundle = 4;
-  // Key into ProcessSnapshot.icons for this process's icon, or empty when none.
-  // The icon bytes live once in that table; presentation code resolves the icon
-  // by this key. Volatile display-only data.
-  string icon_key = 5;
+  AppBundle bundle = 3;
+  // Content-hash key of this process's icon, or empty when none. The gateway
+  // fetches unknown keys through GetProcessIcons and assembles
+  // ProcessSnapshot.icons locally. Volatile display-only data.
+  string icon_key = 4;
 }
 
 // Sensitive command-line arguments for one process. Display/search data only:
@@ -146,9 +143,9 @@ message CommandLine {
   // Parsed argument vector when status is OK. Sensitive; see message comment.
   repeated string arguments = 2;
   // Set only on a delta snapshot (see ProcessSnapshot.delta): the arguments are
-  // omitted from the wire because they are byte-identical to this identity's row
-  // in the snapshot the renderer said it has; the gateway rehydrates them from
-  // that snapshot before presentation code sees the row.
+  // omitted from the wire because main verified they are value-identical to this
+  // identity's row in the snapshot the renderer said it has; the gateway
+  // rehydrates them from that snapshot before presentation code sees the row.
   bool from_prev = 3;
 }
 
@@ -192,14 +189,6 @@ message ProcessRow {
   CpuTime cpu_time = 12;
   // The user the process runs as (uid + resolved name).
   ProcessUser user = 13;
-  // Set only on a delta snapshot (see ProcessSnapshot.delta): the stable field
-  // group - command_name, executable_name, executable_path, app, and user - is
-  // omitted from the wire because main verified it is identical to this
-  // identity's row in the snapshot the renderer said it has. The gateway copies
-  // the group back from that snapshot before presentation code sees the row.
-  // The volatile fields (memory, cpu, cpu_time, thread_count, parent) are always
-  // carried in full.
-  bool stable_from_prev = 14;
 }
 
 // A safe, non-sensitive warning about a snapshot. Counts only - it must never
@@ -235,31 +224,44 @@ message ProcessSnapshot {
   repeated ProcessRow processes = 4;
   // Safe, count-only warnings (no sensitive text).
   repeated SnapshotWarning warnings = 5;
-  // Deduplicated base64 PNG app icons for this snapshot, keyed by content hash.
-  // A row references its icon via AppMetadata.icon_key; an icon shared by many
-  // processes is carried once here, so the snapshot stays small even though most
-  // rows show an icon. On a delta snapshot (see `delta`) this carries only the
-  // entries the renderer's previous snapshot did not have. Presentation code
-  // resolves a row's icon by looking its icon_key up here. Volatile display-only
-  // data: never logged or persisted.
+  // Base64 PNG app icons for this snapshot, keyed by content hash; a row
+  // resolves its icon by looking AppMetadata.icon_key up here. Main always sends
+  // this EMPTY over the wire: the renderer gateway assembles it locally from its
+  // content-addressed icon store, fetching unknown keys through GetProcessIcons,
+  // before presentation code sees the snapshot. Volatile display-only data:
+  // never logged or persisted.
   map<string, string> icons = 6;
   // True when this snapshot is a delta against the revision the renderer sent in
-  // GetProcessSnapshotRequest.have_revision: `icons` carries only new entries and
-  // rows may mark their argv as CommandLine.from_prev. The renderer gateway
-  // merges a delta with its previous snapshot into a full one; presentation code
-  // never sees a delta. False means the snapshot is self-contained.
+  // GetProcessSnapshotRequest.have_revision: rows may mark their argv as
+  // CommandLine.from_prev. The renderer gateway merges a delta with its previous
+  // snapshot into a full one; presentation code never sees a delta. False means
+  // the snapshot is self-contained.
   bool delta = 7;
 }
 
 // Read parameters for the snapshot pull.
 message GetProcessSnapshotRequest {
   // Revision of the last full snapshot the renderer holds, or 0 for none. When
-  // it matches the snapshot immediately preceding the current one, main responds
-  // with a delta (icons/argv that did not change are omitted; see
-  // ProcessSnapshot.delta); any other value gets a full snapshot. Bytes that
-  // dominate the payload (icons, argv) rarely change between ticks, so this
-  // keeps the steady-state pull small without a stateful subscription.
+  // it matches the current snapshot or the one immediately preceding it, main
+  // responds with a delta (argv that did not change is omitted; see
+  // ProcessSnapshot.delta); any other value gets a full snapshot. argv dominates
+  // the row payload and rarely changes between ticks, so this keeps the
+  // steady-state pull small without a stateful subscription.
   uint64 have_revision = 1;
+}
+
+// Request for icon bytes by content key (AppMetadata.icon_key values the
+// renderer does not hold yet).
+message GetProcessIconsRequest {
+  repeated string keys = 1;
+}
+
+// Resolved icons by content key: base64-encoded PNG bytes. A requested key with
+// no entry is omitted (the icon could not be resolved or its app exited); the
+// row renders a fallback glyph and the next snapshot drops the key. Volatile
+// display-only data: never logged or persisted.
+message GetProcessIconsResponse {
+  map<string, string> icons = 1;
 }
 
 // A lightweight notification that a new snapshot revision exists. Deliberately
@@ -323,7 +325,6 @@ message ActionState {
 // Request the current per-action availability for one target, validated against
 // the latest snapshot in main.
 message GetProcessActionStatesRequest {
-  reserved 2;
   // Target process identity (pid + start time).
   ProcessIdentity target = 1;
 }
@@ -338,7 +339,6 @@ message GetProcessActionStatesResponse {
 // Run one action against one target. Main re-validates against the latest
 // snapshot and applies self/critical/stale protections before acting.
 message RunProcessActionRequest {
-  reserved 3;
   ProcessActionKind action = 1;
   // Target process identity (pid + start time).
   ProcessIdentity target = 2;
@@ -381,6 +381,11 @@ service ProcessExplorerService {
   // Broadcasts a lightweight revision ping whenever a newer snapshot exists, so
   // the renderer can pull only on change instead of polling.
   rpc StreamRevisions(StreamRevisionsRequest) returns (stream ProcessSnapshotRevision);
+
+  // Returns icon bytes for content keys the renderer does not hold. Stateless
+  // pass-through to the native collector's session icon cache; content-addressed,
+  // so a returned value can never be stale.
+  rpc GetProcessIcons(GetProcessIconsRequest) returns (GetProcessIconsResponse);
 
   // Returns per-action availability for one target, validated against the
   // latest snapshot.

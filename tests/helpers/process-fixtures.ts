@@ -194,7 +194,6 @@ export function makeRow(options: RowOptions = {}): ProcessRow {
     threadCount: options.threadCount !== undefined ? okU64(options.threadCount) : undefined,
     cpuTime: makeCpuTime(options),
     user: makeUser(options),
-    stableFromPrev: false,
   };
 }
 

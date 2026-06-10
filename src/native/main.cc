@@ -56,6 +56,13 @@ class ProcessCollectorServiceImpl : public ProcessCollectorService {
     mostats::CollectProcesses(&response);
     std::move(done).Complete(response);
   }
+
+  void GetIcons(const GetIconsRequest* request,
+                Callback<GetIconsResponse> done) override {
+    GetIconsResponse response;
+    mostats::GetProcessIcons(*request, &response);
+    std::move(done).Complete(response);
+  }
 };
 
 }  // namespace

@@ -44,13 +44,55 @@ function emptySnapshot(): ProcessSnapshot {
 
 /**
  * The last full snapshot this renderer assembled, advertised to main on every
- * pull (have_revision) so main can answer with a delta - icon bytes and argv
- * the renderer already holds are omitted and merged back in locally. Module
- * state on purpose: it must survive view re-mounts but reset with the renderer,
- * so a reloaded renderer naturally pulls a full snapshot (have_revision 0).
- * Holds sensitive argv like any snapshot; never logged or persisted.
+ * pull (have_revision) so main can answer with a delta - argv the renderer
+ * already holds is omitted and merged back in locally. Its `icons` table doubles
+ * as the renderer's content-addressed icon store: a key it already maps is never
+ * re-fetched. Module state on purpose: it must survive view re-mounts but reset
+ * with the renderer, so a reloaded renderer naturally pulls a full snapshot
+ * (have_revision 0) and re-fetches every icon once. Holds sensitive argv like
+ * any snapshot; never logged or persisted.
  */
 let lastSnapshot: ProcessSnapshot | null = null;
+
+/**
+ * Assembles the icon table for `snapshot` (which arrives from main with an
+ * empty `icons`): known keys come from the previous snapshot's table, and keys
+ * the renderer has never seen are fetched once through GetProcessIcons. Keys
+ * are content hashes, so a held value can never be stale; the rebuilt table
+ * carries exactly the keys the new rows reference, which keeps it bounded by
+ * the live process set. A failed fetch degrades to whatever is held locally -
+ * affected rows render the generic glyph and the next pull retries the
+ * still-missing keys.
+ */
+async function assembleIcons(snapshot: ProcessSnapshot): Promise<{ [key: string]: string }> {
+  const known = lastSnapshot?.icons ?? {};
+  const referenced = new Set<string>();
+  for (const row of snapshot.processes) {
+    const key = row.app?.iconKey;
+    if (key !== undefined && key.length > 0) {
+      referenced.add(key);
+    }
+  }
+
+  const missing = [...referenced].filter((key) => known[key] === undefined);
+  let fetched: { [key: string]: string } = {};
+  if (missing.length > 0) {
+    try {
+      fetched = (await ipc.processExplorer.GetProcessIcons({ keys: missing })).icons;
+    } catch {
+      // Degrade to the locally held icons; no diagnostic is logged.
+    }
+  }
+
+  const icons: { [key: string]: string } = {};
+  for (const key of referenced) {
+    const bytes = known[key] ?? fetched[key];
+    if (bytes !== undefined) {
+      icons[key] = bytes;
+    }
+  }
+  return icons;
+}
 
 /**
  * Renderer-side wrapper over the generated process explorer client.
@@ -73,15 +115,18 @@ export const processExplorerGateway = {
   /**
    * Pulls the latest cached process snapshot from main. Advertises the last
    * snapshot this renderer holds; when main answers with a delta against it,
-   * the delta is merged locally into a full snapshot, so callers always receive
-   * self-contained data regardless of what went over the wire.
+   * the delta is merged locally into a full snapshot. The icon table is then
+   * assembled locally (snapshots arrive with an empty one): held keys are
+   * reused, unknown keys are fetched once through GetProcessIcons. Callers
+   * always receive self-contained data regardless of what went over the wire.
    */
   async getSnapshot(): Promise<ProcessSnapshot> {
     const base = lastSnapshot;
     const response = await ipc.processExplorer.GetProcessSnapshot({
       haveRevision: base?.revision ?? 0,
     });
-    const snapshot = response.delta ? mergeSnapshotDelta(base, response) : response;
+    const merged = response.delta ? mergeSnapshotDelta(base, response) : response;
+    const snapshot = { ...merged, icons: await assembleIcons(merged) };
     if (lastSnapshot === null || snapshot.revision >= lastSnapshot.revision) {
       lastSnapshot = snapshot;
     }

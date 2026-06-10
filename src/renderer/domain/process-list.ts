@@ -22,9 +22,10 @@ export type SortMode = "cpu" | "memory";
 
 /**
  * The snapshot's deduplicated icon table: content-key -> base64 PNG. A row
- * carries only an `app.iconKey` into this table (icons are sent once per distinct
- * image, not once per row), so the projection resolves a row's icon through
- * {@link rowIcon} rather than reading bytes off the row.
+ * carries only an `app.iconKey` into this table (the gateway assembles it from
+ * its content-addressed icon store; bytes never ride the snapshot wire), so the
+ * projection resolves a row's icon through {@link rowIcon} rather than reading
+ * bytes off the row.
  */
 export type IconTable = { [key: string]: string };
 

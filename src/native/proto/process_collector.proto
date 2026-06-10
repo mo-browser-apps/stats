@@ -50,16 +50,6 @@ message NativeInt64 {
   int64 value = 2;
 }
 
-// A native PNG image payload with explicit availability. Volatile display-only
-// app icon data: it must not be logged or persisted. Carried once per distinct
-// image in CollectProcessesResponse.icons (keyed by content hash); records point
-// at an entry via NativeAppMetadata.icon_key instead of embedding the bytes.
-message NativeImage {
-  NativeFieldStatus status = 1;
-  // Base64-encoded PNG bytes when AVAILABLE.
-  string png_base64 = 2;
-}
-
 // Process identity inputs: PID plus optional start time used by main to build a
 // snapshot-stable identity (a reused PID is disambiguated by start time).
 message NativeProcessIdentity {
@@ -69,17 +59,13 @@ message NativeProcessIdentity {
 }
 
 // Sensitive command-line argument data; display/search only (see file comment).
+// Always carried in full: the collector's argv cache avoids the KERN_PROCARGS2
+// syscall, never the payload.
 message NativeCommandLine {
   // Availability for the argument vector.
   NativeFieldStatus status = 1;
   // Parsed argument vector when AVAILABLE. Sensitive: never log/persist/export.
   repeated string arguments = 2;
-  // True when this value was served from the collector's per-process cache. For
-  // an AVAILABLE status the arguments are then omitted from the wire: main
-  // received them on the pass that first read them (the same pass that created
-  // the cache entry) and rehydrates from its own per-identity store. argv is
-  // immutable per process image, so the cached value cannot drift.
-  bool from_cache = 3;
 }
 
 // Per-process memory metrics in bytes. Physical footprint is preferred for
@@ -131,8 +117,8 @@ message NativeAppBundle {
 message NativeAppMetadata {
   NativeString bundle_identifier = 1;
   NativeString localized_name = 2;
-  // Key into CollectProcessesResponse.icons for this process's icon, or empty
-  // when none was resolved. The bytes live once in that deduplicated table.
+  // Content-hash key of this process's icon, or empty when none was resolved.
+  // The bytes are fetched by key through GetIcons, never carried here.
   string icon_key = 3;
   // Owning `.app` bundle for grouping; absent for non-bundled processes.
   NativeAppBundle bundle = 4;
@@ -201,18 +187,25 @@ message CollectProcessesResponse {
   repeated NativeProcessRecord records = 3;
   // Safe, count-only warnings (no sensitive text).
   repeated NativeCollectorWarning warnings = 4;
-  // Deduplicated app icons, keyed by a content hash of the PNG bytes. Records
-  // reference an entry via NativeAppMetadata.icon_key; an icon shared by many
-  // processes (a multi-process app, or the generic daemon icon) is carried once.
-  // Sent incrementally: a key already referenced by the previous successful pass
-  // is omitted here, because main received its bytes then and rehydrates from
-  // its own key -> bytes store. A key absent for one pass (its app exited) is
-  // re-sent in full if it reappears. Volatile display-only data.
-  map<string, NativeImage> icons = 5;
+}
+
+// Request for icon bytes by content key (NativeAppMetadata.icon_key values).
+message GetIconsRequest {
+  repeated string keys = 1;
+}
+
+// Resolved icons by content key: base64-encoded PNG bytes. A key with no cached
+// entry is omitted; the caller falls back to a generic glyph. Volatile
+// display-only data: never logged or persisted.
+message GetIconsResponse {
+  map<string, string> icons = 1;
 }
 
 // Main-to-native process collection API. Inspection-only: no actions here.
 service ProcessCollectorService {
   // Collects current macOS process records with per-field availability.
   rpc CollectProcesses(CollectProcessesRequest) returns (CollectProcessesResponse);
+
+  // Returns icon bytes for content keys, served from the session icon cache.
+  rpc GetIcons(GetIconsRequest) returns (GetIconsResponse);
 }

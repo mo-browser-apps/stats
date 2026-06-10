@@ -39,10 +39,11 @@ export class ProcessExplorerService {
    */
   private readonly unaryHandlers: Pick<
     ProcessExplorerServiceImpl,
-    "GetProcessSnapshot" | "GetProcessActionStates" | "RunProcessAction"
+    "GetProcessSnapshot" | "GetProcessIcons" | "GetProcessActionStates" | "RunProcessAction"
   > = {
     GetProcessSnapshot: async (request) =>
       this.snapshots.getSnapshot(request.haveRevision),
+    GetProcessIcons: (request) => this.snapshots.getIcons(request.keys),
     GetProcessActionStates: async (request) => this.actions.getActionStates(request),
     RunProcessAction: (request) => this.actions.runAction(request),
   };

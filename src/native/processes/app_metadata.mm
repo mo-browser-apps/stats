@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -36,13 +37,20 @@ struct CachedIcon {
 // pass to the paths still in use (see PruneIconCache), so it is bounded by the
 // live processes rather than every path ever seen.
 //
-// Threading: the cache is touched only from the process collector, which the RPC
-// layer invokes serially on the native main thread (one collection at a time),
-// so this map needs no lock. The icon is volatile display data and is never
-// logged or persisted.
+// Threading: unlike the other session caches (touched only by the serial
+// collector), this one has a second entry point - the GetIcons RPC reads it by
+// content key (CopyIconForKey) and can run concurrently with a collection pass.
+// Every access therefore takes IconCacheMutex(). The icon is volatile display
+// data and is never logged or persisted.
 std::unordered_map<std::string, CachedIcon>& IconCache() {
   static std::unordered_map<std::string, CachedIcon> cache;
   return cache;
+}
+
+// Guards IconCache() against the concurrent GetIcons reader (see above).
+std::mutex& IconCacheMutex() {
+  static std::mutex mutex;
+  return mutex;
 }
 
 // Content key for an icon's base64 bytes: 64-bit FNV-1a as hex. Non-cryptographic
@@ -210,10 +218,19 @@ ResolvedIcon ResolveIconForPath(const std::string& path) {
   // work at all. Only the first time a given bundle/executable is seen do we
   // resolve+encode+hash. Measured on a ~700-process machine: a fully warm pass is
   // well under 1 ms, while a cold resolve+encode is the only real cost, per path.
+  //
+  // The returned pointers stay valid across the unlocked encode below and until
+  // PruneIconCache: only the collector thread mutates the map, and unordered_map
+  // insertions never invalidate element pointers. The lock only orders this
+  // thread's find/emplace against the concurrent CopyIconForKey reader.
   auto& cache = IconCache();
-  const auto cached = cache.find(path);
-  if (cached != cache.end()) {
-    return ResolvedIcon{&cached->second.png_base64, &cached->second.content_key};
+  {
+    const std::lock_guard<std::mutex> lock(IconCacheMutex());
+    const auto cached = cache.find(path);
+    if (cached != cache.end()) {
+      return ResolvedIcon{&cached->second.png_base64,
+                          &cached->second.content_key};
+    }
   }
 
   std::string encoded;
@@ -238,16 +255,38 @@ ResolvedIcon ResolveIconForPath(const std::string& path) {
   CachedIcon entry;
   entry.content_key = IconContentKey(encoded);
   entry.png_base64 = std::move(encoded);
+  const std::lock_guard<std::mutex> lock(IconCacheMutex());
   const auto inserted = cache.emplace(path, std::move(entry)).first;
   return ResolvedIcon{&inserted->second.png_base64,
                       &inserted->second.content_key};
 }
 
 void PruneIconCache(const std::unordered_set<std::string>& used_paths) {
+  const std::lock_guard<std::mutex> lock(IconCacheMutex());
   auto& cache = IconCache();
   for (auto it = cache.begin(); it != cache.end();) {
     it = used_paths.count(it->first) == 0 ? cache.erase(it) : std::next(it);
   }
+}
+
+bool CopyIconForKey(const std::string& key, std::string* png_base64) {
+  if (key.empty()) {
+    return false;
+  }
+
+  // Linear scan: the cache is keyed by resolution path, not content key, and is
+  // bounded by the live process set (~hundreds of entries). GetIcons is called
+  // only for keys the renderer does not hold yet (first pull, newly seen apps),
+  // so a scan per requested key is cheaper than maintaining a second
+  // key-indexed map that PruneIconCache would have to keep in sync.
+  const std::lock_guard<std::mutex> lock(IconCacheMutex());
+  for (const auto& entry : IconCache()) {
+    if (entry.second.content_key == key) {
+      *png_base64 = entry.second.png_base64;
+      return true;
+    }
+  }
+  return false;
 }
 
 std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata() {

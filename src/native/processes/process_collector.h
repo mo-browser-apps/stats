@@ -32,6 +32,14 @@ namespace mostats {
  */
 void CollectProcesses(CollectProcessesResponse* response);
 
+/**
+ * Resolves icon bytes for the content keys in `request` from the session icon
+ * cache (the keys records reference via NativeAppMetadata.icon_key). A key with
+ * no cached entry is omitted from the response. Safe to call concurrently with
+ * a collection pass; the underlying cache lookup is mutex-guarded.
+ */
+void GetProcessIcons(const GetIconsRequest& request, GetIconsResponse* response);
+
 }  // namespace mostats
 
 #endif  // MOSTATS_PROCESSES_PROCESS_COLLECTOR_H_

@@ -29,9 +29,9 @@ std::unordered_map<int32_t, NativeAppMetadata> SnapshotRunningAppMetadata();
 
 /**
  * A resolved icon, borrowed from the session icon cache: the encoded PNG bytes
- * and their content-hash key for the response's dedup table. Both pointers are
- * null when no icon could be resolved, and otherwise stay valid only until the
- * next {@link PruneIconCache} call - consume them within the same pass.
+ * and their content-hash key. Both pointers are null when no icon could be
+ * resolved, and otherwise stay valid only until the next {@link PruneIconCache}
+ * call - consume them within the same pass.
  */
 struct ResolvedIcon {
   const std::string* png_base64 = nullptr;
@@ -62,6 +62,16 @@ ResolvedIcon ResolveIconForPath(const std::string& path);
  * re-encoded once if it launches again.
  */
 void PruneIconCache(const std::unordered_set<std::string>& used_paths);
+
+/**
+ * Copies the cached icon bytes for a content key (a value previously returned
+ * via {@link ResolvedIcon}.content_key) into `png_base64`. Returns false when no
+ * cached icon has that key - the app exited and its entry was pruned, or the key
+ * was never issued; the caller omits the entry and the row falls back to a
+ * generic glyph. Serves the GetIcons RPC, which can run concurrently with a
+ * collection pass, so the lookup synchronizes on the icon-cache mutex.
+ */
+bool CopyIconForKey(const std::string& key, std::string* png_base64);
 
 /**
  * Fills the owning `.app` bundle (path + display name) for an executable path,
