@@ -187,6 +187,9 @@ export class ApplicationWindow {
       windowTitlebarVisible: !isMac,
     });
 
+    // Disable content zoom entirely.
+    window.browser.zoom.setEnabled(false);
+
     if (isMac) {
       window.setWindowButtonPosition({ ...MAC_WINDOW_BUTTON_POSITION });
     }
