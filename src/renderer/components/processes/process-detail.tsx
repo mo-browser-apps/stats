@@ -424,7 +424,7 @@ function Members({
       </button>
 
       <DisclosureContent open={expanded}>
-        <ul className="scrollbar-hidden flex max-h-48 flex-col gap-0.5 overflow-y-auto">
+        <ul className="scrollbar-hidden flex max-h-72 flex-col gap-0.5 overflow-y-auto">
           {members.map((member) => (
             <li key={member.pid}>
               <MemberRow member={member} onOpen={onOpenMember} />
