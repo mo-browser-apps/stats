@@ -43,7 +43,7 @@ export function NetworkRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
         <div className="relative h-20 flex-1">
           <NetworkGraph history={history} scrubIndex={scrubIndex} onScrub={setScrubIndex} />
           {scrubbed && scrubPercent !== null ? (
-            <MeterTooltip leftPercent={scrubPercent} className="-top-1">
+            <MeterTooltip leftPercent={scrubPercent} clampPercent={25} className="-top-1">
               <RatePair sample={scrubbed} />
             </MeterTooltip>
           ) : null}

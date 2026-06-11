@@ -1,18 +1,10 @@
 import { HardDrive } from "lucide-react";
 
-import { MetricRowHeader, ValueUnit } from "@/components/metrics/metric-row-header";
+import { MetricRowHeader, ValueUnit, VALUE_COLOR_BY_STATE } from "@/components/metrics/metric-row-header";
 import type { MetricsSnapshot } from "@/gen/metrics";
 import { cn } from "@/lib/utils";
 import { displayText, isLive, usageState, type MetricState } from "@/domain/metric-view";
 import { formatBytes, formatPercentParts } from "@/lib/format";
-
-const VALUE_COLOR_BY_STATE: Record<MetricState, string> = {
-  ok: "text-foreground",
-  elevated: "text-warning",
-  critical: "text-destructive",
-  pending: "text-muted-foreground",
-  unavailable: "text-muted-foreground",
-};
 
 const FILL_BY_STATE: Record<MetricState, string> = {
   ok: "bg-success",

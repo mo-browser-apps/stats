@@ -35,14 +35,17 @@ export function MemoryRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const [totalValue, totalUnit] = memory ? formatBytes(memory.totalBytes).split(" ") : [];
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2">
       <MetricRowHeader icon={MemoryStick} label="Memory">
         {live && totalValue ? <ValueUnit value={totalValue} unit={totalUnit} /> : null}
       </MetricRowHeader>
       {memory ? (
         <SegmentedMeter segments={segments} totalBytes={memory.totalBytes} ariaLabel={ariaLabel(segments, memory.totalBytes)} />
       ) : (
-        <div className="h-1 w-full" aria-hidden="true" />
+        <div className="flex flex-col gap-2" aria-hidden="true">
+          <div className="h-1 w-full" />
+          <div className="text-[10px]">&nbsp;</div>
+        </div>
       )}
     </div>
   );

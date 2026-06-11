@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
+import type { MetricState } from "@/domain/metric-view";
 
 /**
  * Shared chrome for the metric rows: the header (icon + uppercase label, with
@@ -21,6 +22,18 @@ export function MetricRowHeader({ icon: Icon, label, children }: { icon: LucideI
   );
 }
 
+/**
+ * Headline value color per metric state: quiet white while ok, the status hue
+ * once a usage-thresholded metric runs hot, muted for placeholders.
+ */
+export const VALUE_COLOR_BY_STATE: Record<MetricState, string> = {
+  ok: "text-foreground",
+  elevated: "text-warning",
+  critical: "text-destructive",
+  pending: "text-muted-foreground",
+  unavailable: "text-muted-foreground",
+};
+
 /** A row's headline value: the number large, the unit small and muted. */
 export function ValueUnit({ value, unit, valueClassName }: { value: string; unit?: string; valueClassName?: string }) {
   return (
@@ -28,7 +41,7 @@ export function ValueUnit({ value, unit, valueClassName }: { value: string; unit
       <span className={cn("text-base font-medium tabular-nums leading-none", valueClassName ?? "text-foreground")}>
         {value}
       </span>
-      {unit ? <span className="text-[13px] font-light text-muted-foreground">{unit}</span> : null}
+      {unit ? <span className="text-[13px] font-light leading-none text-muted-foreground">{unit}</span> : null}
     </span>
   );
 }
@@ -39,10 +52,13 @@ export function ValueUnit({ value, unit, valueClassName }: { value: string; unit
  */
 export function MeterTooltip({
   leftPercent,
+  clampPercent = 8,
   className,
   children,
 }: {
   leftPercent: number
+  /** Smallest distance (percent) the pill center keeps from either edge; size it to half the pill's width. */
+  clampPercent?: number
   className?: string
   children: ReactNode
 }) {
@@ -52,7 +68,7 @@ export function MeterTooltip({
         "pointer-events-none absolute -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-popover-foreground shadow-sm",
         className,
       )}
-      style={{ left: `${Math.min(92, Math.max(8, leftPercent))}%` }}
+      style={{ left: `${Math.min(100 - clampPercent, Math.max(clampPercent, leftPercent))}%` }}
     >
       {children}
     </div>
