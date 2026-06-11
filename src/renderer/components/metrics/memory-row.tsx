@@ -1,10 +1,10 @@
 import { MemoryStick } from "lucide-react";
 
-import { MetricRowHeader, ValueUnit } from "@/components/metrics/metric-row-header";
+import { MetricRowHeader, ValueUnit, VALUE_COLOR_BY_STATE } from "@/components/metrics/metric-row-header";
 import { SegmentedMeter, type MeterSegment } from "@/components/metrics/segmented-meter";
 import type { MetricsSnapshot } from "@/gen/metrics";
-import { isLive, usageState } from "@/domain/metric-view";
-import { formatBytes } from "@/lib/format";
+import { displayText, isLive, usageState } from "@/domain/metric-view";
+import { formatBytes, formatPercentParts } from "@/lib/format";
 
 type Memory = NonNullable<MetricsSnapshot["memory"]>;
 
@@ -30,14 +30,19 @@ function ariaLabel(segments: MeterSegment[], totalBytes: number): string {
 
 export function MemoryRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const memory = snapshot?.memory;
-  const live = memory ? isLive(usageState(memory.status, memory.usedPercent)) : false;
+  const state = memory ? usageState(memory.status, memory.usedPercent) : "pending";
+  const live = isLive(state);
   const segments = memory ? buildSegments(memory) : [];
-  const [totalValue, totalUnit] = memory ? formatBytes(memory.totalBytes).split(" ") : [];
+  const percent = memory ? formatPercentParts(memory.usedPercent) : undefined;
 
   return (
     <div className="flex flex-col gap-2">
       <MetricRowHeader icon={MemoryStick} label="Memory">
-        {live && totalValue ? <ValueUnit value={totalValue} unit={totalUnit} /> : null}
+        <ValueUnit
+          value={displayText(state, percent?.value ?? "")}
+          unit={live ? percent?.unit : undefined}
+          valueClassName={VALUE_COLOR_BY_STATE[state]}
+        />
       </MetricRowHeader>
       {memory ? (
         <SegmentedMeter segments={segments} totalBytes={memory.totalBytes} ariaLabel={ariaLabel(segments, memory.totalBytes)} />
