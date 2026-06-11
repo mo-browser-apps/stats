@@ -58,7 +58,7 @@ export function SegmentedMeter({
                 type="button"
                 aria-label={`${segment.label}: ${formatBytes(segment.bytes)}`}
                 className={cn(
-                  "h-1 cursor-default rounded-full outline-none transition-[opacity,height]",
+                  "h-1 min-w-1.5 cursor-default rounded-full outline-none transition-[opacity,height]",
                   segment.fillClass,
                   active ? "h-2 opacity-100" : hovered ? "opacity-50" : "opacity-90",
                 )}
