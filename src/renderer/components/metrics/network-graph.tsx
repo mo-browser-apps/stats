@@ -2,7 +2,7 @@ import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 
 import { areaRuns } from "@/domain/area-path";
 import { HISTORY_CAPACITY, sampleIndexAtFraction } from "@/domain/sample-history";
-import { AreaLayer, ScrubBand } from "@/components/metrics/area-layer";
+import { AreaLayer, Baseline, ScrubBand } from "@/components/metrics/area-layer";
 
 /** One tick of throughput, or `null` for a tick whose reading was not OK. */
 export type NetSample = { rxBytesPerSec: number; txBytesPerSec: number } | null;
@@ -56,16 +56,7 @@ export function NetworkGraph({
       onPointerMove={handleMove}
       onPointerLeave={() => onScrub(null)}
     >
-      <line
-        x1={0}
-        y1={BASELINE}
-        x2={HISTORY_CAPACITY}
-        y2={BASELINE}
-        className="text-muted-foreground/30"
-        stroke="currentColor"
-        strokeWidth={1}
-        vectorEffect="non-scaling-stroke"
-      />
+      <Baseline y={BASELINE} offset={offset} />
       <AreaLayer runs={down} className="text-net-down" />
       <AreaLayer runs={up} className="text-net-up" />
       {scrubIndex !== null ? <ScrubBand x={offset + scrubIndex} /> : null}

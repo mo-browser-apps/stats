@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import type { MetricState } from "@/domain/metric-view";
 import { areaRuns } from "@/domain/area-path";
 import { HISTORY_CAPACITY, sampleIndexAtFraction } from "@/domain/sample-history";
-import { AreaLayer, ScrubBand } from "@/components/metrics/area-layer";
+import { AreaLayer, Baseline, ScrubBand } from "@/components/metrics/area-layer";
 
 /** A 0-100 percent reading, or `null` for a tick whose reading was not OK. */
 export type CpuSample = number | null;
@@ -20,6 +20,7 @@ const FILL_BY_STATE: Record<MetricState, string> = {
 const PEAK = 97; // max amplitude; keeps the peak's edge stroke inside the viewBox
 const MIN_AMPLITUDE = 1.5; // floor so a ~0% sample still draws a visible line
 const AXIS_FLOOR = 20; // smallest y-axis max, so a flat-idle graph is not "maxed"
+const BASELINE_Y = 99.5; // bottom axis, inset so its non-scaling stroke is not clipped by the viewBox edge
 
 /**
  * Area graph of recent CPU usage, in the same style as the network chart:
@@ -61,6 +62,7 @@ export function CpuGraph({
       onPointerMove={handleMove}
       onPointerLeave={() => onScrub(null)}
     >
+      <Baseline y={BASELINE_Y} offset={offset} />
       <AreaLayer runs={runs} />
       {scrubIndex !== null ? <ScrubBand x={offset + scrubIndex} /> : null}
     </svg>
