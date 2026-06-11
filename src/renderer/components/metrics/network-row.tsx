@@ -39,7 +39,7 @@ export function NetworkRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   return (
     <div className="flex flex-col gap-2">
       <MetricRowHeader icon={Network} label="Network" />
-      <div className="flex items-stretch gap-3">
+      <div className="flex items-stretch gap-2">
         <div className="relative h-20 flex-1">
           <NetworkGraph history={history} scrubIndex={scrubIndex} onScrub={setScrubIndex} />
           {scrubbed && scrubPercent !== null ? (
@@ -48,7 +48,7 @@ export function NetworkRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
             </MeterTooltip>
           ) : null}
         </div>
-        <div className="flex w-24 shrink-0 flex-col">
+        <div className="flex w-20 shrink-0 flex-col">
           <Rate prefix="↓" prefixClassName="text-net-down" bytesPerSec={shown?.rxBytesPerSec} />
           <Rate prefix="↑" prefixClassName="text-net-up" bytesPerSec={shown?.txBytesPerSec} />
         </div>

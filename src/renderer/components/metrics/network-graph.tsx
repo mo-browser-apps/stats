@@ -1,6 +1,8 @@
 import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 
+import { areaRuns } from "@/domain/area-path";
 import { HISTORY_CAPACITY, sampleIndexAtFraction } from "@/domain/sample-history";
+import { AreaLayer, ScrubBand } from "@/components/metrics/area-layer";
 
 /** One tick of throughput, or `null` for a tick whose reading was not OK. */
 export type NetSample = { rxBytesPerSec: number; txBytesPerSec: number } | null;
@@ -33,8 +35,9 @@ export function NetworkGraph({
     AXIS_FLOOR,
     ...history.flatMap((sample) => (sample ? [sample.rxBytesPerSec, sample.txBytesPerSec] : [])),
   );
-  const down = laneRuns(history, offset, (sample) => sample.rxBytesPerSec, axisMax, -1);
-  const up = laneRuns(history, offset, (sample) => sample.txBytesPerSec, axisMax, 1);
+  const amplitude = (bytesPerSec: number) => Math.sqrt(Math.min(1, bytesPerSec / axisMax)) * LANE;
+  const down = areaRuns(history, offset, (sample) => amplitude(sample.rxBytesPerSec), BASELINE, -1);
+  const up = areaRuns(history, offset, (sample) => amplitude(sample.txBytesPerSec), BASELINE, 1);
 
   const handleMove = (event: ReactPointerEvent<SVGSVGElement>) => {
     const rect = ref.current?.getBoundingClientRect();
@@ -63,90 +66,9 @@ export function NetworkGraph({
         strokeWidth={1}
         vectorEffect="non-scaling-stroke"
       />
-      <Lane runs={down} className="text-net-down" />
-      <Lane runs={up} className="text-net-up" />
-      {scrubIndex !== null ? (
-        <rect
-          x={offset + scrubIndex}
-          y={0}
-          width={1}
-          height={100}
-          className="text-foreground"
-          fill="currentColor"
-          fillOpacity={0.12}
-        />
-      ) : null}
+      <AreaLayer runs={down} className="text-net-down" />
+      <AreaLayer runs={up} className="text-net-up" />
+      {scrubIndex !== null ? <ScrubBand x={offset + scrubIndex} /> : null}
     </svg>
-  );
-}
-
-/** Fill + edge path data for one contiguous run of non-null samples. */
-interface LaneRun {
-  fill: string;
-  edge: string;
-}
-
-/**
- * Converts one direction's history into area paths, splitting at null samples
- * so a failed tick reads as a gap. Vertices sit at slot centers, padded half a
- * slot at each end so an isolated sample still has visible width.
- */
-function laneRuns(
-  history: NetSample[],
-  offset: number,
-  rate: (sample: NonNullable<NetSample>) => number,
-  axisMax: number,
-  direction: 1 | -1,
-): LaneRun[] {
-  const runs: LaneRun[] = [];
-  let run: { x: number; y: number }[] = [];
-
-  const flush = () => {
-    if (run.length === 0) return;
-    const first = run[0];
-    const last = run[run.length - 1];
-    const points = [{ x: first.x - 0.5, y: first.y }, ...run, { x: last.x + 0.5, y: last.y }];
-    const edge = points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x},${point.y}`).join(" ");
-    runs.push({
-      edge,
-      fill: `M ${points[0].x},${BASELINE} ${points.map((point) => `L ${point.x},${point.y}`).join(" ")} L ${points[points.length - 1].x},${BASELINE} Z`,
-    });
-    run = [];
-  };
-
-  history.forEach((sample, index) => {
-    if (sample === null) {
-      flush();
-      return;
-    }
-    const amplitude = Math.sqrt(Math.min(1, rate(sample) / axisMax)) * LANE;
-    run.push({ x: offset + index + 0.5, y: round2(BASELINE + direction * amplitude) });
-  });
-  flush();
-  return runs;
-}
-
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-function Lane({ runs, className }: { runs: LaneRun[]; className: string }) {
-  return (
-    <g className={className}>
-      {runs.map((run, index) => (
-        <g key={index}>
-          <path d={run.fill} fill="currentColor" fillOpacity={0.3} />
-          <path
-            d={run.edge}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.25}
-            strokeOpacity={0.9}
-            strokeLinejoin="round"
-            vectorEffect="non-scaling-stroke"
-          />
-        </g>
-      ))}
-    </g>
   );
 }

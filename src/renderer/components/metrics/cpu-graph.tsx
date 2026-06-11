@@ -2,7 +2,9 @@ import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 
 import { cn } from "@/lib/utils";
 import type { MetricState } from "@/domain/metric-view";
+import { areaRuns } from "@/domain/area-path";
 import { HISTORY_CAPACITY, sampleIndexAtFraction } from "@/domain/sample-history";
+import { AreaLayer, ScrubBand } from "@/components/metrics/area-layer";
 
 /** A 0-100 percent reading, or `null` for a tick whose reading was not OK. */
 export type CpuSample = number | null;
@@ -15,12 +17,14 @@ const FILL_BY_STATE: Record<MetricState, string> = {
   unavailable: "text-muted-foreground/40",
 };
 
-const BAR_GAP = 0.25; // viewBox units between bars (slot width is 1)
-const MIN_BAR = 1.5; // floor so a ~0% sample is still a visible nub
+const PEAK = 97; // max amplitude; keeps the peak's edge stroke inside the viewBox
+const MIN_AMPLITUDE = 1.5; // floor so a ~0% sample still draws a visible line
 const AXIS_FLOOR = 20; // smallest y-axis max, so a flat-idle graph is not "maxed"
 
 /**
- * Column graph of recent CPU usage.
+ * Area graph of recent CPU usage, in the same style as the network chart:
+ * a translucent fill under an edge line, rising from the bottom. Color
+ * follows the metric state rather than a category.
  */
 export function CpuGraph({
   history,
@@ -38,6 +42,7 @@ export function CpuGraph({
   const fill = FILL_BY_STATE[state];
 
   const axisMax = Math.max(AXIS_FLOOR, ...history.map((sample) => sample ?? 0));
+  const runs = areaRuns(history, offset, (sample) => Math.max(MIN_AMPLITUDE, (sample / axisMax) * PEAK), 100, -1);
 
   const handleMove = (event: ReactPointerEvent<SVGSVGElement>) => {
     const rect = ref.current?.getBoundingClientRect();
@@ -51,28 +56,13 @@ export function CpuGraph({
       viewBox={`0 0 ${HISTORY_CAPACITY} 100`}
       preserveAspectRatio="none"
       className={cn("h-full w-full", fill)}
+      role="img"
+      aria-label="Recent CPU usage"
       onPointerMove={handleMove}
       onPointerLeave={() => onScrub(null)}
     >
-      {history.map((sample, index) => {
-        if (sample === null) return null;
-        const height = Math.max(MIN_BAR, Math.min(100, (sample / axisMax) * 100));
-        const active = scrubIndex === index;
-        return (
-          <rect
-            key={index}
-            x={offset + index + BAR_GAP / 2}
-            y={100 - height}
-            width={1 - BAR_GAP}
-            height={height}
-            rx={0.3}
-            // Hovered bar pops to near-white; the rest sit at a calm tinted tone.
-            className={active ? "text-foreground" : undefined}
-            fill="currentColor"
-            fillOpacity={active ? 1 : 0.55}
-          />
-        );
-      })}
+      <AreaLayer runs={runs} />
+      {scrubIndex !== null ? <ScrubBand x={offset + scrubIndex} /> : null}
     </svg>
   );
 }
