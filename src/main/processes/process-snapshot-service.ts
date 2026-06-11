@@ -159,13 +159,12 @@ function toProcessUser(user: NativeProcessUser | undefined): ProcessUser {
  */
 function toCommandLine(commandLine: NativeCommandLine | undefined): CommandLine {
   if (commandLine === undefined) {
-    return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, arguments: [], fromPrev: false };
+    return { status: FieldStatus.FIELD_STATUS_UNAVAILABLE, arguments: [] };
   }
   const status = toFieldStatus(commandLine.status);
   return {
     status,
     arguments: status === FieldStatus.FIELD_STATUS_OK ? commandLine.arguments : [],
-    fromPrev: false,
   };
 }
 
@@ -180,64 +179,6 @@ function recordKey(record: NativeProcessRecord): ProcessKey | null {
       ? identity.startedAtUnixMs
       : "unknown";
   return `${identity.pid}:${startedAt}`;
-}
-
-/** Identity key for one renderer row, used to align rows across revisions. */
-function rowKey(row: ProcessRow): ProcessKey {
-  const pid = row.identity?.pid ?? 0;
-  const startedAt =
-    row.identity?.startedAtStatus === FieldStatus.FIELD_STATUS_OK
-      ? row.identity.startedAtUnixMs
-      : "unknown";
-  return `${pid}:${startedAt}`;
-}
-
-function argvEqual(a: string[], b: string[]): boolean {
-  return a.length === b.length && a.every((value, index) => value === b[index]);
-}
-
-/**
- * Builds the delta form of `current` for a renderer that proved (via
- * have_revision) it holds `previous` in full: a row's argv is replaced by a
- * from_prev marker when it compares value-equal to the previous row's, so any
- * real change ships in full and staleness is impossible by construction. argv
- * is the only reduced field - it dominates the payload and rarely changes.
- * The renderer gateway reverses the reduction before presentation code runs.
- */
-function buildSnapshotDelta(
-  current: ProcessSnapshot,
-  previous: ProcessSnapshot,
-): ProcessSnapshot {
-  const previousRows = new Map<ProcessKey, ProcessRow>();
-  for (const row of previous.processes) {
-    previousRows.set(rowKey(row), row);
-  }
-
-  const processes = current.processes.map((row) => {
-    const commandLine = row.commandLine;
-    if (
-      commandLine === undefined ||
-      commandLine.status !== FieldStatus.FIELD_STATUS_OK ||
-      commandLine.arguments.length === 0
-    ) {
-      return row;
-    }
-
-    const previousCommandLine = previousRows.get(rowKey(row))?.commandLine;
-    if (
-      previousCommandLine?.status !== FieldStatus.FIELD_STATUS_OK ||
-      !argvEqual(previousCommandLine.arguments, commandLine.arguments)
-    ) {
-      return row;
-    }
-
-    return {
-      ...row,
-      commandLine: { status: commandLine.status, arguments: [], fromPrev: true },
-    };
-  });
-
-  return { ...current, processes, delta: true };
 }
 
 /**
@@ -269,14 +210,7 @@ export class ProcessSnapshotService {
     processes: [],
     warnings: [],
     icons: {},
-    delta: false,
   };
-
-  /**
-   * The previous snapshot, kept so a renderer that proved it holds it can be
-   * served a delta. Only one generation back; older revisions get full data.
-   */
-  private previousSnapshot: ProcessSnapshot | null = null;
 
   private revision = 0;
 
@@ -293,22 +227,8 @@ export class ProcessSnapshotService {
     this.loop.setActive(active);
   }
 
-  /**
-   * Returns the latest cached snapshot. When `haveRevision` names the current
-   * or immediately-previous revision, the renderer demonstrably holds that
-   * snapshot in full and gets a delta with known argv omitted; any other value
-   * (first pull, reload, missed generation) gets the full snapshot.
-   */
-  getSnapshot(haveRevision = 0): ProcessSnapshot {
-    if (haveRevision !== 0) {
-      if (haveRevision === this.snapshot.revision) {
-        // Re-pull of an already-merged revision: argv dedupes against itself.
-        return buildSnapshotDelta(this.snapshot, this.snapshot);
-      }
-      if (haveRevision === this.previousSnapshot?.revision) {
-        return buildSnapshotDelta(this.snapshot, this.previousSnapshot);
-      }
-    }
+  /** Returns the latest cached snapshot. */
+  getSnapshot(): ProcessSnapshot {
     return this.snapshot;
   }
 
@@ -339,7 +259,6 @@ export class ProcessSnapshotService {
     this.disposed = true;
     this.loop.dispose();
     this.cpuBaselines.clear();
-    this.previousSnapshot = null;
     this.revisionHandle.dispose();
   }
 
@@ -363,7 +282,6 @@ export class ProcessSnapshotService {
   }
 
   private publishSnapshot(next: ProcessSnapshot): void {
-    this.previousSnapshot = this.snapshot;
     this.snapshot = next;
     this.revisionHandle.StreamRevisions({
       revision: next.revision,
@@ -416,7 +334,6 @@ export class ProcessSnapshotService {
       processes,
       warnings: buildWarnings(permissionDeniedCount, commandLinePartialCount),
       icons: {},
-      delta: false,
     };
   }
 
@@ -432,7 +349,6 @@ export class ProcessSnapshotService {
       processes: [],
       warnings: [],
       icons: {},
-      delta: false,
     };
   }
 

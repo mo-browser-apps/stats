@@ -17,7 +17,7 @@ vi.mock("@/gen/ipc", () => ({
   },
 }));
 
-import { FieldStatus, type ProcessRow, type ProcessSnapshot } from "@/gen/process_explorer";
+import { type ProcessRow, type ProcessSnapshot } from "@/gen/process_explorer";
 import { makeRow, makeSnapshot } from "../helpers/process-fixtures";
 
 /**
@@ -29,26 +29,8 @@ function wireSnapshot(rows: ProcessRow[], revision: number): ProcessSnapshot {
 }
 
 /**
- * Wire form of a delta snapshot whose rows carry from_prev argv markers.
- */
-function wireDelta(rows: ProcessRow[], revision: number): ProcessSnapshot {
-  return { ...wireSnapshot(rows, revision), delta: true };
-}
-
-/**
- * Marks a row's argv as carried by the renderer's previous snapshot.
- */
-function withFromPrevArgv(row: ProcessRow): ProcessRow {
-  return {
-    ...row,
-    commandLine: { status: FieldStatus.FIELD_STATUS_OK, arguments: [], fromPrev: true },
-  };
-}
-
-/**
- * Imports a fresh gateway module instance so the module-level lastSnapshot (the
- * have_revision base and icon store) starts empty for every test, mirroring a
- * renderer reload.
+ * Imports a fresh gateway module instance so the module-level icon store starts
+ * empty for every test, mirroring a renderer reload.
  */
 async function freshGateway() {
   const module = await import("@/gateway/process-explorer-gateway");
@@ -73,43 +55,30 @@ describe("processExplorerGateway icon assembly", () => {
 
     const snapshot = await gateway.getSnapshot();
 
-    expect(h.getSnapshot).toHaveBeenCalledWith({ haveRevision: 0 });
+    expect(h.getSnapshot).toHaveBeenCalledWith({});
     // One fetch for the one distinct referenced key; the keyless row adds none.
     expect(h.getIcons).toHaveBeenCalledTimes(1);
     expect(h.getIcons).toHaveBeenCalledWith({ keys: ["ICON-A"] });
     expect(snapshot.icons).toEqual({ "ICON-A": "BYTES-A" });
   });
 
-  it("reuses held keys without refetching and merges a delta against the held base", async () => {
+  it("reuses held keys without refetching on the next pull", async () => {
     const gateway = await freshGateway();
     h.getSnapshot.mockResolvedValueOnce(wireSnapshot([
-      makeRow({
-        pid: 20,
-        startedAtUnixMs: 1_000,
-        iconPngBase64: "ICON-B",
-        commandLine: ["fake-app", "--flag"],
-      }),
+      makeRow({ pid: 20, startedAtUnixMs: 1_000, iconPngBase64: "ICON-B" }),
     ], 1));
     h.getIcons.mockResolvedValueOnce({ icons: { "ICON-B": "BYTES-B" } });
     await gateway.getSnapshot();
 
-    h.getSnapshot.mockResolvedValueOnce(wireDelta([
-      withFromPrevArgv(makeRow({ pid: 20, startedAtUnixMs: 1_000, iconPngBase64: "ICON-B" })),
+    h.getSnapshot.mockResolvedValueOnce(wireSnapshot([
+      makeRow({ pid: 20, startedAtUnixMs: 1_000, iconPngBase64: "ICON-B" }),
     ], 2));
 
     const snapshot = await gateway.getSnapshot();
 
-    expect(h.getSnapshot).toHaveBeenLastCalledWith({ haveRevision: 1 });
     // The key is already held; no second icon fetch.
     expect(h.getIcons).toHaveBeenCalledTimes(1);
     expect(snapshot.icons).toEqual({ "ICON-B": "BYTES-B" });
-    // The from_prev argv was rehydrated from the held base snapshot.
-    expect(snapshot.processes[0].commandLine).toEqual({
-      status: FieldStatus.FIELD_STATUS_OK,
-      arguments: ["fake-app", "--flag"],
-      fromPrev: false,
-    });
-    expect(snapshot.delta).toBe(false);
   });
 
   it("degrades a failed icon fetch to fallback and retries the keys on the next pull", async () => {

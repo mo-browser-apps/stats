@@ -151,10 +151,10 @@ function makeUser(options: RowOptions): ProcessUser | undefined {
 /** Builds the command-line cell, honoring an explicit non-OK status override. */
 function makeCommandLine(options: RowOptions): CommandLine | undefined {
   if (options.commandLineStatus !== undefined) {
-    return { status: options.commandLineStatus, arguments: options.commandLine ?? [], fromPrev: false };
+    return { status: options.commandLineStatus, arguments: options.commandLine ?? [] };
   }
   if (options.commandLine !== undefined) {
-    return { status: FieldStatus.FIELD_STATUS_OK, arguments: options.commandLine, fromPrev: false };
+    return { status: FieldStatus.FIELD_STATUS_OK, arguments: options.commandLine };
   }
   return undefined;
 }
@@ -218,7 +218,6 @@ export function makeSnapshot(rows: ProcessRow[], revision = 1): ProcessSnapshot 
     processes: rows,
     warnings: [],
     icons,
-    delta: false,
   };
 }
 

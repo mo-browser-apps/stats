@@ -301,7 +301,6 @@ describe("ProcessSnapshotService", () => {
     expect(row.commandLine).toEqual({
       status: FieldStatus.FIELD_STATUS_OK,
       arguments: ["fake-browser", "--renderer-fixture"],
-      fromPrev: false,
     });
     expect(row.memory?.physicalFootprintBytes).toEqual({
       status: FieldStatus.FIELD_STATUS_OK,
@@ -465,7 +464,6 @@ describe("ProcessSnapshotService", () => {
     expect(row.commandLine).toEqual({
       status: FieldStatus.FIELD_STATUS_PERMISSION_DENIED,
       arguments: [],
-      fromPrev: false,
     });
     expect(row.memory?.physicalFootprintBytes).toEqual({
       status: FieldStatus.FIELD_STATUS_PERMISSION_DENIED,
@@ -565,76 +563,6 @@ describe("ProcessSnapshotService field mapping", () => {
     expect(row.memory?.physicalFootprintBytes?.value).toBe(0);
     expect(row.memory?.residentBytes?.value).toBe(0);
     expect(row.threadCount?.value).toBe(0);
-  });
-});
-
-describe("ProcessSnapshotService incremental payloads", () => {
-  it("serves an argv-only delta against the revision the renderer holds", async () => {
-    const service = makeService();
-
-    await collectByActivation(service, response([
-      record({ pid: 405, startedAtUnixMs: 1_000, commandLine: ["fake-app", "--one"] }),
-    ]));
-    // Second pass: same process with value-identical argv (a fresh array each
-    // response, as native re-sends the bytes every pass), plus a new process.
-    await collectByActivation(service, response([
-      record({ pid: 405, startedAtUnixMs: 1_000, commandLine: ["fake-app", "--one"] }),
-      record({ pid: 406, startedAtUnixMs: 2_000, commandLine: ["fake-new", "--two"] }),
-    ]));
-
-    // Renderer holds revision 1: the unchanged argv is omitted behind a
-    // from_prev marker; every other field still ships in full.
-    const delta = service.getSnapshot(1);
-    expect(delta.delta).toBe(true);
-    expect(delta.revision).toBe(2);
-    expect(delta.processes[0].commandLine).toEqual({
-      status: FieldStatus.FIELD_STATUS_OK,
-      arguments: [],
-      fromPrev: true,
-    });
-    expect(delta.processes[0].executablePath?.value).not.toBeUndefined();
-    expect(delta.processes[0].app?.iconKey).toBe("fake-icon-png");
-    expect(delta.processes[0].memory?.physicalFootprintBytes?.value).toBe(512);
-    // The new process ships its argv in full.
-    expect(delta.processes[1].commandLine).toEqual({
-      status: FieldStatus.FIELD_STATUS_OK,
-      arguments: ["fake-new", "--two"],
-      fromPrev: false,
-    });
-
-    // Renderer holds the current revision (re-entering the view): unchanged
-    // argv dedupes against the snapshot itself.
-    const reentry = service.getSnapshot(2);
-    expect(reentry.delta).toBe(true);
-    expect(reentry.processes[0].commandLine?.fromPrev).toBe(true);
-
-    // An unknown revision (renderer reloaded) gets the full snapshot.
-    const full = service.getSnapshot(7);
-    expect(full.delta).toBe(false);
-    expect(full.processes[0].commandLine?.arguments).toEqual(["fake-app", "--one"]);
-
-    // Callers inside main (the action service) always see the full snapshot.
-    expect(service.getSnapshot().delta).toBe(false);
-  });
-
-  it("ships a changed argv in full even when the identity matches", async () => {
-    const service = makeService();
-
-    await collectByActivation(service, response([
-      record({ pid: 407, startedAtUnixMs: 1_000, commandLine: ["fake-wrapper"] }),
-    ]));
-    // Same identity, new argv (the process exec'd; native re-read it fresh).
-    await collectByActivation(service, response([
-      record({ pid: 407, startedAtUnixMs: 1_000, commandLine: ["fake-real-binary", "--exec"] }),
-    ]));
-
-    const delta = service.getSnapshot(1);
-    expect(delta.delta).toBe(true);
-    expect(delta.processes[0].commandLine).toEqual({
-      status: FieldStatus.FIELD_STATUS_OK,
-      arguments: ["fake-real-binary", "--exec"],
-      fromPrev: false,
-    });
   });
 });
 

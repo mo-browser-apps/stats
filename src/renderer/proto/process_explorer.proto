@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "google/protobuf/empty.proto";
+
 // Process explorer IPC contract (renderer <-> main).
 //
 // Kept separate from metrics.proto on purpose: command-line arguments are
@@ -142,11 +144,6 @@ message CommandLine {
   FieldStatus status = 1;
   // Parsed argument vector when status is OK. Sensitive; see message comment.
   repeated string arguments = 2;
-  // Set only on a delta snapshot (see ProcessSnapshot.delta): the arguments are
-  // omitted from the wire because main verified they are value-identical to this
-  // identity's row in the snapshot the renderer said it has; the gateway
-  // rehydrates them from that snapshot before presentation code sees the row.
-  bool from_prev = 3;
 }
 
 // Stable identity for one process: PID plus an optional start time. Start time
@@ -231,23 +228,6 @@ message ProcessSnapshot {
   // before presentation code sees the snapshot. Volatile display-only data:
   // never logged or persisted.
   map<string, string> icons = 6;
-  // True when this snapshot is a delta against the revision the renderer sent in
-  // GetProcessSnapshotRequest.have_revision: rows may mark their argv as
-  // CommandLine.from_prev. The renderer gateway merges a delta with its previous
-  // snapshot into a full one; presentation code never sees a delta. False means
-  // the snapshot is self-contained.
-  bool delta = 7;
-}
-
-// Read parameters for the snapshot pull.
-message GetProcessSnapshotRequest {
-  // Revision of the last full snapshot the renderer holds, or 0 for none. When
-  // it matches the current snapshot or the one immediately preceding it, main
-  // responds with a delta (argv that did not change is omitted; see
-  // ProcessSnapshot.delta); any other value gets a full snapshot. argv dominates
-  // the row payload and rarely changes between ticks, so this keeps the
-  // steady-state pull small without a stateful subscription.
-  uint64 have_revision = 1;
 }
 
 // Request for icon bytes by content key (AppMetadata.icon_key values the
@@ -376,7 +356,7 @@ message RunProcessActionResponse {
 service ProcessExplorerService {
   // Returns the latest cached process snapshot, or an explicit
   // loading/unavailable state. Main owns the collection cadence and cache.
-  rpc GetProcessSnapshot(GetProcessSnapshotRequest) returns (ProcessSnapshot);
+  rpc GetProcessSnapshot(google.protobuf.Empty) returns (ProcessSnapshot);
 
   // Broadcasts a lightweight revision ping whenever a newer snapshot exists, so
   // the renderer can pull only on change instead of polling.
