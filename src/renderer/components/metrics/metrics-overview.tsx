@@ -35,10 +35,10 @@ export function MetricsOverview({ active }: { active: boolean }) {
           <MemoryRow snapshot={snapshot} />
         </div>
         <div className="py-4">
-          <DiskRow snapshot={snapshot} />
+          <NetworkRow snapshot={snapshot} />
         </div>
         <div className="py-4">
-          <NetworkRow snapshot={snapshot} />
+          <DiskRow snapshot={snapshot} />
         </div>
         <div className="pt-4">
           <FooterStats snapshot={snapshot} />

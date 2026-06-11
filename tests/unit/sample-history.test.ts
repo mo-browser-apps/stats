@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pushSample, sampleIndexAtFraction } from "@/domain/cpu-history";
+import { pushSample, sampleIndexAtFraction } from "@/domain/sample-history";
 
 describe("pushSample", () => {
   it("appends and keeps at most capacity newest entries", () => {

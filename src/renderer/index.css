@@ -51,6 +51,10 @@
   --color-mem-cached:     var(--mem-cached);
   --color-mem-free:       var(--mem-free);
 
+  /* Network throughput — the mirrored chart's two directions. */
+  --color-net-down: var(--net-down);
+  --color-net-up:   var(--net-up);
+
   /* Border radius */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -106,6 +110,11 @@
   --mem-cached:     oklch(60% 0.020 90deg);
   --mem-free:       oklch(80% 0.006 258deg);
 
+  /* Network directions (light fallback; app ships dark). Same hue assignments
+     as dark, shifted darker for contrast on a light surface. */
+  --net-down: oklch(58% 0.130 258deg); /* matches --success blue (own token, shared value) */
+  --net-up:   oklch(50% 0.150 300deg); /* matches --mem-wired violet (own token, shared value) */
+
   /* Base radius — 10px, matching ../voice/../icons. */
   --radius: 0.625rem;
 }
@@ -153,6 +162,12 @@
   --mem-compressed: oklch(68% 0.095 195deg); /* teal/cyan - cool, off the blue arc */
   --mem-cached:     oklch(67% 0.020 90deg);  /* near-neutral taupe, only a touch warm */
   --mem-free:       oklch(48% 0.006 258deg); /* dark neutral - the empty tail, visible */
+
+  /* Network directions — categorical like the memory segments, not state.
+     Down stays on the app's resting blue; up borrows the wired violet so the
+     two lanes separate without introducing a new hue. */
+  --net-down: oklch(72% 0.130 258deg); /* matches --success blue (own token, shared value) */
+  --net-up:   oklch(62% 0.150 300deg); /* matches --mem-wired violet (own token, shared value) */
 }
 
 @layer utilities {

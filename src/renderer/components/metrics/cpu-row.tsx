@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { Cpu } from "lucide-react";
 
 import { MeterTooltip, MetricRowHeader, ValueUnit } from "@/components/metrics/metric-row-header";
-import { CpuGraph } from "@/components/metrics/cpu-graph";
+import { CpuGraph, type CpuSample } from "@/components/metrics/cpu-graph";
 import type { MetricsSnapshot } from "@/gen/metrics";
 import { MetricStatus } from "@/gen/metrics";
 import { isLive, usageState } from "@/domain/metric-view";
-import { CPU_HISTORY_CAPACITY, pushSample, type CpuSample } from "@/domain/cpu-history";
+import { HISTORY_CAPACITY, pushSample } from "@/domain/sample-history";
 import { formatPercentParts } from "@/lib/format";
 
 export function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
@@ -28,7 +28,7 @@ export function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   const value = shown != null ? formatPercentParts(shown) : undefined;
   // History index -> viewBox slot center, as a percent for the tooltip x.
   const scrubPercent =
-    scrubIndex !== null ? ((CPU_HISTORY_CAPACITY - history.length + scrubIndex + 0.5) / CPU_HISTORY_CAPACITY) * 100 : null;
+    scrubIndex !== null ? ((HISTORY_CAPACITY - history.length + scrubIndex + 0.5) / HISTORY_CAPACITY) * 100 : null;
 
   return (
     <div className="flex flex-col gap-2">

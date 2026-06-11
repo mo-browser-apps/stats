@@ -2,7 +2,10 @@ import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 
 import { cn } from "@/lib/utils";
 import type { MetricState } from "@/domain/metric-view";
-import { CPU_HISTORY_CAPACITY, sampleIndexAtFraction, type CpuSample } from "@/domain/cpu-history";
+import { HISTORY_CAPACITY, sampleIndexAtFraction } from "@/domain/sample-history";
+
+/** A 0-100 percent reading, or `null` for a tick whose reading was not OK. */
+export type CpuSample = number | null;
 
 const FILL_BY_STATE: Record<MetricState, string> = {
   ok: "text-success",
@@ -31,7 +34,7 @@ export function CpuGraph({
   onScrub: (index: number | null) => void;
 }) {
   const ref = useRef<SVGSVGElement>(null);
-  const offset = CPU_HISTORY_CAPACITY - history.length;
+  const offset = HISTORY_CAPACITY - history.length;
   const fill = FILL_BY_STATE[state];
 
   const axisMax = Math.max(AXIS_FLOOR, ...history.map((sample) => sample ?? 0));
@@ -45,7 +48,7 @@ export function CpuGraph({
   return (
     <svg
       ref={ref}
-      viewBox={`0 0 ${CPU_HISTORY_CAPACITY} 100`}
+      viewBox={`0 0 ${HISTORY_CAPACITY} 100`}
       preserveAspectRatio="none"
       className={cn("h-full w-full", fill)}
       onPointerMove={handleMove}
