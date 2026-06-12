@@ -150,13 +150,6 @@ export class ProcessActionService {
   private readonly selfPid = process.pid;
 
   /**
-   * True while a Force Quit confirmation dialog is up. A second request
-   * arriving meanwhile (e.g. a double-click racing the dialog) is answered
-   * CANCELED instead of stacking another modal dialog.
-   */
-  private confirmInFlight = false;
-
-  /**
    * @param getSnapshot Returns the latest cached snapshot to validate against -
    *   the main-side form with statics joined onto rows (names and paths are
    *   read from row.statics).
@@ -237,24 +230,13 @@ export class ProcessActionService {
   /**
    * Confirms Force Quit through the native dialog, then re-resolves the target
    * (it may have exited while the dialog was up) before signaling. A declined
-   * confirmation - or a request racing an already-open dialog - is CANCELED:
-   * an explicit no-op, not a failure.
+   * confirmation is CANCELED: an explicit no-op, not a failure.
    */
   private async confirmAndForceQuit(
     request: RunProcessActionRequest,
     row: ProcessRow,
   ): Promise<RunProcessActionResponse> {
-    if (this.confirmInFlight) {
-      return { outcome: Outcome.OUTCOME_CANCELED, affectedCount: 0 };
-    }
-    this.confirmInFlight = true;
-    let confirmed = false;
-    try {
-      confirmed = await this.confirmForceQuit(row);
-    } finally {
-      this.confirmInFlight = false;
-    }
-    if (!confirmed) {
+    if (!(await this.confirmForceQuit(row))) {
       return { outcome: Outcome.OUTCOME_CANCELED, affectedCount: 0 };
     }
 
