@@ -2,12 +2,11 @@
 
 Live macOS system resources at a glance, plus a searchable process explorer.
 
-Built with [MōBrowser](https://teamdev.com/mobrowser/), React, and TypeScript, with a small native module for the
-metrics macOS does not expose to Node.
+Built with [MōBrowser](https://teamdev.com/mobrowser/), React, and TypeScript, with a small native module for the metrics.
 
 ## What it does
 
-- **System overview.** CPU, memory, disk, network, uptime, and CPU temperature.
+- **System overview.** CPU, memory, network, disk, uptime, and CPU temperature.
 - **Process explorer.** A searchable list that groups an app with its helpers.
 - **Process detail.** Command line, executable path, start time, user, threads, hierarchy, and CPU/memory totals.
 - **Process actions.** Reveal in Finder, Quit, and Force Quit.
