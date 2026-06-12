@@ -93,7 +93,7 @@ function ActionButton({
       className={cn(
         "no-drag flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
         destructive
-          ? "text-destructive/80 enabled:hover:bg-destructive/10 enabled:hover:text-destructive enabled:focus-visible:bg-destructive/10 enabled:focus-visible:text-destructive"
+          ? "text-destructive enabled:hover:bg-destructive/10 enabled:focus-visible:bg-destructive/10"
           : "text-foreground enabled:hover:bg-muted/60",
       )}
     >
