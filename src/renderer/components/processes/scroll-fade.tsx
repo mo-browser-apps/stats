@@ -55,7 +55,11 @@ export function ScrollFade({
       onScroll={measure}
       title={title}
       data-fade={fade}
-      className={cn("scroll-fade scrollbar-hidden min-w-0 overflow-x-auto", className)}
+      tabIndex={fade !== undefined ? 0 : undefined}
+      className={cn(
+        "scroll-fade scrollbar-hidden min-w-0 overflow-x-auto rounded-md focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
+        className,
+      )}
     >
       {children}
     </div>

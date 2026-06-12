@@ -7,12 +7,12 @@ namespace mostats {
 
 // Reads cumulative network byte counters into the generated response.
 //
-// Sums the kernel's per-interface rx/tx totals across the active physical
-// interfaces (Ethernet/Wi-Fi/Thunderbolt and cellular), skipping loopback, VPN
-// tunnels, and AirDrop/sharing so traffic is not double-counted. On failure the
-// response is marked unavailable. Only raw counters are returned; the
-// main-process sampler owns the delta-to-rate math. See network_probe.cc for the
-// interface-selection rule.
+// Returns the kernel's 64-bit rx/tx totals per active physical interface
+// (Ethernet/Wi-Fi/Thunderbolt and cellular), skipping loopback, VPN tunnels,
+// and AirDrop/sharing so traffic is not double-counted. On failure the
+// response is marked unavailable. Only raw per-interface counters are
+// returned; the main-process sampler owns the delta-to-rate math. See
+// network_probe.cc for the counter source and interface-selection rule.
 void ReadNetworkCounters(NetworkCounters* response);
 
 }  // namespace mostats

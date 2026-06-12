@@ -5,21 +5,18 @@
       "name": "Debug Main",
       "type": "node",
       "request": "launch",
-      "cwd": "${workspaceRoot}",
-      "runtimeExecutable": "${workspaceRoot}/node_modules/.bin/mobrowser",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/mobrowser",
       "runtimeArgs": [
         "dev",
         "--inspect=5858",
         "--remote-debugging-port=9222"
       ],
-      "args": [
-        "${workspaceRoot}/out/main/index.js"
-      ],
       "sourceMaps": true,
       "outFiles": [
-        "${workspaceRoot}/out/main/**/*.js"
+        "${workspaceFolder}/out/main/**/*.js"
       ],
-      "preLaunchTask": "npm: build:main",
+      "preLaunchTask": "vite: build main",
       "env": {
         "NODE_ENV": "development"
       },
@@ -57,4 +54,3 @@
     }
   ]
 }
-

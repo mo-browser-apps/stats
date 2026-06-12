@@ -22,7 +22,9 @@ export interface SegmentedOption<T extends string> {
  * One segment's classes. The active segment gets a subtle elevated surface
  * rather than a loud accent pill; `disabled` dims and freezes hover.
  */
-const segment = cva("rounded-md font-medium transition-colors", {
+const segment = cva(
+  "rounded-md font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
+  {
   variants: {
     size: {
       sm: "px-2.5 py-1 text-[11px]",
@@ -42,7 +44,8 @@ const segment = cva("rounded-md font-medium transition-colors", {
     selected: false,
     disabled: false,
   },
-});
+  },
+);
 
 /**
  * Compact macOS-style segmented control: a quiet track with a subtle elevated
@@ -65,8 +68,11 @@ export function SegmentedControl<T extends string>({
   className?: string
 }) {
   return (
+    // A labelled group of toggle buttons (aria-pressed), not tabs: tablist
+    // semantics promise roving focus and arrow-key navigation this compact
+    // control does not implement, so claiming them would mislead AT users.
     <div
-      role="tablist"
+      role="group"
       aria-label={ariaLabel}
       className={cn(
         "no-drag inline-flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5",
@@ -79,8 +85,7 @@ export function SegmentedControl<T extends string>({
           <button
             key={option.value}
             type="button"
-            role="tab"
-            aria-selected={selected}
+            aria-pressed={selected}
             disabled={option.disabled}
             title={option.title}
             onClick={() => !option.disabled && onChange(option.value)}

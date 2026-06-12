@@ -8,12 +8,12 @@ import { pinGroupOrder, type DetailSelection, type ProcessGroup } from "@/domain
  * The ranked, grouped process rows plus the loading/empty/unavailable states,
  * sharing one scroll area so the panel never resizes.
  *
- * While the pointer is inside the list, row order is pinned via
- * {@link pinGroupOrder}: a snapshot tick re-ranks rows, and a reorder landing
- * between aiming and clicking would open the wrong process. Values keep
- * updating; only the order holds. Live ranking resumes when the pointer
- * leaves (opening a detail unmounts the list, so a stale pin cannot outlive
- * the interaction).
+ * While the pointer is inside the list - or a row has keyboard focus - row
+ * order is pinned via {@link pinGroupOrder}: a snapshot tick re-ranks rows,
+ * and a reorder landing between aiming and clicking (or between arrow
+ * presses) would open the wrong process. Values keep updating; only the order
+ * holds. Live ranking resumes when the pointer and focus leave (opening a
+ * detail unmounts the list, so a stale pin cannot outlive the interaction).
  */
 export function ProcessList({
   groups: rankedGroups,
@@ -31,12 +31,14 @@ export function ProcessList({
   onExitTop?: () => void
 }) {
   const [pointerInside, setPointerInside] = useState(false);
+  const [focusInside, setFocusInside] = useState(false);
   // The key order last shown on screen; the baseline the next pinned tick replays.
   const pinnedKeys = useRef<string[]>([]);
 
+  const pinActive = pointerInside || focusInside;
   const groups = useMemo(
-    () => (pointerInside ? pinGroupOrder(rankedGroups, pinnedKeys.current) : rankedGroups),
-    [pointerInside, rankedGroups],
+    () => (pinActive ? pinGroupOrder(rankedGroups, pinnedKeys.current) : rankedGroups),
+    [pinActive, rankedGroups],
   );
 
   // Track the order actually displayed: unpinned it follows the live ranking;
@@ -72,6 +74,12 @@ export function ProcessList({
       className="scrollbar-hidden flex-1 overflow-y-auto bg-background"
       onPointerOver={() => setPointerInside(true)}
       onPointerLeave={() => setPointerInside(false)}
+      onFocusCapture={() => setFocusInside(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setFocusInside(false);
+        }
+      }}
       onKeyDown={handleKeyDown}
     >
       {groups.length > 0 ? (

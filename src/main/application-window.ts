@@ -65,8 +65,9 @@ export class ApplicationWindow {
     return this.window !== null && !this.window.isClosed ? this.window : null;
   }
 
+  /** Applies always-on-top to the live window. */
   setAlwaysOnTop(alwaysOnTop: boolean): void {
-    this.getOrCreateWindow().setAlwaysOnTop(alwaysOnTop);
+    this.instance?.setAlwaysOnTop(alwaysOnTop);
   }
 
   private getOrCreateWindow(): BrowserWindow {

@@ -55,9 +55,7 @@ export function SegmentedMeter({
   return (
     <div className="flex flex-col gap-2">
       <div className="relative">
-        {/* bg-background (not a rail) so the gaps read as empty space; no clip so
-            the hovered slice can lift past its resting height. */}
-        <div ref={barRef} className="flex h-1 w-full items-center gap-1 bg-background" role="img" aria-label={ariaLabel}>
+        <div ref={barRef} className="flex h-1 w-full items-center gap-1 bg-background" role="group" aria-label={ariaLabel}>
           {drawable.map((segment) => {
             const active = hovered === segment.key;
             return (

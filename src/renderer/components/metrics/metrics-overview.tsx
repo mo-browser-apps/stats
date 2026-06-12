@@ -10,6 +10,7 @@ import { metricsGateway } from "@/gateway/metrics-gateway";
 import type { MetricsSnapshot } from "@/gen/metrics";
 import { baseState, displayText, isLive } from "@/domain/metric-view";
 import { formatCelsius, formatUptime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 /**
  * Live overview (the Stats view). Subscribes to the metrics stream only while
@@ -22,7 +23,7 @@ export function MetricsOverview({ active }: { active: boolean }) {
     if (!active) {
       return;
     }
-    return metricsGateway.subscribe(setSnapshot, () => setSnapshot(null));
+    return metricsGateway.subscribe(setSnapshot, () => undefined);
   }, [active]);
 
   return (
@@ -63,7 +64,7 @@ function FooterStats({ snapshot }: { snapshot: MetricsSnapshot | null }) {
 
   return (
     <div className="flex items-center justify-between text-[11px]">
-      <FooterStat icon={Clock} label="Uptime" value={uptimeValue} />
+      <FooterStat icon={Clock} label="Uptime" value={uptimeValue} muted={!isLive(uptimeState)} />
       {temperature && temperatureLive ? (
         <FooterStat icon={Thermometer} label="CPU Temp" value={formatCelsius(temperature.celsius)} />
       ) : null}
@@ -71,12 +72,22 @@ function FooterStats({ snapshot }: { snapshot: MetricsSnapshot | null }) {
   );
 }
 
-function FooterStat({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+function FooterStat({
+  icon: Icon,
+  label,
+  value,
+  muted = false,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  muted?: boolean;
+}) {
   return (
     <div className="flex items-center gap-1.5">
       <Icon className="h-3 w-3 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium tabular-nums">{value}</span>
+      <span className={cn("font-medium tabular-nums", muted && "text-muted-foreground")}>{value}</span>
     </div>
   );
 }

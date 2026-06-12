@@ -33,7 +33,6 @@ vi.mock("node:os", () => ({ cpus: h.cpus }));
 import {
   FieldStatus,
   SnapshotStatus,
-  SnapshotWarning_Code,
 } from "@main/gen/process_explorer";
 import {
   NativeFieldStatus,
@@ -218,9 +217,7 @@ function response(
 ): CollectProcessesResponse {
   return {
     available,
-    collectedAtUnixMs: 0,
     records,
-    warnings: [],
   };
 }
 
@@ -298,7 +295,6 @@ describe("ProcessSnapshotService", () => {
     let snapshot = service.getSnapshot();
     expect(snapshot.status).toBe(SnapshotStatus.SNAPSHOT_STATUS_OK);
     expect(snapshot.revision).toBe(1);
-    expect(snapshot.warnings).toEqual([]);
     expect(snapshot.processes).toHaveLength(1);
 
     let row = snapshot.processes[0];
@@ -448,7 +444,7 @@ describe("ProcessSnapshotService", () => {
     expect(snapshot.processes).toEqual([]);
   });
 
-  it("maps denied fields to explicit statuses and count-only warnings", async () => {
+  it("maps denied fields to explicit statuses and a permission-limited snapshot", async () => {
     const service = makeService();
 
     await collectByActivation(service, response([
@@ -464,16 +460,6 @@ describe("ProcessSnapshotService", () => {
     const snapshot = service.getSnapshot();
     const row = snapshot.processes[0];
     expect(snapshot.status).toBe(SnapshotStatus.SNAPSHOT_STATUS_PERMISSION_LIMITED);
-    expect(snapshot.warnings).toEqual([
-      {
-        code: SnapshotWarning_Code.CODE_PERMISSION_DENIED,
-        affectedCount: 1,
-      },
-      {
-        code: SnapshotWarning_Code.CODE_COMMAND_LINE_PARTIAL,
-        affectedCount: 1,
-      },
-    ]);
     expect(row.statics?.executablePath).toEqual({
       status: FieldStatus.FIELD_STATUS_PERMISSION_DENIED,
       value: "",
@@ -501,7 +487,6 @@ describe("ProcessSnapshotService", () => {
     expect(snapshot.status).toBe(SnapshotStatus.SNAPSHOT_STATUS_UNAVAILABLE);
     expect(snapshot.revision).toBe(1);
     expect(snapshot.processes).toEqual([]);
-    expect(snapshot.warnings).toEqual([]);
     expect(h.revisionHandle.StreamRevisions).toHaveBeenLastCalledWith(
       expect.objectContaining({
         revision: 1,
@@ -677,7 +662,10 @@ describe("ProcessSnapshotService assets", () => {
 
     const result = await service.getAssets([], ["ICON-A", "ICON-GONE"]);
 
-    expect(h.icons).toHaveBeenCalledWith({ keys: ["ICON-A", "ICON-GONE"] });
+    expect(h.icons).toHaveBeenCalledWith(
+      { keys: ["ICON-A", "ICON-GONE"] },
+      { signal: expect.any(AbortSignal) },
+    );
     expect(result.icons).toEqual({ "ICON-A": "BYTES-A" });
   });
 

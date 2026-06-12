@@ -100,8 +100,9 @@ constexpr uint8_t kSmcCmdReadKeyInfo = 9;
 
 enum class AppleSiliconGeneration { kUnknown, kM1, kM2, kM3, kM4, kM5 };
 
-// SMC RPC structs. The kernel expects this exact 80-byte layout (verified by
-// sizeof); the fields we do not use are present only to reproduce that layout.
+// SMC RPC structs. The kernel expects this exact 80-byte layout (enforced by
+// the static_assert below); the fields we do not use are present only to
+// reproduce that layout.
 struct SmcKeyDataVers {
   uint8_t major = 0;
   uint8_t minor = 0;
@@ -135,6 +136,9 @@ struct SmcKeyData {
   uint32_t data32 = 0;
   uint8_t bytes[32] = {};
 };
+
+static_assert(sizeof(SmcKeyData) == 80,
+              "the AppleSMC user-client RPC requires this exact 80-byte layout");
 
 struct SmcValue {
   uint32_t data_size = 0;
@@ -180,7 +184,7 @@ uint32_t FourCharToKey(std::string_view value) {
 }
 
 // Builds a FourCharCode from a literal at compile time, for the data-type
-// switch below. Distinct from FourCharToKey to keep that runtime path simple.
+// check below. Distinct from FourCharToKey to keep that runtime path simple.
 constexpr uint32_t TypeCode(const char (&value)[5]) {
   uint32_t code = 0;
   for (int i = 0; i < 4; ++i) {
@@ -243,43 +247,21 @@ bool HasNonZeroBytes(const SmcValue& value) {
   return false;
 }
 
-double DecodeFixedPoint(const SmcValue& value, double denominator) {
-  const int raw = (static_cast<int>(value.bytes[0]) << 8) |
-                  static_cast<int>(value.bytes[1]);
-  return static_cast<double>(raw) / denominator;
-}
-
-// Decodes the SMC value bytes per its data type. Covers the temperature types
-// Apple Silicon uses ("flt " on M-series; the fixed-point sp* and fpe2 types
-// for completeness / Intel diodes). Returns nullopt for an all-zero or
-// unrecognized value. Decode math mirrors exelban/stats SMC/smc.swift.
+// Decodes the SMC value bytes per its data type. Apple Silicon - this app's
+// support matrix, and the only platform the per-generation key lists cover -
+// reports temperatures exclusively as "flt " (IEEE float); the Intel-era
+// fixed-point types (sp*, fpe2) are deliberately not decoded. Returns nullopt
+// for an all-zero or unrecognized value.
 std::optional<double> DecodeSmcTemperature(const SmcValue& value) {
   if (value.data_size == 0 || !HasNonZeroBytes(value)) {
     return std::nullopt;
   }
-  switch (value.data_type) {
-    case TypeCode("sp1e"): return DecodeFixedPoint(value, 16384.0);
-    case TypeCode("sp3c"): return DecodeFixedPoint(value, 4096.0);
-    case TypeCode("sp4b"): return DecodeFixedPoint(value, 2048.0);
-    case TypeCode("sp5a"): return DecodeFixedPoint(value, 1024.0);
-    case TypeCode("sp69"): return DecodeFixedPoint(value, 512.0);
-    case TypeCode("sp78"): return DecodeFixedPoint(value, 256.0);
-    case TypeCode("sp87"): return DecodeFixedPoint(value, 128.0);
-    case TypeCode("sp96"): return DecodeFixedPoint(value, 64.0);
-    case TypeCode("spa5"): return DecodeFixedPoint(value, 32.0);
-    case TypeCode("spb4"): return DecodeFixedPoint(value, 16.0);
-    case TypeCode("spf0"): return DecodeFixedPoint(value, 1.0);
-    case TypeCode("fpe2"):
-      return static_cast<double>((static_cast<int>(value.bytes[0]) << 6) +
-                                 (static_cast<int>(value.bytes[1]) >> 2));
-    case TypeCode("flt "): {
-      float raw = 0.0F;
-      std::memcpy(&raw, value.bytes.data(), sizeof(raw));
-      return static_cast<double>(raw);
-    }
-    default:
-      return std::nullopt;
+  if (value.data_type != TypeCode("flt ") || value.data_size < sizeof(float)) {
+    return std::nullopt;
   }
+  float raw = 0.0F;
+  std::memcpy(&raw, value.bytes.data(), sizeof(raw));
+  return static_cast<double>(raw);
 }
 
 // Owns an open AppleSMC user-client connection and reads one key at a time via
@@ -322,7 +304,10 @@ class SmcConnection {
     SmcKeyData output;
     input.key = FourCharToKey(key);
     input.data8 = kSmcCmdReadKeyInfo;
-    if (Call(input, &output) != kIOReturnSuccess || output.key_info.data_size == 0) {
+    // `result` is the SMC status byte (e.g. 0x84 = key not found); a non-zero
+    // status can come back with kIOReturnSuccess, so both must be checked.
+    if (Call(input, &output) != kIOReturnSuccess || output.result != 0 ||
+        output.key_info.data_size == 0) {
       return std::nullopt;
     }
     return output.key_info;
@@ -342,7 +327,10 @@ class SmcConnection {
     input.key = FourCharToKey(key);
     input.key_info.data_size = info.data_size;
     input.data8 = kSmcCmdReadBytes;
-    if (Call(input, &output) != kIOReturnSuccess) {
+    // A non-zero SMC status byte means the read failed even when the RPC
+    // itself succeeded; without this check garbage bytes could decode into a
+    // plausible value and contaminate the held per-core readings.
+    if (Call(input, &output) != kIOReturnSuccess || output.result != 0) {
       return std::nullopt;
     }
 
@@ -410,9 +398,10 @@ class CpuCoreTemperatureReader {
       // nullopt ("known absent") so it is probed at most once, never re-queried
       // every tick - the generation key lists are supersets and many keys do not
       // exist on a given chip.
-      auto info_it = key_info_.find(std::string(key));
+      const uint32_t key_code = FourCharToKey(key);
+      auto info_it = key_info_.find(key_code);
       if (info_it == key_info_.end()) {
-        info_it = key_info_.emplace(std::string(key), smc_.ReadKeyInfo(key)).first;
+        info_it = key_info_.emplace(key_code, smc_.ReadKeyInfo(key)).first;
       }
       if (!info_it->second.has_value()) {
         continue;  // Known-absent key on this chip.
@@ -427,7 +416,7 @@ class CpuCoreTemperatureReader {
       // ignored this tick (its held value, if any, still counts below).
       const std::optional<double> celsius = DecodeSmcTemperature(*value);
       if (celsius.has_value() && IsPlausibleTemperature(*celsius)) {
-        last_good_[std::string(key)] = *celsius;
+        last_good_[key_code] = *celsius;
       }
     }
 
@@ -445,9 +434,11 @@ class CpuCoreTemperatureReader {
   bool initialized_ = false;
   AppleSiliconGeneration generation_ = AppleSiliconGeneration::kUnknown;
   SmcConnection smc_;
-  // nullopt = key probed and absent on this chip (do not re-probe).
-  std::unordered_map<std::string, std::optional<SmcKeyInfo>> key_info_;
-  std::unordered_map<std::string, double> last_good_;
+  // Both maps are keyed by the key's FourCharCode, so the per-tick lookups
+  // allocate nothing. nullopt = key probed and absent on this chip (do not
+  // re-probe).
+  std::unordered_map<uint32_t, std::optional<SmcKeyInfo>> key_info_;
+  std::unordered_map<uint32_t, double> last_good_;
 };
 
 // ---------------------------------------------------------------------------
@@ -494,43 +485,16 @@ bool IsCpuCoreSensorName(CFStringRef name) {
          CFStringHasPrefix(name, CFSTR("eACC MTR Temp"));
 }
 
-// One HID enumeration pass. Sets `enumerated` true once the IOHID client and
-// service list are created (a real query happened, even if it matched nothing);
-// it stays false only on a transient setup failure that should be retried. Sets
-// `has_cpu_sensor` true when at least one CPU-core sensor *service* is present.
-// The caller latches off only when `enumerated && !has_cpu_sensor` - i.e. a
-// successful query proved this machine has no such sensors (a fixed hardware
-// fact). Keying on the sensor *existing* (not on a plausible reading this tick)
-// means a present-but-momentarily-unreadable sensor never causes a false latch.
-TemperatureAccumulator ReadHidCpuCoreTemperaturesOnce(bool* enumerated,
-                                                      bool* has_cpu_sensor) {
+// One read pass over an already-copied service list. Sets `has_cpu_sensor`
+// true when at least one CPU-core sensor *service* is present, independent of
+// whether its reading is plausible this tick - the caller latches off only on
+// a successful enumeration that proved this machine has no such sensors (a
+// fixed hardware fact), so a present-but-momentarily-unreadable sensor never
+// causes a false latch.
+TemperatureAccumulator ReadCpuCoreTemperaturesFrom(CFArrayRef services,
+                                                   bool* has_cpu_sensor) {
   TemperatureAccumulator accumulator;
-  *enumerated = false;
   *has_cpu_sensor = false;
-
-  CFDictionaryRef match = CreateCpuCoreSensorMatch();
-  if (match == nullptr) {
-    return accumulator;
-  }
-
-  IOHIDEventSystemClientRef client =
-      IOHIDEventSystemClientCreate(kCFAllocatorDefault);
-  if (client == nullptr) {
-    CFRelease(match);
-    return accumulator;
-  }
-
-  IOHIDEventSystemClientSetMatching(client, match);
-  CFArrayRef services = IOHIDEventSystemClientCopyServices(client);
-  CFRelease(match);
-  if (services == nullptr) {
-    CFRelease(client);
-    return accumulator;
-  }
-
-  // The service list was obtained: a genuine enumeration, authoritative for this
-  // machine even if it matches zero CPU-core sensors.
-  *enumerated = true;
 
   const CFIndex service_count = CFArrayGetCount(services);
   for (CFIndex i = 0; i < service_count; ++i) {
@@ -565,8 +529,6 @@ TemperatureAccumulator ReadHidCpuCoreTemperaturesOnce(bool* enumerated,
     }
   }
 
-  CFRelease(services);
-  CFRelease(client);
   return accumulator;
 }
 
@@ -574,26 +536,55 @@ TemperatureAccumulator ReadHidCpuCoreTemperaturesOnce(bool* enumerated,
 // Macs and is entirely absent on others (e.g. the M2 Max this was developed on
 // returns no CPU-core sensors). Whether the page has sensors cannot change while
 // the machine runs, so once an enumeration succeeds and finds none, this latches
-// "unavailable" and skips the (non-trivial) IOHID client/match/copy-services
-// work on every later tick. A transient setup failure does not latch - it is
-// retried. Mutex-guarded because the RPC handler may call it off the main thread.
+// "unavailable" and skips all HID work on every later tick. A transient setup
+// failure does not latch - it is retried. Mutex-guarded because the RPC handler
+// may call it off the main thread.
 class HidCpuCoreTemperatureReader {
  public:
+  ~HidCpuCoreTemperatureReader() {
+    if (client_ != nullptr) {
+      CFRelease(client_);
+    }
+  }
+
   TemperatureAccumulator Read() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (latched_unavailable_) {
       return {};
     }
 
-    bool enumerated = false;
+    // The matched client is created once and reused: client creation is the
+    // expensive part of a pass. The service list is still copied fresh each
+    // tick, so no stale service reference is ever read. A transient creation
+    // failure leaves `client_` null and retries on the next tick.
+    if (client_ == nullptr) {
+      CFDictionaryRef match = CreateCpuCoreSensorMatch();
+      if (match == nullptr) {
+        return {};
+      }
+      client_ = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
+      if (client_ == nullptr) {
+        CFRelease(match);
+        return {};
+      }
+      IOHIDEventSystemClientSetMatching(client_, match);
+      CFRelease(match);
+    }
+
+    CFArrayRef services = IOHIDEventSystemClientCopyServices(client_);
+    if (services == nullptr) {
+      return {};
+    }
+
     bool has_cpu_sensor = false;
     TemperatureAccumulator accumulator =
-        ReadHidCpuCoreTemperaturesOnce(&enumerated, &has_cpu_sensor);
+        ReadCpuCoreTemperaturesFrom(services, &has_cpu_sensor);
+    CFRelease(services);
 
-    // Latch off only when a successful enumeration proved there is no CPU-core
-    // sensor service - a fixed hardware fact. A transient setup failure
-    // (enumerated == false) leaves the latch off so it retries on the next tick.
-    if (enumerated && !has_cpu_sensor) {
+    // The service list was obtained: a genuine enumeration, authoritative for
+    // this machine even when it matched zero CPU-core sensors - a fixed
+    // hardware fact, so latch off rather than re-enumerating forever.
+    if (!has_cpu_sensor) {
       latched_unavailable_ = true;
     }
     return accumulator;
@@ -602,6 +593,7 @@ class HidCpuCoreTemperatureReader {
  private:
   std::mutex mutex_;
   bool latched_unavailable_ = false;
+  IOHIDEventSystemClientRef client_ = nullptr;
 };
 
 }  // namespace

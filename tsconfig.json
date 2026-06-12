@@ -12,8 +12,7 @@
     "baseUrl": ".",
     "paths": {
       "@/*": [
-        "./src/renderer/*",
-        "./src/main/*"
+        "./src/renderer/*"
       ],
       "@main/*": [
         "./src/main/*"
@@ -35,10 +34,5 @@
     "src/main",
     "src/renderer",
     "tests"
-  ],
-  "references": [
-    {
-      "path": "./tsconfig.node.json"
-    }
   ]
 }

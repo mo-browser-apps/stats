@@ -16,7 +16,12 @@ export function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
 
   useEffect(() => {
     if (!cpu) return;
-    const sample = cpu.status === MetricStatus.METRIC_STATUS_OK ? cpu.usagePercent : null;
+    // A non-finite value must enter history as a gap, not a sample: it would
+    // turn the axis max NaN and blank every path until it ages out.
+    const sample =
+      cpu.status === MetricStatus.METRIC_STATUS_OK && Number.isFinite(cpu.usagePercent)
+        ? cpu.usagePercent
+        : null;
     setHistory((prev) => pushSample(prev, sample));
   }, [snapshot, cpu]);
 
@@ -45,7 +50,7 @@ export function CpuRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
         <CpuGraph history={history} scrubIndex={scrubIndex} state={state} onScrub={setScrubIndex} />
         {scrubbed != null && scrubPercent !== null ? (
           <MeterTooltip leftPercent={scrubPercent} className="-top-1">
-            {scrubbed.toFixed(0)}%
+            {formatPercentParts(scrubbed).value}%
           </MeterTooltip>
         ) : null}
       </div>

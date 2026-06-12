@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Clock, Cpu, User } from "lucide-react";
-import { memo, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import { UNAVAILABLE_TEXT, formatStartTime } from "@/lib/format";
@@ -66,6 +66,11 @@ export function ProcessDetailView({
   const metadataTitle = detail.notResponding ? `Not Responding - ${metadata}` : metadata;
   const grouped = detail.memberCount > 1;
 
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex items-center gap-2 pb-3">
@@ -73,7 +78,7 @@ export function ProcessDetailView({
           type="button"
           onClick={onBack}
           aria-label="Back"
-          className="no-drag flex h-9 items-center gap-1 rounded-lg pl-2 pr-3 text-[13px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex h-9 items-center gap-1 rounded-lg pl-2 pr-3 text-[13px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
         >
           <ChevronLeft className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
           Back
@@ -91,7 +96,11 @@ export function ProcessDetailView({
           />
           <div className="min-w-0 flex-1 space-y-0.5">
             <ScrollFade title={detail.name}>
-              <h2 className="w-max whitespace-nowrap text-[15px] font-medium text-foreground">
+              <h2
+                ref={headingRef}
+                tabIndex={-1}
+                className="w-max whitespace-nowrap text-[15px] font-medium text-foreground outline-none"
+              >
                 {detail.name}
               </h2>
             </ScrollFade>
@@ -352,7 +361,7 @@ function Members({
         type="button"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
-        className="no-drag flex items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+        className="flex items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
       >
         <ChevronRight
           className={cn(
@@ -396,7 +405,7 @@ const MemberRow = memo(
         onClick={() => onOpen(member.pid, member.startedAtUnixMs)}
         aria-label={`Show details for ${member.name}, PID ${member.pid}`}
         title={`${member.name} - PID ${member.pid}`}
-        className="no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <ProcessIcon iconPngBase64={member.iconPngBase64} name={member.name} />
         <span

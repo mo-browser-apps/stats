@@ -14,9 +14,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <ctime>
 #include <iterator>
 #include <limits>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -102,8 +102,9 @@ int64_t SaturatingInt64(uint64_t value) {
 // pre-exec value for the process's lifetime. Pruned each pass to the keys
 // actually seen (see CollectProcesses).
 //
-// Threading: touched only by the collector, which runs serially on the native
-// main thread - no lock needed, same contract as the icon and uid caches.
+// Threading: touched only during a collection pass, and passes are serialized
+// by the pass mutex in CollectProcesses - no per-cache lock needed, same
+// contract as the uid and app-metadata caches.
 std::unordered_map<std::string, NativeCommandLine>& CommandLineCache() {
   static std::unordered_map<std::string, NativeCommandLine> cache;
   return cache;
@@ -204,7 +205,10 @@ bool ListAllPids(std::vector<pid_t>* out, NativeFieldStatus* status) {
 
     if (static_cast<size_t>(count) < pids.size()) {
       pids.resize(static_cast<size_t>(count));
-      // proc_listallpids can pad the tail with 0 entries; drop them.
+      // Drop pid 0: within the valid count it is the genuine kernel_task
+      // pseudo-process, not tail padding. Excluding it is deliberate - its
+      // task info and argv are denied to user space, so a row for it would
+      // carry a name and no usable metrics.
       pids.erase(std::remove(pids.begin(), pids.end(), 0), pids.end());
       *out = std::move(pids);
       *status = NATIVE_FIELD_STATUS_AVAILABLE;
@@ -518,8 +522,14 @@ void FillCpu(const proc_taskallinfo& task, bool task_ok,
   uint64_t ticks = task.ptinfo.pti_total_user;
   const uint64_t remaining = std::numeric_limits<uint64_t>::max() - ticks;
   ticks += std::min(remaining, task.ptinfo.pti_total_system);
-  SetAvailableInt64(out->mutable_cumulative_cpu_time_ns(),
-                    SaturatingInt64(MachTicksToNanos(ticks)));
+  // Clamp to JS Number.MAX_SAFE_INTEGER: the generated main-side decoder
+  // throws on a larger int64, and one long-lived hot process (2^53 ns is ~104
+  // days of cumulative CPU) would poison the decode of the whole response.
+  // Display precision is irrelevant at that magnitude.
+  constexpr uint64_t kMaxSafeJsInteger = (uint64_t{1} << 53) - 1;
+  SetAvailableInt64(
+      out->mutable_cumulative_cpu_time_ns(),
+      SaturatingInt64(std::min(MachTicksToNanos(ticks), kMaxSafeJsInteger)));
 }
 
 // Fills the thread count from task info (pti_threadnum). Available only when the
@@ -540,8 +550,9 @@ void FillThreadCount(const proc_taskallinfo& task, bool task_ok,
 // unmapped uid is cached as an empty name so a missing entry is not re-queried
 // every pass. getpwuid_r (not getpwuid) keeps the lookup thread-safe.
 //
-// Threading: the collector runs serially on the native main thread (one pass at
-// a time), so this static cache needs no lock - same contract as the icon cache.
+// Threading: passes are serialized by the pass mutex in CollectProcesses (one
+// pass at a time), so this static cache needs no lock - same contract as the
+// argv and app-metadata caches.
 const std::string& LoginNameForUid(uid_t uid) {
   static std::unordered_map<uid_t, std::string> cache;
   const auto cached = cache.find(uid);
@@ -726,24 +737,24 @@ void FillRecord(
 }  // namespace
 
 void CollectProcesses(CollectProcessesResponse* response) {
+  // The session caches a pass touches (argv, uid -> name, app metadata) are
+  // unlocked; serializing whole passes here gives them a happens-before edge
+  // even if the host ever dispatches successive invokes on different threads.
+  // Uncontended in practice: the main-process poll loop never overlaps ticks.
+  static std::mutex pass_mutex;
+  const std::lock_guard<std::mutex> pass_lock(pass_mutex);
+
   std::vector<pid_t> pids;
   NativeFieldStatus list_status = NATIVE_FIELD_STATUS_UNAVAILABLE;
   if (!ListAllPids(&pids, &list_status)) {
-    // Could not enumerate at all: report unavailable with no rows. A
-    // permission-limited enumeration is summarized as a count-only warning.
+    // Could not enumerate at all: report unavailable with no rows. Main maps
+    // this to an unavailable snapshot; per-field statuses carry the detail in
+    // every other case.
     response->set_available(false);
-    if (list_status == NATIVE_FIELD_STATUS_PERMISSION_DENIED) {
-      NativeCollectorWarning* warning = response->add_warnings();
-      warning->set_code(NativeCollectorWarning::CODE_PERMISSION_DENIED);
-      warning->set_affected_count(0);
-    }
     return;
   }
 
   response->set_available(true);
-  const int64_t now_ms =
-      static_cast<int64_t>(std::time(nullptr)) * 1000;
-  response->set_collected_at_unix_ms(now_ms);
 
   // Snapshot GUI app metadata once for the whole pass (one NSWorkspace query),
   // then merge the matching entry onto each record by PID.

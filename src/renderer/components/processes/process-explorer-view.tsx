@@ -135,6 +135,9 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
       return;
     }
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
       if (event.key === "Escape") {
         if (hasDetail) {
           goBack();

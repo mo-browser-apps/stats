@@ -12,6 +12,11 @@ export default defineConfig(({ mode }) => {
   throw new Error(`Unsupported Vite config mode: ${mode}`);
 });
 
+// No build sourcemaps: `mobrowser build` output is the distributed app, and
+// shipping .map files would hand the original TypeScript to anyone who opens
+// the bundle - defeating the framework's source protection. Dev debugging
+// goes through the dev server, which has its own transient maps.
+
 function defineMainConfig(): UserConfig {
   return {
     root: path.resolve(__dirname, "./src/main"),
@@ -19,7 +24,6 @@ function defineMainConfig(): UserConfig {
       target: "esnext",
       outDir: path.resolve(__dirname, "./out/main"),
       emptyOutDir: true,
-      sourcemap: true,
       lib: {
         entry: path.resolve(__dirname, "./src/main/index.ts"),
         formats: ["es"],
@@ -38,12 +42,6 @@ function defineMainConfig(): UserConfig {
         "@": path.resolve(__dirname, "./src/main"),
       },
     },
-    server: {
-      forwardConsole: {
-        unhandledErrors: true,
-        logLevels: ["warn", "error"],
-      },
-    },
   };
 }
 
@@ -55,17 +53,10 @@ function defineRendererConfig(): UserConfig {
     build: {
       outDir: path.resolve(__dirname, "./out/renderer"),
       emptyOutDir: true,
-      sourcemap: true,
     },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src/renderer"),
-      },
-    },
-    server: {
-      forwardConsole: {
-        unhandledErrors: true,
-        logLevels: ["warn", "error"],
       },
     },
   };

@@ -5,7 +5,7 @@
       "type": "shell",
       "command": "npx vite build --mode main",
       "problemMatcher": [],
-      "label": "npm: build:main"
+      "label": "vite: build main"
     }
   ]
 }

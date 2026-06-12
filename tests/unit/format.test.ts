@@ -85,6 +85,12 @@ describe("formatBytes", () => {
     expect(formatBytes(2048 * 1024 ** 5)).toBe("2048.0 PB");
   });
 
+  it("promotes on the rounded value instead of rendering 1024", () => {
+    // 1023.5 KB rounds to 1024; it must promote to 1 MB, never read "1024 KB".
+    expect(formatBytes(1023.5 * 1024)).toBe("1 MB");
+    expect(formatBytes(1023.997 * 1024 ** 3, true)).toBe("1.00 TB");
+  });
+
   it("is unavailable for negative or non-finite input", () => {
     expect(formatBytes(-1)).toBe(UNAVAILABLE_TEXT);
     expect(formatBytes(Number.NaN)).toBe(UNAVAILABLE_TEXT);
@@ -103,6 +109,12 @@ describe("formatRateParts", () => {
     expect(formatRateParts(1018)).toEqual({ value: "1.0", unit: "KB/s" });
     expect(formatRateParts(999 * 1024)).toEqual({ value: "999", unit: "KB/s" });
     expect(formatRateParts(1000 * 1024)).toEqual({ value: "1.0", unit: "MB/s" });
+  });
+
+  it("promotes on the rounded value instead of rendering 1000", () => {
+    // 999.7 rounds to 1000 - four digits; it must promote instead.
+    expect(formatRateParts(999.7)).toEqual({ value: "1.0", unit: "KB/s" });
+    expect(formatRateParts(999.7 * 1024)).toEqual({ value: "1.0", unit: "MB/s" });
   });
 
   it("is unavailable (no unit) for negative or non-finite input", () => {
@@ -140,6 +152,10 @@ describe("formatCpuTime", () => {
   it("uses Ns.cc below a minute", () => {
     expect(formatCpuTime(4.62 * 1_000_000_000)).toBe("4.62s");
     expect(formatCpuTime(0)).toBe("0.00s");
+  });
+
+  it("truncates just below a minute instead of rounding into 60.00s", () => {
+    expect(formatCpuTime(59.996 * 1_000_000_000)).toBe("59.99s");
   });
 
   it("is unavailable for negative or non-finite input", () => {

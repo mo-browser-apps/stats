@@ -51,9 +51,19 @@ beforeEach(() => {
   h.statfsSync.mockReturnValue({ blocks: 100, bsize: GB, bavail: 40 });
   h.uptime.mockReturnValue(3600);
   h.readMemory.mockResolvedValue({ available: false, totalBytes: 0, usedBytes: 0, availableBytes: 0, cachedBytes: 0 });
-  h.readNetwork.mockResolvedValue({ available: false, rxBytes: 0, txBytes: 0 });
+  h.readNetwork.mockResolvedValue({ available: false, interfaces: [] });
   h.readTemp.mockResolvedValue({ available: false, celsius: 0 });
 });
+
+/** Builds one interface's cumulative counters. */
+function iface(name: string, rxBytes: number, txBytes: number) {
+  return { name, rxBytes, txBytes };
+}
+
+/** Builds an available native counters response. */
+function net(...interfaces: ReturnType<typeof iface>[]) {
+  return { available: true, interfaces };
+}
 
 describe("CPU delta math", () => {
   it("reports unknown on the first sample (no delta yet)", async () => {
@@ -123,7 +133,7 @@ describe("CPU delta math", () => {
 
 describe("network delta math", () => {
   it("reports unknown on the first sample (no baseline)", async () => {
-    h.readNetwork.mockResolvedValue({ available: true, rxBytes: 1000, txBytes: 2000 });
+    h.readNetwork.mockResolvedValue(net(iface("en0", 1000, 2000)));
     const sampler = new MetricsSampler();
     const reading = await sampler.sample();
     expect(reading.network.status).toBe(UNKNOWN);
@@ -131,11 +141,11 @@ describe("network delta math", () => {
 
   it("computes per-second rates over the elapsed window", async () => {
     const sampler = new MetricsSampler();
-    h.readNetwork.mockResolvedValue({ available: true, rxBytes: 1000, txBytes: 5000 });
+    h.readNetwork.mockResolvedValue(net(iface("en0", 1000, 5000)));
     clockMs = 1000;
     await sampler.sample();
     // +2000 rx, +1000 tx over 2 seconds -> 1000 B/s rx, 500 B/s tx.
-    h.readNetwork.mockResolvedValue({ available: true, rxBytes: 3000, txBytes: 6000 });
+    h.readNetwork.mockResolvedValue(net(iface("en0", 3000, 6000)));
     clockMs = 3000;
     const reading = await sampler.sample();
     expect(reading.network.status).toBe(OK);
@@ -143,28 +153,76 @@ describe("network delta math", () => {
     expect(reading.network.txBytesPerSec).toBe(500);
   });
 
-  it("drops a negative delta (counter reset) to a 0 rate", async () => {
+  it("sums deltas across the interfaces present in both samples", async () => {
     const sampler = new MetricsSampler();
-    h.readNetwork.mockResolvedValue({ available: true, rxBytes: 1_000_000, txBytes: 1_000_000 });
+    h.readNetwork.mockResolvedValue(net(iface("en0", 1000, 0), iface("pdp_ip0", 500, 100)));
     clockMs = 1000;
     await sampler.sample();
-    // Counters went backwards (interface reset): rate clamps to 0, no spike.
-    h.readNetwork.mockResolvedValue({ available: true, rxBytes: 10, txBytes: 10 });
+    // en0 +1000 rx, pdp_ip0 +500 rx / +400 tx over 1 second.
+    h.readNetwork.mockResolvedValue(net(iface("en0", 2000, 0), iface("pdp_ip0", 1000, 500)));
+    clockMs = 2000;
+    const reading = await sampler.sample();
+    expect(reading.network.rxBytesPerSec).toBe(1500);
+    expect(reading.network.txBytesPerSec).toBe(400);
+  });
+
+  it("ignores a joining interface's cumulative total (no fake burst)", async () => {
+    const sampler = new MetricsSampler();
+    h.readNetwork.mockResolvedValue(net(iface("en0", 1000, 1000)));
+    clockMs = 1000;
+    await sampler.sample();
+    // en1 appears carrying 5 MB of pre-existing traffic: it has no baseline,
+    // so only en0's own +1000 delta counts this tick.
+    h.readNetwork.mockResolvedValue(net(iface("en0", 2000, 1000), iface("en1", 5_000_000, 5_000_000)));
     clockMs = 2000;
     const reading = await sampler.sample();
     expect(reading.network.status).toBe(OK);
-    expect(reading.network.rxBytesPerSec).toBe(0);
+    expect(reading.network.rxBytesPerSec).toBe(1000);
+    expect(reading.network.txBytesPerSec).toBe(0);
+
+    // Next tick en1 has a baseline and contributes its own delta normally.
+    h.readNetwork.mockResolvedValue(net(iface("en0", 2000, 1000), iface("en1", 5_000_300, 5_000_000)));
+    clockMs = 3000;
+    expect((await sampler.sample()).network.rxBytesPerSec).toBe(300);
+  });
+
+  it("ignores a leaving interface (no negative delta from the lost counters)", async () => {
+    const sampler = new MetricsSampler();
+    h.readNetwork.mockResolvedValue(net(iface("en0", 1000, 1000), iface("en1", 9_000_000, 9_000_000)));
+    clockMs = 1000;
+    await sampler.sample();
+    // en1 drops out (Wi-Fi off): the rate reflects en0's own delta only.
+    h.readNetwork.mockResolvedValue(net(iface("en0", 1500, 1000)));
+    clockMs = 2000;
+    const reading = await sampler.sample();
+    expect(reading.network.status).toBe(OK);
+    expect(reading.network.rxBytesPerSec).toBe(500);
+    expect(reading.network.txBytesPerSec).toBe(0);
+  });
+
+  it("drops a per-interface negative delta (counter reset) to a 0 contribution", async () => {
+    const sampler = new MetricsSampler();
+    h.readNetwork.mockResolvedValue(net(iface("en0", 1_000_000, 1_000_000), iface("en1", 1000, 1000)));
+    clockMs = 1000;
+    await sampler.sample();
+    // en0's counters went backwards (interface re-created): its contribution
+    // clamps to 0 while en1's genuine delta still counts.
+    h.readNetwork.mockResolvedValue(net(iface("en0", 10, 10), iface("en1", 1200, 1000)));
+    clockMs = 2000;
+    const reading = await sampler.sample();
+    expect(reading.network.status).toBe(OK);
+    expect(reading.network.rxBytesPerSec).toBe(200);
     expect(reading.network.txBytesPerSec).toBe(0);
   });
 
   it("drops an impossible forward jump (> 100 Gbps) to a 0 rate", async () => {
     const sampler = new MetricsSampler();
-    h.readNetwork.mockResolvedValue({ available: true, rxBytes: 0, txBytes: 0 });
+    h.readNetwork.mockResolvedValue(net(iface("en0", 0, 0)));
     clockMs = 1000;
     await sampler.sample();
     // 1 TB in 1 second is far above the plausible ceiling -> treated as a
     // discontinuity (e.g. a reconnect handing back a fresh counter) -> 0.
-    h.readNetwork.mockResolvedValue({ available: true, rxBytes: 1_000_000_000_000, txBytes: 0 });
+    h.readNetwork.mockResolvedValue(net(iface("en0", 1_000_000_000_000, 0)));
     clockMs = 2000;
     const reading = await sampler.sample();
     expect(reading.network.rxBytesPerSec).toBe(0);
@@ -172,26 +230,26 @@ describe("network delta math", () => {
 
   it("reports unavailable and re-arms the baseline when counters are unavailable", async () => {
     const sampler = new MetricsSampler();
-    h.readNetwork.mockResolvedValue({ available: true, rxBytes: 1000, txBytes: 1000 });
+    h.readNetwork.mockResolvedValue(net(iface("en0", 1000, 1000)));
     clockMs = 1000;
     await sampler.sample();
     // Counters drop out -> unavailable; the baseline is cleared.
-    h.readNetwork.mockResolvedValue({ available: false, rxBytes: 0, txBytes: 0 });
+    h.readNetwork.mockResolvedValue({ available: false, interfaces: [] });
     clockMs = 2000;
     expect((await sampler.sample()).network.status).toBe(UNAVAILABLE);
     // Next available sample is a first sample again -> unknown, not a giant rate.
-    h.readNetwork.mockResolvedValue({ available: true, rxBytes: 9999, txBytes: 9999 });
+    h.readNetwork.mockResolvedValue(net(iface("en0", 9999, 9999)));
     clockMs = 3000;
     expect((await sampler.sample()).network.status).toBe(UNKNOWN);
   });
 
   it("reports unknown when the clock did not advance (no divide-by-zero rate)", async () => {
     const sampler = new MetricsSampler();
-    h.readNetwork.mockResolvedValue({ available: true, rxBytes: 1000, txBytes: 1000 });
+    h.readNetwork.mockResolvedValue(net(iface("en0", 1000, 1000)));
     clockMs = 5000;
     await sampler.sample();
     // Two samples at the same timestamp: elapsed <= 0 -> unknown, never a rate.
-    h.readNetwork.mockResolvedValue({ available: true, rxBytes: 9000, txBytes: 9000 });
+    h.readNetwork.mockResolvedValue(net(iface("en0", 9000, 9000)));
     const reading = await sampler.sample();
     expect(reading.network.status).toBe(UNKNOWN);
   });

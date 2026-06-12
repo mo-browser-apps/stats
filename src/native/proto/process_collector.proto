@@ -12,11 +12,7 @@ syntax = "proto3";
 //
 // Privacy: command-line arguments are sensitive display/search data. The
 // collector returns them for local display and search only - main must never
-// log, persist, export, auto-copy, or transmit them, and warnings must never
-// echo argument values, paths, or process names.
-//
-// As of I10 this contract exists and compiles; the native implementation and
-// the main snapshot service that calls it are added in a later iteration.
+// log, persist, export, auto-copy, or transmit them.
 
 // Availability of a native per-process value. UNSPECIFIED is the proto3 default;
 // the other states let main map each field to an explicit renderer status
@@ -173,38 +169,18 @@ message NativeProcessRecord {
   // non-brittle per-process source, so the collector does not gather it.
 }
 
-// A safe, count-only warning about a collection pass. Must never include
-// command-line arguments, executable paths, or process names.
-message NativeCollectorWarning {
-  enum Code {
-    CODE_UNSPECIFIED = 0;
-    // Collection completed with some per-process fields unavailable.
-    CODE_PARTIAL_FIELDS = 1;
-    // macOS denied access to one or more processes/fields.
-    CODE_PERMISSION_DENIED = 2;
-    // Command-line arguments were partially unavailable/unparsable.
-    CODE_COMMAND_LINE_PARTIAL = 3;
-  }
-  Code code = 1;
-  // Number of processes affected, or 0 when untracked. No sensitive text.
-  int32 affected_count = 2;
-}
-
 // Request to collect the current macOS process list. Empty for now.
 message CollectProcessesRequest {}
 
 // Result of one native collection pass. Main maps these raw records into the
-// renderer ProcessSnapshot, computing per-process CPU deltas and applying
+// renderer ProcessSnapshot, computing per-process CPU deltas, deriving its
+// renderer-facing warnings from the per-field statuses, and applying
 // availability/privacy rules.
 message CollectProcessesResponse {
   // Whether collection produced a usable process list at all.
   bool available = 1;
-  // Unix milliseconds when native collection completed.
-  int64 collected_at_unix_ms = 2;
   // Raw per-process records for main-side mapping.
-  repeated NativeProcessRecord records = 3;
-  // Safe, count-only warnings (no sensitive text).
-  repeated NativeCollectorWarning warnings = 4;
+  repeated NativeProcessRecord records = 2;
 }
 
 // Request for icon bytes by content key (NativeAppMetadata.icon_key values).

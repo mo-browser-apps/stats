@@ -3,7 +3,7 @@
 /*
  * Tailwind v4 CSS-first config. `@theme inline` maps the semantic CSS variables
  * below onto Tailwind's color/radius utility namespace so classes like
- * `bg-card`, `text-muted-foreground`, `bg-success`, and `text-destructive`
+ * `bg-popover`, `text-muted-foreground`, `bg-success`, and `text-destructive`
  * resolve against the tokens (not inlined values) at runtime. This replaces the
  * former HSL `tailwind.config.js`; colors are oklch, matching ../voice/../icons.
  *
@@ -17,18 +17,12 @@
   /* Surface & text */
   --color-background:         var(--background);
   --color-foreground:         var(--foreground);
-  --color-card:               var(--card);
-  --color-card-foreground:    var(--card-foreground);
   --color-popover:            var(--popover);
   --color-popover-foreground: var(--popover-foreground);
 
   /* Interactive */
-  --color-primary:              var(--primary);
-  --color-primary-foreground:   var(--primary-foreground);
-  --color-secondary:            var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-accent:               var(--accent);
-  --color-accent-foreground:    var(--accent-foreground);
+  --color-accent:            var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
 
   /* Chrome */
   --color-muted:            var(--muted);
@@ -56,11 +50,9 @@
   --color-net-up:   var(--net-up);
 
   /* Border radius */
-  --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
 }
 
 /*
@@ -74,18 +66,12 @@
   /* Surface & text */
   --background:         oklch(100% 0 0deg);
   --foreground:         oklch(25% 0 0deg);
-  --card:               oklch(97.3% 0 0deg);
-  --card-foreground:    oklch(25% 0 0deg);
   --popover:            oklch(100% 0 0deg);
   --popover-foreground: oklch(25% 0 0deg);
 
   /* Interactive */
-  --primary:              oklch(54.6% 0.245 262.9deg);
-  --primary-foreground:   oklch(98.5% 0 0deg);
-  --secondary:            oklch(97% 0 0deg);
-  --secondary-foreground: oklch(20.5% 0 0deg);
-  --accent:               oklch(92% 0 0deg);
-  --accent-foreground:    oklch(20.5% 0 0deg);
+  --accent:            oklch(92% 0 0deg);
+  --accent-foreground: oklch(20.5% 0 0deg);
 
   /* Chrome */
   --muted:            oklch(97% 0 0deg);
@@ -121,21 +107,15 @@
 
 /* Semantic tokens — Dark mode (the shipped appearance). */
 .dark {
-  /* Surface & text — near-black shell, card slightly elevated above it. */
+  /* Surface & text — near-black shell, popover slightly elevated above it. */
   --background:         oklch(18% 0 0deg);
   --foreground:         oklch(90% 0 0deg);
-  --card:               oklch(25% 0 0deg);
-  --card-foreground:    oklch(90% 0 0deg);
   --popover:            oklch(20.5% 0 0deg);
   --popover-foreground: oklch(90% 0 0deg);
 
   /* Interactive */
-  --primary:              oklch(62.9% 0.216 258.2deg);
-  --primary-foreground:   oklch(98% 0 0deg);
-  --secondary:            oklch(26.9% 0 0deg);
-  --secondary-foreground: oklch(70% 0 0deg);
-  --accent:               oklch(35% 0 0deg);
-  --accent-foreground:    oklch(90% 0 0deg);
+  --accent:            oklch(35% 0 0deg);
+  --accent-foreground: oklch(90% 0 0deg);
 
   /* Chrome — low-contrast bordered surfaces. */
   --muted:            oklch(30% 0 0deg);
@@ -189,17 +169,8 @@
 
   /* Opt interactive controls out of the draggable region so they stay clickable. */
   .no-drag,
-  .title-bar button,
-  .title-bar [role="button"] {
+  .title-bar button {
     -webkit-app-region: no-drag;
-  }
-
-  /*
-   * Tabular numerals keep frequently changing metric values from jittering
-   * horizontally as digits change width (DESIGN.md typography rules).
-   */
-  .tabular-nums {
-    font-variant-numeric: tabular-nums;
   }
 
   /*

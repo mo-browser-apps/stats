@@ -1,5 +1,5 @@
 import { Check, Copy } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { appGateway } from "@/gateway/app-gateway";
 import { cn } from "@/lib/utils";
@@ -42,13 +42,27 @@ export function DisclosureContent({
  */
 export function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimer.current !== null) {
+        window.clearTimeout(resetTimer.current);
+      }
+    };
+  }, []);
 
   function copy() {
     void appGateway
       .copyText(text)
       .then(() => {
         setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
+        // Restart the confirmation window on every copy, so a quick second
+        // click is not cut short by the first click's timer.
+        if (resetTimer.current !== null) {
+          window.clearTimeout(resetTimer.current);
+        }
+        resetTimer.current = window.setTimeout(() => setCopied(false), 1200);
       })
       .catch(() => undefined);
   }
@@ -60,7 +74,7 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
       aria-label={label}
       title={label}
       className={cn(
-        "no-drag flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+        "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
       )}
     >
       {copied ? (

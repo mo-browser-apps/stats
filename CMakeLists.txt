@@ -37,6 +37,10 @@ set_source_files_properties(src/native/processes/app_metadata.mm
 # Defines the main target of the application.
 add_library(mobrowser_lib STATIC ${APP_SOURCES} ${GENERATED_SOURCES})
 
+# The native sources hand-roll kernel ABI structs and parse raw sysctl buffers;
+# keep the standard warning set on for them.
+target_compile_options(mobrowser_lib PRIVATE -Wall -Wextra)
+
 target_include_directories(mobrowser_lib PUBLIC
         ${PROJECT_SOURCE_DIR}/src/native
         ${PROJECT_SOURCE_DIR}/src/native/gen

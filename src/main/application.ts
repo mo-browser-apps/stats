@@ -87,18 +87,23 @@ export class Application {
 
   /** Shows the About dialog: branded name, live version, and a repository link. */
   private async showAbout(): Promise<void> {
-    const result = await app.showMessageDialog({
-      parentWindow: this.window.instance ?? undefined,
-      type: "info",
-      message: `${DISPLAY_NAME} ${app.version}`,
-      informativeText: `${app.description}\n\nPowered by MōBrowser.\n\n${app.copyright}`,
-      buttons: [
-        { label: "Close", type: "primary" },
-        { label: "Open GitHub Repository...", type: "secondary" },
-      ],
-    });
-    if (result.button.type === "secondary") {
-      desktop.openUrl(REPOSITORY_URL);
+    try {
+      const result = await app.showMessageDialog({
+        parentWindow: this.window.instance ?? undefined,
+        type: "info",
+        message: `${DISPLAY_NAME} ${app.version}`,
+        informativeText: `${app.description}\n\nPowered by MōBrowser.\n\n${app.copyright}`,
+        buttons: [
+          { label: "Close", type: "primary" },
+          { label: "Open GitHub Repository...", type: "secondary" },
+        ],
+      });
+      if (result.button.type === "secondary") {
+        desktop.openUrl(REPOSITORY_URL);
+      }
+    } catch {
+      // The menu action floats this promise; a dialog failure must not become
+      // an unhandled rejection in main.
     }
   }
 

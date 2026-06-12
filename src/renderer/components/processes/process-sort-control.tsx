@@ -15,7 +15,7 @@ import type { SortMode } from "@/domain/process-list";
  * Compact dropdown trigger matching the search field's height and surface.
  */
 const sortTrigger = cva(
-  "no-drag flex h-9 shrink-0 items-center gap-1 rounded-lg border border-border bg-muted/40 pl-2.5 pr-1.5 text-[13px] text-foreground transition-colors hover:bg-muted/60 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted/60",
+  "flex h-9 shrink-0 items-center gap-1 rounded-lg border border-border bg-muted/40 pl-2.5 pr-1.5 text-[13px] text-foreground transition-colors hover:bg-muted/60 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted/60",
 );
 
 /**

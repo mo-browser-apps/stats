@@ -35,7 +35,7 @@ export function ProcessSearchField({
   onSubmit?: () => void
 }) {
   return (
-    <div className="no-drag relative flex h-9 min-w-0 flex-1 items-center">
+    <div className="relative flex h-9 min-w-0 flex-1 items-center">
       <Search
         className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-muted-foreground"
         strokeWidth={1.75}
@@ -64,7 +64,12 @@ export function ProcessSearchField({
       {value.length > 0 ? (
         <button
           type="button"
-          onClick={() => onChange("")}
+          onClick={(event) => {
+            onChange("");
+            // This button unmounts once the field empties; without an explicit
+            // new target, focus would drop to <body> from under the user.
+            event.currentTarget.closest("div")?.querySelector("input")?.focus();
+          }}
           aria-label="Clear search"
           title="Clear search"
           className={clearButton()}

@@ -51,11 +51,15 @@ void ReadMemoryUsage(MemoryUsage* response) {
   uint64_t total_bytes = 0;
   const long raw_page_size = sysconf(_SC_PAGESIZE);
 
+  // mach_host_self() adds a send-right uref that is never deallocated; the
+  // port is process-lifetime stable, so acquire it once instead of leaking one
+  // reference per tick.
+  static const host_t host = mach_host_self();
+
   vm_statistics64_data_t stats = {};
   mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
   const kern_return_t result = host_statistics64(
-      mach_host_self(), HOST_VM_INFO64, reinterpret_cast<host_info64_t>(&stats),
-      &count);
+      host, HOST_VM_INFO64, reinterpret_cast<host_info64_t>(&stats), &count);
 
   if (!ReadPhysicalMemorySize(&total_bytes) || raw_page_size <= 0 ||
       result != KERN_SUCCESS) {

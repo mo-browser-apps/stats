@@ -44,7 +44,7 @@ export function MemoryRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
           valueClassName={VALUE_COLOR_BY_STATE[state]}
         />
       </MetricRowHeader>
-      {memory ? (
+      {memory && live ? (
         <SegmentedMeter segments={segments} totalBytes={memory.totalBytes} ariaLabel={ariaLabel(segments, memory.totalBytes)} />
       ) : (
         <div className="flex flex-col gap-2" aria-hidden="true">

@@ -105,14 +105,18 @@ export function useProcessActions(
       } catch {
         // No diagnostic is logged - the target/result can carry process identity.
         setActionMessage("Action could not be completed.");
+      }
+      // The row stays disabled until the re-pull and state refresh land, so it
+      // can never be clicked for a beat with pre-action states still showing.
+      try {
+        await onActed();
+        if (terminated) {
+          onTerminated(target.pid);
+        } else {
+          await refreshActionStates();
+        }
       } finally {
         setActionsBusy(false);
-      }
-      await onActed();
-      if (terminated) {
-        onTerminated(target.pid);
-      } else {
-        await refreshActionStates();
       }
     },
     [target, actionsBusy, onActed, onTerminated, refreshActionStates],

@@ -200,16 +200,37 @@ describe("ProcessActionService.runAction", () => {
     expect(result.outcome).toBe(Outcome.OUTCOME_NOT_ALLOWED);
   });
 
-  it("treats a declined Force Quit confirmation as a no-op (does not kill)", async () => {
+  it("reports a declined Force Quit confirmation as CANCELED (does not kill)", async () => {
     h.showMessageDialog.mockResolvedValue({ button: { type: "secondary" } });
     const row = makeRow({ pid: SOME_PID, startedAtUnixMs: 1, commandName: "App", executablePath: "/x" });
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
     const service = new ProcessActionService(() => makeSnapshot([row]), () => null);
     const result = await service.runAction({ action: FORCE_QUIT, target: makeTarget(SOME_PID, 1) });
     expect(h.showMessageDialog).toHaveBeenCalledOnce();
-    expect(result.outcome).toBe(Outcome.OUTCOME_SUCCEEDED);
+    expect(result.outcome).toBe(Outcome.OUTCOME_CANCELED);
     expect(result.affectedCount).toBe(0);
     expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  it("answers CANCELED to a Force Quit racing an already-open confirmation", async () => {
+    let resolveDialog: (value: { button: { type: string } }) => void = () => {};
+    h.showMessageDialog.mockImplementation(
+      () => new Promise((resolve) => { resolveDialog = resolve; }),
+    );
+    const row = makeRow({ pid: SOME_PID, startedAtUnixMs: 1, commandName: "App", executablePath: "/x" });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const service = new ProcessActionService(() => makeSnapshot([row]), () => null);
+
+    const first = service.runAction({ action: FORCE_QUIT, target: makeTarget(SOME_PID, 1) });
+    // A second request while the dialog is up must not stack another dialog.
+    const second = await service.runAction({ action: FORCE_QUIT, target: makeTarget(SOME_PID, 1) });
+    expect(second.outcome).toBe(Outcome.OUTCOME_CANCELED);
+    expect(h.showMessageDialog).toHaveBeenCalledOnce();
+
+    resolveDialog({ button: { type: "primary" } });
+    const result = await first;
+    expect(result.outcome).toBe(Outcome.OUTCOME_SUCCEEDED);
+    expect(killSpy).toHaveBeenCalledWith(SOME_PID, "SIGKILL");
   });
 
   it("signals on a confirmed Force Quit, mapping ESRCH to STALE_TARGET", async () => {

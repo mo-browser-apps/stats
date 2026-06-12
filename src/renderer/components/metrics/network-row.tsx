@@ -21,8 +21,12 @@ export function NetworkRow({ snapshot }: { snapshot: MetricsSnapshot | null }) {
 
   useEffect(() => {
     if (!network) return;
+    // A non-finite value must enter history as a gap, not a sample: it would
+    // turn the axis max NaN and blank every path until it ages out.
     const sample =
-      network.status === MetricStatus.METRIC_STATUS_OK
+      network.status === MetricStatus.METRIC_STATUS_OK &&
+      Number.isFinite(network.rxBytesPerSec) &&
+      Number.isFinite(network.txBytesPerSec)
         ? { rxBytesPerSec: network.rxBytesPerSec, txBytesPerSec: network.txBytesPerSec }
         : null;
     setHistory((prev) => pushSample(prev, sample));
@@ -71,7 +75,12 @@ function Rate({
   return (
     <span className="flex flex-1 items-center justify-end gap-1.5">
       <span className={cn("text-sm font-light", prefixClassName)}>{prefix}</span>
-      <ValueUnit value={parts?.value ?? "--"} unit={parts?.unit} />
+      <ValueUnit
+        value={parts?.value ?? "--"}
+        unit={parts?.unit}
+        // Mute the placeholder like the other rows' pending "--" values.
+        valueClassName={parts === null ? "text-muted-foreground" : undefined}
+      />
     </span>
   );
 }

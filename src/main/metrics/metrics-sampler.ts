@@ -15,21 +15,34 @@ const { METRIC_STATUS_UNKNOWN: UNKNOWN, METRIC_STATUS_OK: OK, METRIC_STATUS_UNAV
 
 const SYSTEM_VOLUME_PATH = "/";
 
+/**
+ * Hard cap on a native probe RPC. The native calls have no built-in timeout,
+ * so a hung probe would otherwise leave the tick promise pending forever and
+ * permanently wedge the poll loop (its overlap guard never re-arms). The
+ * probes are sub-millisecond syscall reads; the abort rejects into each
+ * group's catch, degrading only that group, and the next tick retries.
+ */
+const NATIVE_CALL_TIMEOUT_MS = 2500;
+
+/** Call options aborting a native probe at the timeout. */
+function nativeCallTimeout() {
+  return { signal: AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS) };
+}
+
 /** Temperature values outside this Celsius range are treated as bad sensor data. */
 const MIN_PLAUSIBLE_TEMPERATURE_CELSIUS = 10;
 const MAX_PLAUSIBLE_TEMPERATURE_CELSIUS = 120;
 
 /**
- * Upper bound on a plausible per-interface throughput (100 Gbps, in bytes/s).
+ * Upper bound on a plausible machine-wide throughput (100 Gbps, in bytes/s).
  * A single-tick delta above it is a counter discontinuity, dropped to a 0 rate
  * rather than reported as a spike.
  */
 const MAX_PLAUSIBLE_BYTES_PER_SEC = 100_000_000_000 / 8;
 
-/** Cumulative interface byte counters at a monotonic timestamp. */
-interface NetworkCounters {
-  rxBytes: number;
-  txBytes: number;
+/** Cumulative per-interface byte counters at a monotonic timestamp. */
+interface NetworkSample {
+  byName: Map<string, { rxBytes: number; txBytes: number }>;
   atMs: number;
 }
 
@@ -61,16 +74,24 @@ export interface MetricsReading {
 export class MetricsSampler {
   private previousCpuTicks: CpuTicks | null = null;
 
-  private previousNetworkCounters: NetworkCounters | null = null;
+  private previousNetworkSample: NetworkSample | null = null;
 
   async sample(): Promise<MetricsReading> {
+    // The native probes are independent; sampling them concurrently keeps the
+    // pass as fast as the slowest probe. None of them ever rejects (each
+    // degrades its own group), so Promise.all cannot throw here.
+    const [memory, network, temperature] = await Promise.all([
+      this.sampleMemory(),
+      this.sampleNetwork(),
+      this.sampleTemperature(),
+    ]);
     return {
       cpu: this.sampleCpu(),
-      memory: await this.sampleMemory(),
+      memory,
       disk: this.sampleDisk(),
-      network: await this.sampleNetwork(),
+      network,
       uptime: this.sampleUptime(),
-      temperature: await this.sampleTemperature(),
+      temperature,
     };
   }
 
@@ -105,7 +126,7 @@ export class MetricsSampler {
   /** Physical memory usage from the native macOS VM-statistics probe. */
   private async sampleMemory(): Promise<MemoryMetric> {
     try {
-      const usage = await native.memory.ReadUsage({});
+      const usage = await native.memory.ReadUsage({}, nativeCallTimeout());
       if (!usage.available || !Number.isFinite(usage.totalBytes) || usage.totalBytes <= 0) {
         return unavailableMemory();
       }
@@ -158,39 +179,54 @@ export class MetricsSampler {
    * Network throughput from the native interface counter probe: successive
    * cumulative readings turned into a per-second rate over the measured elapsed
    * time. UNKNOWN without a baseline (first sample, or after the counters were
-   * unavailable) or when the clock did not advance; a counter that went
-   * backwards re-arms via {@link rate} as a 0 rate instead of a spike.
+   * unavailable) or when the clock did not advance.
+   *
+   * Each interface is diffed against its own previous reading. One seen for
+   * the first time has no baseline and contributes nothing that tick, so an
+   * interface (re)joining the active set never registers its cumulative total
+   * as a burst of traffic; one that left simply stops contributing, and a
+   * per-interface counter reset clamps to 0 instead of going negative.
    */
   private async sampleNetwork(): Promise<NetworkMetric> {
     try {
-      const counters = await native.network.ReadCounters({});
+      const counters = await native.network.ReadCounters({}, nativeCallTimeout());
       if (!counters.available) {
-        this.previousNetworkCounters = null;
+        this.previousNetworkSample = null;
         return { status: UNAVAILABLE, rxBytesPerSec: 0, txBytesPerSec: 0 };
       }
 
-      const current: NetworkCounters = {
-        rxBytes: counters.rxBytes,
-        txBytes: counters.txBytes,
+      const current: NetworkSample = {
+        byName: new Map(counters.interfaces.map(
+          ({ name, rxBytes, txBytes }) => [name, { rxBytes, txBytes }],
+        )),
         // performance.now() is monotonic, so the rate window survives
         // wall-clock/NTP adjustments.
         atMs: performance.now(),
       };
-      const previous = this.previousNetworkCounters;
-      this.previousNetworkCounters = current;
+      const previous = this.previousNetworkSample;
+      this.previousNetworkSample = current;
 
       const elapsedSeconds = previous === null ? 0 : (current.atMs - previous.atMs) / 1000;
       if (previous === null || elapsedSeconds <= 0) {
         return { status: UNKNOWN, rxBytesPerSec: 0, txBytesPerSec: 0 };
       }
 
+      let rxDelta = 0;
+      let txDelta = 0;
+      for (const [name, currentCounters] of current.byName) {
+        const previousCounters = previous.byName.get(name);
+        if (previousCounters === undefined) continue;
+        rxDelta += Math.max(0, currentCounters.rxBytes - previousCounters.rxBytes);
+        txDelta += Math.max(0, currentCounters.txBytes - previousCounters.txBytes);
+      }
+
       return {
         status: OK,
-        rxBytesPerSec: rate(current.rxBytes - previous.rxBytes, elapsedSeconds),
-        txBytesPerSec: rate(current.txBytes - previous.txBytes, elapsedSeconds),
+        rxBytesPerSec: rate(rxDelta, elapsedSeconds),
+        txBytesPerSec: rate(txDelta, elapsedSeconds),
       };
     } catch {
-      this.previousNetworkCounters = null;
+      this.previousNetworkSample = null;
       return { status: UNAVAILABLE, rxBytesPerSec: 0, txBytesPerSec: 0 };
     }
   }
@@ -202,7 +238,7 @@ export class MetricsSampler {
    */
   private async sampleTemperature(): Promise<TemperatureMetric> {
     try {
-      const result = await native.temperature.ReadCpuTemperature({});
+      const result = await native.temperature.ReadCpuTemperature({}, nativeCallTimeout());
       if (!result.available || !isPlausibleTemperature(result.celsius)) {
         return { status: UNAVAILABLE, celsius: 0 };
       }

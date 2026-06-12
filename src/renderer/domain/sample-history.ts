@@ -15,14 +15,16 @@ export function pushSample<T>(history: T[], sample: T, capacity = HISTORY_CAPACI
 
 /**
  * History-array index of the sample under a pointer at `fraction` (0 left, 1
- * right) of the graph. Samples are right-aligned in a `capacity`-wide track, so
- * the leftmost filled slots map to index 0. Returns null when the cursor is over
- * the still-empty left part of the track or there is no history yet.
+ * right) of the graph. Samples are right-aligned in a `capacity`-wide track;
+ * a cursor over the still-empty left part of the track clamps to the oldest
+ * sample (index 0), so scrubbing never dead-zones. Returns null only when
+ * there is no history yet.
  */
 export function sampleIndexAtFraction(fraction: number, filled: number, capacity = HISTORY_CAPACITY): number | null {
   if (filled <= 0) return null;
-  const slot = Math.round(Math.min(1, Math.max(0, fraction)) * capacity - 0.5);
+  // Math.max also normalizes the -0 that Math.round(-0.5) yields at the left edge.
+  const slot = Math.max(0, Math.round(Math.min(1, Math.max(0, fraction)) * capacity - 0.5));
   const firstFilled = capacity - filled;
   if (slot < firstFilled) return 0;
-  return Math.min(filled - 1, slot - firstFilled) || 0;
+  return Math.min(filled - 1, slot - firstFilled);
 }

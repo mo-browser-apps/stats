@@ -32,7 +32,7 @@ function App() {
   const [view, setView] = useState<AppView>("stats");
 
   useEffect(() => {
-    void appGateway.setActiveView(ACTIVE_VIEW_BY_VIEW[view]);
+    appGateway.setActiveView(ACTIVE_VIEW_BY_VIEW[view]).catch(() => undefined);
   }, [view]);
 
   return (

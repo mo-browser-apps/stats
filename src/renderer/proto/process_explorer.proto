@@ -224,24 +224,6 @@ message ProcessRow {
   ProcessStatics statics = 8;
 }
 
-// A safe, non-sensitive warning about a snapshot. Counts only - it must never
-// include command-line arguments, paths, or process names.
-message SnapshotWarning {
-  // Stable code for the UI to message a partial/limited collection.
-  enum Code {
-    CODE_UNSPECIFIED = 0;
-    // Some per-process fields were unavailable.
-    CODE_PARTIAL_FIELDS = 1;
-    // macOS denied access to one or more processes/fields.
-    CODE_PERMISSION_DENIED = 2;
-    // Command-line arguments were partially unavailable/unparsable.
-    CODE_COMMAND_LINE_PARTIAL = 3;
-  }
-  Code code = 1;
-  // Number of processes affected, or 0 when untracked. No sensitive text.
-  int32 affected_count = 2;
-}
-
 // A point-in-time list of processes. The renderer pulls this with
 // GetProcessSnapshot; the revision increments whenever main produces a newer
 // snapshot so the renderer can pull only when something changed.
@@ -255,15 +237,13 @@ message ProcessSnapshot {
   int64 timestamp_ms = 3;
   // Process rows. Empty for loading/unavailable states.
   repeated ProcessRow processes = 4;
-  // Safe, count-only warnings (no sensitive text).
-  repeated SnapshotWarning warnings = 5;
   // Base64 PNG app icons for this snapshot, keyed by content hash; a row
   // resolves its icon by looking its statics' AppMetadata.icon_key up here.
   // Main always sends this EMPTY over the wire: the renderer gateway assembles
   // it locally from its content-addressed icon store, fetching unknown keys
   // through GetProcessAssets, before presentation code sees the snapshot.
   // Volatile display-only data: never logged or persisted.
-  map<string, string> icons = 6;
+  map<string, string> icons = 5;
 }
 
 // Request for content-addressed assets the renderer does not hold yet: statics
@@ -328,11 +308,9 @@ enum ActionDisabledReason {
   ACTION_DISABLED_REASON_PROTECTED = 4;
   // The target no longer matches the latest snapshot (exited / reused PID).
   ACTION_DISABLED_REASON_STALE = 5;
-  // Actions are not implemented yet for this build (I10 placeholder state).
-  ACTION_DISABLED_REASON_NOT_IMPLEMENTED = 6;
   // Quit/Force Quit require a known start time so PID reuse cannot hit another
   // process. Reveal can still be allowed because it only opens Finder.
-  ACTION_DISABLED_REASON_UNSTABLE_IDENTITY = 7;
+  ACTION_DISABLED_REASON_UNSTABLE_IDENTITY = 6;
 }
 
 // Whether one action kind is currently available for a target.
@@ -376,8 +354,9 @@ message RunProcessActionResponse {
     OUTCOME_STALE_TARGET = 2;
     // The action is not allowed for this target (self/system/protected).
     OUTCOME_NOT_ALLOWED = 3;
-    // The action is not implemented yet for this build (I10 placeholder).
-    OUTCOME_NOT_IMPLEMENTED = 4;
+    // The user declined the confirmation (or one was already showing);
+    // nothing was signaled.
+    OUTCOME_CANCELED = 4;
     // The action failed for an unspecified, non-sensitive reason.
     OUTCOME_FAILED = 5;
     // The OS refused the signal because the process is owned by another user

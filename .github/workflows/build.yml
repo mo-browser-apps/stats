@@ -60,10 +60,9 @@ jobs:
           echo "$MACOS_CERTIFICATE" | base64 --decode > $RUNNER_TEMP/certificate.p12
           security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN_PATH" -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "$MACOS_KEYCHAIN_PWD" "$KEYCHAIN_PATH"
+          # Putting the temp keychain on the user search list is what lets
+          # codesign find the imported identity during the build step.
           security list-keychain -d user -s "$KEYCHAIN_PATH"
-
-          # Export KEYCHAIN_PATH for the build step (referenced by mobrowser.conf.json).
-          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
 
       - name: Build release package
         run: npm run build

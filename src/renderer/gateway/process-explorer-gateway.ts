@@ -21,7 +21,6 @@ function emptySnapshot(): ProcessSnapshot {
     revision: 0,
     timestampMs: 0,
     processes: [],
-    warnings: [],
     icons: {},
   };
 }
@@ -111,6 +110,16 @@ async function assembleSnapshot(wire: ProcessSnapshot): Promise<ProcessSnapshot>
 }
 
 /**
+ * Serializes pulls: an assembly spans awaited fetches and reads-then-rewrites
+ * the held stores, so two in flight would fetch the same missing keys twice
+ * and the later writer would overwrite the store with its own key set. Each
+ * pull starts after the previous one settles (a failed one never blocks the
+ * chain) and re-reads the latest cached snapshot, so a queued pull is never
+ * staler than the ping that triggered it.
+ */
+let pullChain: Promise<unknown> = Promise.resolve();
+
+/**
  * Renderer-side wrapper over the process explorer client. Full snapshots are
  * pulled with {@link getSnapshot} (a cached unary read owned by main) while
  * {@link subscribeRevisions} delivers lightweight pings so a component pulls
@@ -128,7 +137,11 @@ export const processExplorerGateway = {
    * self-contained rows regardless of what went over the wire.
    */
   async getSnapshot(): Promise<ProcessSnapshot> {
-    return assembleSnapshot(await ipc.processExplorer.GetProcessSnapshot({}));
+    const pull = pullChain.then(
+      async () => assembleSnapshot(await ipc.processExplorer.GetProcessSnapshot({})),
+    );
+    pullChain = pull.catch(() => undefined);
+    return pull;
   },
 
   /** Subscribes to revision pings; the cadence is owned by main. */

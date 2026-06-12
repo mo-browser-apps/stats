@@ -89,7 +89,8 @@ struct CachedAppMetadata {
 // accepted staleness: an app that flips its activation policy after first
 // sight keeps its cached bundle-path visibility; grouping still works through
 // the executable-path bundle, so nothing user-visible breaks. Threading:
-// serial collector contract, same as the other caches.
+// passes are serialized by the pass mutex in CollectProcesses, same as the
+// other session caches.
 std::unordered_map<int32_t, CachedAppMetadata>& AppMetadataCache() {
   static std::unordered_map<int32_t, CachedAppMetadata> cache;
   return cache;
@@ -115,16 +116,21 @@ std::string EncodeIconBase64(NSImage* icon) {
     return std::string();
   }
 
-  NSImage* resized =
-      [[NSImage alloc] initWithSize:NSMakeSize(kIconSizePoints, kIconSizePoints)];
-  [resized lockFocus];
-  [icon drawInRect:NSMakeRect(0, 0, kIconSizePoints, kIconSizePoints)
-          fromRect:NSZeroRect
-         operation:NSCompositingOperationSourceOver
-          fraction:1.0
-    respectFlipped:YES
-             hints:@{NSImageHintInterpolation : @(NSImageInterpolationHigh)}];
-  [resized unlockFocus];
+  // imageWithSize:flipped:drawingHandler: is the supported offscreen-render
+  // path (lockFocus is deprecated for this); the handler runs when the CGImage
+  // is requested below.
+  NSImage* resized = [NSImage
+       imageWithSize:NSMakeSize(kIconSizePoints, kIconSizePoints)
+             flipped:NO
+      drawingHandler:^BOOL(NSRect destination) {
+        [icon drawInRect:destination
+                fromRect:NSZeroRect
+               operation:NSCompositingOperationSourceOver
+                fraction:1.0
+          respectFlipped:YES
+                   hints:@{NSImageHintInterpolation : @(NSImageInterpolationHigh)}];
+        return YES;
+      }];
 
   CGImageRef cg_image =
       [resized CGImageForProposedRect:nullptr context:nil hints:nil];

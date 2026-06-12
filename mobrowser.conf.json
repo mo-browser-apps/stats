@@ -17,7 +17,6 @@
         "icon": "assets/app.icns",
         "bundleID": "com.teamdev.MoStats",
         "codesignIdentity": "${MACOS_CODESIGN_IDENTITY}",
-        "codesignKeychain": "${KEYCHAIN_PATH}",
         "codesignEntitlements": "assets/entitlements.plist",
         "teamID": "${MACOS_TEAM_ID}",
         "appleID": "${MACOS_APPLE_ID}",

@@ -55,15 +55,24 @@ export function formatBytes(bytes: number, precise = false): string {
   if (!Number.isFinite(bytes) || bytes < 0) return UNAVAILABLE_TEXT;
   if (bytes < 1) return "0 B";
 
+  // Promote on the ROUNDED value: 1023.5 KB would otherwise render "1024 KB"
+  // instead of promoting to "1 MB".
   let value = bytes;
   let unit = 0;
-  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+  let digits = digitsForByteUnit(0, precise);
+  while (Number(value.toFixed(digits)) >= 1024 && unit < BYTE_UNITS.length - 1) {
     value /= 1024;
     unit += 1;
+    digits = digitsForByteUnit(unit, precise);
   }
 
+  return `${value.toFixed(digits)} ${BYTE_UNITS[unit]}`;
+}
+
+/** Sub-GB values stay whole; larger keep one digit; `precise` adds one more. */
+function digitsForByteUnit(unit: number, precise: boolean): number {
   const baseDigits = unit >= 3 ? 1 : 0;
-  return `${value.toFixed(precise ? baseDigits + 1 : baseDigits)} ${BYTE_UNITS[unit]}`;
+  return precise ? baseDigits + 1 : baseDigits;
 }
 
 /**
@@ -76,14 +85,20 @@ export function formatBytes(bytes: number, precise = false): string {
 export function formatRateParts(bytesPerSecond: number): ValueParts {
   if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) return { value: UNAVAILABLE_TEXT, unit: "" };
 
+  // Promote on the ROUNDED value: 999.7 would otherwise render a four-digit
+  // "1000", violating the three-digit bound above.
   let value = bytesPerSecond;
   let unit = 0;
-  while (value >= 1000 && unit < BYTE_UNITS.length - 1) {
+  let digits = 0;
+  for (;;) {
+    digits = unit > 0 && value < 10 ? 1 : 0;
+    if (Number(value.toFixed(digits)) < 1000 || unit >= BYTE_UNITS.length - 1) {
+      break;
+    }
     value /= 1024;
     unit += 1;
   }
 
-  const digits = unit > 0 && value < 10 ? 1 : 0;
   return { value: value.toFixed(digits), unit: `${BYTE_UNITS[unit]}/s` };
 }
 
@@ -125,7 +140,9 @@ export function formatCpuTime(nanos: number): string {
   if (minutes > 0) {
     return `${minutes}:${pad2(Math.floor(seconds))}.${centis(seconds)}`;
   }
-  return `${seconds.toFixed(2)}s`;
+  // Truncate like the m:ss.cc tier: toFixed would round 59.996 up to a
+  // "60.00s" that belongs to the next tier.
+  return `${(Math.floor(seconds * 100) / 100).toFixed(2)}s`;
 }
 
 function pad2(value: number): string {

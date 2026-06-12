@@ -250,7 +250,6 @@ export function makeSnapshot(rows: ProcessRow[], revision = 1): ProcessSnapshot 
     revision,
     timestampMs: 0,
     processes: rows,
-    warnings: [],
     icons,
   };
 }

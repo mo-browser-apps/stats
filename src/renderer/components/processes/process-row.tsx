@@ -26,7 +26,9 @@ export const ProcessRow = memo(function ProcessRow({
     <button
       type="button"
       onClick={() => onOpen(group.openSelection)}
-      aria-label={`Show details for ${group.name}`}
+      // No aria-label override: the content (name, badges, metric) is the
+      // accessible name, so AT users hear the metric and "Not Responding" too.
+      title={group.name}
       className="flex h-11 w-full items-center gap-2.5 rounded-md px-1 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
     >
       <ProcessIcon iconPngBase64={group.iconPngBase64} name={group.name} system={group.system} />

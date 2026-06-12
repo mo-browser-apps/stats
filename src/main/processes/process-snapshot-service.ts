@@ -30,8 +30,6 @@ import {
   ProcessUser,
   Responsiveness,
   SnapshotStatus,
-  SnapshotWarning,
-  SnapshotWarning_Code,
   StringValue,
   UInt64Value,
 } from "../gen/process_explorer";
@@ -39,6 +37,17 @@ import { ProcessExplorerServiceDescriptor } from "../gen/ipc_service";
 import { PollLoop } from "../poll-loop";
 
 const COLLECT_INTERVAL_MS = 3000;
+
+/**
+ * Hard cap on a native collector RPC. The native calls have no built-in
+ * timeout, so a hung call would otherwise leave the tick promise pending
+ * forever and permanently wedge the poll loop (its overlap guard never
+ * re-arms). Generous relative to the tick: a cold pass rasterizes icons for
+ * every visible app once, and a timeout only needs to catch a genuine hang.
+ * The abort rejects into the existing catch, which degrades the snapshot to
+ * unavailable; the next tick retries.
+ */
+const NATIVE_CALL_TIMEOUT_MS = 10_000;
 
 /**
  * Per-process CPU uses Activity Monitor semantics (one fully busy core reads
@@ -213,8 +222,8 @@ function toStatics(record: NativeProcessRecord, commandLine: CommandLine): Proce
  * Content-hash key of a statics blob: a hash over its deterministic proto
  * encoding, so identical blobs dedupe (twin processes share one entry) and any
  * value change - including an exec - yields a new key, making a held blob
- * stale-proof by construction. 128 hash bits; collisions are not a concern at
- * process-list cardinality.
+ * stale-proof by construction. 22 base64url chars carry 132 hash bits;
+ * collisions are not a concern at process-list cardinality.
  */
 function staticsKey(statics: ProcessStatics): string {
   return createHash("sha256")
@@ -282,7 +291,7 @@ function recordKey(record: NativeProcessRecord): ProcessKey | null {
  * interval yields UNKNOWN rather than a fabricated value.
  *
  * Privacy: command lines pass through for local display/search only; nothing
- * process-identifying is ever logged, and warnings are count-only.
+ * process-identifying is ever logged.
  */
 export class ProcessSnapshotService {
   private readonly revisionHandle = ipc.registerService(ProcessExplorerServiceDescriptor);
@@ -296,7 +305,6 @@ export class ProcessSnapshotService {
     revision: 0,
     timestampMs: 0,
     processes: [],
-    warnings: [],
     icons: {},
   };
 
@@ -366,7 +374,10 @@ export class ProcessSnapshotService {
     let icons: { [key: string]: string } = {};
     if (iconKeys.length > 0) {
       try {
-        icons = (await native.processCollector.GetIcons({ keys: iconKeys })).icons;
+        icons = (await native.processCollector.GetIcons(
+          { keys: iconKeys },
+          { signal: AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS) },
+        )).icons;
       } catch {
         // Degrade to empty; the next pull retries the still-missing keys.
       }
@@ -395,7 +406,10 @@ export class ProcessSnapshotService {
    */
   private async collect(): Promise<void> {
     try {
-      const response = await native.processCollector.CollectProcesses({});
+      const response = await native.processCollector.CollectProcesses(
+        {},
+        { signal: AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS) },
+      );
       if (this.disposed) {
         return;
       }
@@ -444,20 +458,14 @@ export class ProcessSnapshotService {
     const sampledAtMs = performance.now();
     const nextBaselines = new Map<ProcessKey, CpuBaseline>();
     const statics = new Map<string, ProcessStatics>();
-    let permissionDeniedCount = 0;
-    let commandLinePartialCount = 0;
+    let anyFieldDenied = false;
 
     const processes: ProcessRow[] = records.map((record) => {
       const key = recordKey(record);
       const cpu = this.deriveCpu(record.cpu, key, sampledAtMs, nextBaselines);
       const commandLine = toCommandLine(record.commandLine);
 
-      if (hasDeniedField(record)) {
-        permissionDeniedCount += 1;
-      }
-      if (commandLine.status !== FieldStatus.FIELD_STATUS_OK) {
-        commandLinePartialCount += 1;
-      }
+      anyFieldDenied ||= hasDeniedField(record);
 
       const blob = toStatics(record, commandLine);
       const blobKey = staticsKey(blob);
@@ -470,13 +478,12 @@ export class ProcessSnapshotService {
 
     return {
       snapshot: {
-        status: permissionDeniedCount > 0
+        status: anyFieldDenied
           ? SnapshotStatus.SNAPSHOT_STATUS_PERMISSION_LIMITED
           : SnapshotStatus.SNAPSHOT_STATUS_OK,
         revision: this.revision,
         timestampMs: Date.now(),
         processes,
-        warnings: buildWarnings(permissionDeniedCount, commandLinePartialCount),
         icons: {},
       },
       statics,
@@ -493,7 +500,6 @@ export class ProcessSnapshotService {
       revision: this.revision,
       timestampMs: Date.now(),
       processes: [],
-      warnings: [],
       icons: {},
     };
   }
@@ -549,6 +555,7 @@ export class ProcessSnapshotService {
  */
 function hasDeniedField(record: NativeProcessRecord): boolean {
   const statuses = [
+    record.identity?.startedAtStatus,
     record.parentStatus,
     record.commandName?.status,
     record.executableName?.status,
@@ -557,29 +564,12 @@ function hasDeniedField(record: NativeProcessRecord): boolean {
     record.memory?.physicalFootprintBytes?.status,
     record.memory?.residentBytes?.status,
     record.cpu?.cumulativeCpuTimeNs?.status,
+    record.threadCount?.status,
+    record.user?.status,
+    record.responsiveness?.status,
   ];
   return statuses.some(
     (status) => status === NativeFieldStatus.NATIVE_FIELD_STATUS_PERMISSION_DENIED,
   );
 }
 
-/** Builds the count-only snapshot warnings from the per-pass tallies. */
-function buildWarnings(
-  permissionDeniedCount: number,
-  commandLinePartialCount: number,
-): SnapshotWarning[] {
-  const warnings: SnapshotWarning[] = [];
-  if (permissionDeniedCount > 0) {
-    warnings.push({
-      code: SnapshotWarning_Code.CODE_PERMISSION_DENIED,
-      affectedCount: permissionDeniedCount,
-    });
-  }
-  if (commandLinePartialCount > 0) {
-    warnings.push({
-      code: SnapshotWarning_Code.CODE_COMMAND_LINE_PARTIAL,
-      affectedCount: commandLinePartialCount,
-    });
-  }
-  return warnings;
-}

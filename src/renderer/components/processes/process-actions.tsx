@@ -33,11 +33,12 @@ export function ProcessActions({
 
   return (
     <div className="flex flex-col gap-2 border-t border-border/60 pt-3">
-      {message ? (
-        <p className="text-[11px] text-muted-foreground" role="status">
-          {message}
-        </p>
-      ) : null}
+      <p
+        className={cn("min-h-4 text-[11px] text-muted-foreground", message ? undefined : "invisible")}
+        role="status"
+      >
+        {message}
+      </p>
       <div className="flex items-center gap-2">
         <ActionButton
           label="Open"
@@ -91,7 +92,7 @@ function ActionButton({
       aria-label={label}
       title={title}
       className={cn(
-        "no-drag flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
+        "flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
         destructive
           ? "text-destructive enabled:hover:bg-destructive/10 enabled:focus-visible:bg-destructive/10"
           : "text-foreground enabled:hover:bg-muted/60",
@@ -104,20 +105,28 @@ function ActionButton({
 }
 
 function revealTitle(reveal: ActionState | undefined): string {
-  if (reveal?.enabled) {
+  if (reveal === undefined) {
+    // States are still being fetched; "unavailable" would be a false claim.
+    return "Checking available actions...";
+  }
+  if (reveal.enabled) {
     return "Show the executable in Finder";
   }
-  if (reveal?.disabledReason === ActionDisabledReason.ACTION_DISABLED_REASON_NO_PATH) {
+  if (reveal.disabledReason === ActionDisabledReason.ACTION_DISABLED_REASON_NO_PATH) {
     return "Executable path is unavailable";
   }
   return "Reveal is unavailable for this process";
 }
 
 function destructiveTitle(verb: string, action: ActionState | undefined): string {
-  if (action?.enabled) {
+  if (action === undefined) {
+    // States are still being fetched; "unavailable" would be a false claim.
+    return "Checking available actions...";
+  }
+  if (action.enabled) {
     return `${verb} this process`;
   }
-  switch (action?.disabledReason) {
+  switch (action.disabledReason) {
     case ActionDisabledReason.ACTION_DISABLED_REASON_SELF:
       return `Cannot ${verb.toLowerCase()} MōStats itself`;
     case ActionDisabledReason.ACTION_DISABLED_REASON_PROTECTED:

@@ -149,7 +149,8 @@ export function rowCpu(row: ProcessRow): MetricCell {
 
 /**
  * Per-process memory in bytes: physical footprint when OK, else the resident
- * fallback. Pending only if the primary footprint is still UNKNOWN.
+ * fallback. Pending while either source is still UNKNOWN - the cell reads
+ * "unavailable" only once both are definitively not coming.
  */
 export function rowMemory(row: ProcessRow): MetricCell {
   const footprint = row.memory?.physicalFootprintBytes;
@@ -160,7 +161,13 @@ export function rowMemory(row: ProcessRow): MetricCell {
   if (resident && resident.status === FieldStatus.FIELD_STATUS_OK) {
     return { value: resident.value, pending: false };
   }
-  return { pending: footprint === undefined || isPending(footprint.status) };
+  return {
+    pending:
+      footprint === undefined ||
+      isPending(footprint.status) ||
+      resident === undefined ||
+      isPending(resident.status),
+  };
 }
 
 /** The active-metric reading for one row under the current sort. */
@@ -433,18 +440,33 @@ function buildSearchGroups(
   return sortGroups(projected);
 }
 
+/** Equal-value ordering: measured rows, then pending, then unavailable. */
+const METRIC_STATE_RANK: Record<ProcessMetricState, number> = {
+  ok: 0,
+  pending: 1,
+  unavailable: 2,
+};
+
 /**
- * Ranks by summed metric descending. The name tiebreak applies only between
- * rows that both have a real value, so a cold start (every row pending, all
- * sortValue 0) keeps the snapshot's insertion order instead of snapping to an
- * alphabetical layout that reshuffles a tick later (Array.sort is stable).
+ * Ranks by summed metric descending; rows with an equal value order by metric
+ * state ({@link METRIC_STATE_RANK}), with a name tiebreak only between rows
+ * that both have a real reading. A cold start (every row pending, all
+ * sortValue 0) therefore keeps the snapshot's insertion order instead of
+ * snapping to an alphabetical layout that reshuffles a tick later (Array.sort
+ * is stable). Every branch orders consistently - a real total preorder - so
+ * the result is well-defined for any mix of measured and pending rows (a
+ * conditional tiebreak alone would be non-transitive through a pending row).
  */
 function sortGroups(projected: ProcessGroup[]): ProcessGroup[] {
   projected.sort((left, right) => {
     if (right.sortValue !== left.sortValue) {
       return right.sortValue - left.sortValue;
     }
-    if (left.metricState === "ok" && right.metricState === "ok") {
+    const stateDelta = METRIC_STATE_RANK[left.metricState] - METRIC_STATE_RANK[right.metricState];
+    if (stateDelta !== 0) {
+      return stateDelta;
+    }
+    if (left.metricState === "ok") {
       return left.name.localeCompare(right.name);
     }
     return 0;
