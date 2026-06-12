@@ -93,8 +93,8 @@ export function isCriticalProcess(row: ProcessRow): boolean {
   if (pid <= 1) {
     return true;
   }
-  const commandName = okString(row.commandName);
-  const executableName = okString(row.executableName);
+  const commandName = okString(row.statics?.commandName);
+  const executableName = okString(row.statics?.executableName);
   return (
     (commandName !== undefined && CRITICAL_PROCESS_NAMES.has(commandName)) ||
     (executableName !== undefined && CRITICAL_PROCESS_NAMES.has(executableName))
@@ -116,7 +116,7 @@ export function disabledReasonFor(
   target: ProcessIdentity | undefined,
 ): ActionDisabledReason {
   if (action === ProcessActionKind.PROCESS_ACTION_KIND_REVEAL) {
-    return okString(row.executablePath) !== undefined
+    return okString(row.statics?.executablePath) !== undefined
       ? ActionDisabledReason.ACTION_DISABLED_REASON_NONE
       : ActionDisabledReason.ACTION_DISABLED_REASON_NO_PATH;
   }
@@ -151,7 +151,9 @@ export class ProcessActionService {
   private readonly selfPid = process.pid;
 
   /**
-   * @param getSnapshot Returns the latest cached snapshot to validate against.
+   * @param getSnapshot Returns the latest cached snapshot to validate against -
+   *   the main-side form with statics joined onto rows (names and paths are
+   *   read from row.statics).
    * @param getParentWindow Returns the window to parent the confirmation
    *   dialog to, or null when none is live (the dialog is then app-modal).
    */
@@ -262,7 +264,7 @@ export class ProcessActionService {
 
   /** Reveals a resolved row's executable in Finder via the desktop shell. */
   private reveal(row: ProcessRow): RunProcessActionResponse {
-    const path = okString(row.executablePath);
+    const path = okString(row.statics?.executablePath);
     if (path === undefined) {
       return { outcome: Outcome.OUTCOME_NOT_ALLOWED, affectedCount: 0 };
     }
@@ -298,9 +300,9 @@ export class ProcessActionService {
   /** Shows the native Force Quit confirmation; names the process by display name only. */
   private async confirmForceQuit(row: ProcessRow): Promise<boolean> {
     const name =
-      okString(row.app?.localizedName) ??
-      okString(row.executableName) ??
-      okString(row.commandName) ??
+      okString(row.statics?.app?.localizedName) ??
+      okString(row.statics?.executableName) ??
+      okString(row.statics?.commandName) ??
       `PID ${row.identity?.pid ?? 0}`;
     const result = await app.showMessageDialog({
       parentWindow: this.getParentWindow() ?? undefined,

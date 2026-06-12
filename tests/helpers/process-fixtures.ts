@@ -8,6 +8,7 @@ import {
   type ProcessMemory,
   type ProcessRow,
   type ProcessSnapshot,
+  type ProcessStatics,
   type ProcessUser,
   SnapshotStatus,
   type StringValue,
@@ -70,6 +71,8 @@ export interface RowOptions {
   uid?: number;
   /** Owning user login name (empty string keeps the numeric uid). */
   userName?: string;
+  /** Content key of the statics blob; defaults to a per-PID fake key. */
+  staticKey?: string;
 }
 
 /** An OK string wrapper. */
@@ -171,15 +174,9 @@ function makeIdentity(options: RowOptions): ProcessIdentity {
   };
 }
 
-/**
- * Builds one {@link ProcessRow} with correct defaults: identity present, every
- * optional field absent unless the options set it. A field with an explicit
- * status override (e.g. `cpuStatus`) is built with that status so pending /
- * permission-denied paths are testable.
- */
-export function makeRow(options: RowOptions = {}): ProcessRow {
+/** Builds the statics blob a row references by content key. */
+function makeStatics(options: RowOptions): ProcessStatics {
   return {
-    identity: makeIdentity(options),
     parentStatus:
       options.parentStatus ??
       (options.parentPid !== undefined ? FieldStatus.FIELD_STATUS_OK : FieldStatus.FIELD_STATUS_UNAVAILABLE),
@@ -189,12 +186,32 @@ export function makeRow(options: RowOptions = {}): ProcessRow {
     executablePath: options.executablePath !== undefined ? okStr(options.executablePath) : undefined,
     app: makeApp(options),
     commandLine: makeCommandLine(options),
+    user: makeUser(options),
+  };
+}
+
+/**
+ * Builds one {@link ProcessRow} with correct defaults: identity present, every
+ * optional field absent unless the options set it, and the statics blob joined
+ * (the assembled form presentation code and the action service consume). A
+ * field with an explicit status override (e.g. `cpuStatus`) is built with that
+ * status so pending / permission-denied paths are testable.
+ */
+export function makeRow(options: RowOptions = {}): ProcessRow {
+  return {
+    identity: makeIdentity(options),
+    staticKey: options.staticKey ?? `statics-${options.pid ?? 0}`,
     memory: makeMemory(options),
     cpu: makeCpu(options),
     threadCount: options.threadCount !== undefined ? okU64(options.threadCount) : undefined,
     cpuTime: makeCpuTime(options),
-    user: makeUser(options),
+    statics: makeStatics(options),
   };
+}
+
+/** The wire form of a fixture row: the statics blob stripped, only its key kept. */
+export function wireRow(row: ProcessRow): ProcessRow {
+  return { ...row, statics: undefined };
 }
 
 /**
@@ -206,7 +223,7 @@ export function makeRow(options: RowOptions = {}): ProcessRow {
 export function makeSnapshot(rows: ProcessRow[], revision = 1): ProcessSnapshot {
   const icons: { [key: string]: string } = {};
   for (const row of rows) {
-    const key = row.app?.iconKey;
+    const key = row.statics?.app?.iconKey;
     if (key !== undefined && key.length > 0) {
       icons[key] = key;
     }

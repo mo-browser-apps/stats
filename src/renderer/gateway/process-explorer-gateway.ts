@@ -1,10 +1,12 @@
 import { ipc } from "@/gen/ipc";
 import {
   GetProcessActionStatesResponse,
+  GetProcessAssetsResponse,
   ProcessIdentity,
   ProcessActionKind,
   ProcessSnapshot,
   ProcessSnapshotRevision,
+  ProcessStatics,
   RunProcessActionResponse,
   SnapshotStatus,
 } from "@/gen/process_explorer";
@@ -25,49 +27,87 @@ function emptySnapshot(): ProcessSnapshot {
 }
 
 /**
- * The content-addressed icon store: the icon table of the last snapshot this
- * renderer assembled. A held key is never re-fetched (keys are content hashes,
- * so a held value can never be stale). Module state on purpose: it survives
- * view re-mounts but resets with the renderer, so a reload naturally re-fetches.
- * Volatile display-only data: never logged or persisted.
+ * The renderer's content-addressed asset stores: the statics blobs and icon
+ * bytes referenced by the last snapshot this gateway assembled. A held key is
+ * never re-fetched (keys are content hashes, so a held value can never be
+ * stale); each assembly rebuilds the stores to exactly the keys the new rows
+ * reference, so exited processes' data is dropped. Module state on purpose: it
+ * survives view re-mounts but resets with the renderer, so a reload naturally
+ * re-fetches. Statics hold sensitive argv; never logged or persisted.
  */
+let heldStatics: { [key: string]: ProcessStatics } = {};
 let heldIcons: { [key: string]: string } = {};
 
-/**
- * Assembles the icon table for `snapshot` (which arrives with an empty one):
- * held keys come from {@link heldIcons}, unseen keys are fetched once. The
- * rebuilt table carries exactly the keys the new rows reference. A failed
- * fetch degrades to the held icons; affected rows render the generic glyph
- * and the next pull retries.
- */
-async function assembleIcons(snapshot: ProcessSnapshot): Promise<{ [key: string]: string }> {
-  const known = heldIcons;
-  const referenced = new Set<string>();
-  for (const row of snapshot.processes) {
-    const key = row.app?.iconKey;
+/** Fetches assets for the given keys, degrading to empty maps on failure (the next pull retries). */
+async function fetchAssets(staticKeys: string[], iconKeys: string[]): Promise<GetProcessAssetsResponse> {
+  if (staticKeys.length === 0 && iconKeys.length === 0) {
+    return { statics: {}, icons: {} };
+  }
+  try {
+    return await ipc.processExplorer.GetProcessAssets({ staticKeys, iconKeys });
+  } catch {
+    // No diagnostic is logged - asset content is sensitive.
+    return { statics: {}, icons: {} };
+  }
+}
+
+/** The distinct non-empty keys produced by `read` across `items`. */
+function referencedKeys<T>(items: T[], read: (item: T) => string | undefined): string[] {
+  const keys = new Set<string>();
+  for (const item of items) {
+    const key = read(item);
     if (key !== undefined && key.length > 0) {
-      referenced.add(key);
+      keys.add(key);
     }
   }
+  return [...keys];
+}
 
-  const missing = [...referenced].filter((key) => known[key] === undefined);
-  let fetched: { [key: string]: string } = {};
-  if (missing.length > 0) {
-    try {
-      fetched = (await ipc.processExplorer.GetProcessIcons({ keys: missing })).icons;
-    } catch {
-      // Degrade to the locally held icons; no diagnostic is logged.
+/** Rebuilds a content store to exactly `keys`, reusing held values and filling gaps from `fetched`. */
+function rebuildStore<T>(
+  keys: string[],
+  held: { [key: string]: T },
+  fetched: { [key: string]: T },
+): { [key: string]: T } {
+  const store: { [key: string]: T } = {};
+  for (const key of keys) {
+    const value = held[key] ?? fetched[key];
+    if (value !== undefined) {
+      store[key] = value;
     }
   }
+  return store;
+}
 
-  const icons: { [key: string]: string } = {};
-  for (const key of referenced) {
-    const bytes = known[key] ?? fetched[key];
-    if (bytes !== undefined) {
-      icons[key] = bytes;
-    }
-  }
-  return icons;
+/**
+ * Assembles a wire snapshot into the self-contained form presentation code
+ * consumes: statics blobs for keys not yet held are fetched and joined onto
+ * their rows, then icon bytes for keys those statics reference are fetched and
+ * built into the snapshot's icon table. An unresolved key degrades that row
+ * (absent statics render as unavailable fields, a missing icon as the fallback
+ * glyph) and is retried on the next pull.
+ */
+async function assembleSnapshot(wire: ProcessSnapshot): Promise<ProcessSnapshot> {
+  const staticKeys = referencedKeys(wire.processes, (row) => row.staticKey);
+  const missingStatics = staticKeys.filter((key) => heldStatics[key] === undefined);
+  const statics = rebuildStore(
+    staticKeys,
+    heldStatics,
+    (await fetchAssets(missingStatics, [])).statics,
+  );
+  const processes = wire.processes.map((row) => ({ ...row, statics: statics[row.staticKey] }));
+
+  const iconKeys = referencedKeys(processes, (row) => row.statics?.app?.iconKey);
+  const missingIcons = iconKeys.filter((key) => heldIcons[key] === undefined);
+  const icons = rebuildStore(
+    iconKeys,
+    heldIcons,
+    (await fetchAssets([], missingIcons)).icons,
+  );
+
+  heldStatics = statics;
+  heldIcons = icons;
+  return { ...wire, processes, icons };
 }
 
 /**
@@ -82,14 +122,13 @@ export const processExplorerGateway = {
   emptySnapshot,
 
   /**
-   * Pulls the latest cached snapshot from main and assembles its icon table
-   * (held keys reused, unknown keys fetched once).
+   * Pulls the latest cached snapshot from main and assembles it locally:
+   * statics joined onto rows and the icon table built, with held content
+   * reused and unknown keys fetched once. Callers always receive
+   * self-contained rows regardless of what went over the wire.
    */
   async getSnapshot(): Promise<ProcessSnapshot> {
-    const response = await ipc.processExplorer.GetProcessSnapshot({});
-    const snapshot = { ...response, icons: await assembleIcons(response) };
-    heldIcons = snapshot.icons;
-    return snapshot;
+    return assembleSnapshot(await ipc.processExplorer.GetProcessSnapshot({}));
   },
 
   /** Subscribes to revision pings; the cadence is owned by main. */

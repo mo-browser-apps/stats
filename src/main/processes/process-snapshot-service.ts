@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as os from "node:os";
 import { ipc } from "@mobrowser/api";
 import { native } from "../gen/native";
@@ -19,11 +20,12 @@ import {
   CpuTime,
   CpuUsage,
   FieldStatus,
-  GetProcessIconsResponse,
+  GetProcessAssetsResponse,
   ProcessMemory,
   ProcessRow,
   ProcessSnapshot,
   ProcessSnapshotRevision,
+  ProcessStatics,
   ProcessUser,
   SnapshotStatus,
   SnapshotWarning,
@@ -168,6 +170,70 @@ function toCommandLine(commandLine: NativeCommandLine | undefined): CommandLine 
   };
 }
 
+/**
+ * Maps a native record's image-lifetime-stable fields into the statics blob
+ * rows reference by content key. Forwarded for local display/search only;
+ * never logged or persisted here.
+ */
+function toStatics(record: NativeProcessRecord, commandLine: CommandLine): ProcessStatics {
+  return {
+    parentStatus: toFieldStatus(record.parentStatus),
+    parentPid: record.parentPid,
+    commandName: toStringValue(record.commandName),
+    executableName: toStringValue(record.executableName),
+    executablePath: toStringValue(record.executablePath),
+    app: toAppMetadata(record.app),
+    commandLine,
+    user: toProcessUser(record.user),
+  };
+}
+
+/**
+ * Content-hash key of a statics blob: a hash over its deterministic proto
+ * encoding, so identical blobs dedupe (twin processes share one entry) and any
+ * value change - including an exec - yields a new key, making a held blob
+ * stale-proof by construction. 128 hash bits; collisions are not a concern at
+ * process-list cardinality.
+ */
+function staticsKey(statics: ProcessStatics): string {
+  return createHash("sha256")
+    .update(ProcessStatics.encode(statics).finish())
+    .digest("base64url")
+    .slice(0, 22);
+}
+
+/**
+ * Builds one row: identity plus the per-tick dynamic readings, with the
+ * statics blob joined for main-side consumers (the action service). The wire
+ * form published to the renderer strips the join and keeps only its key.
+ */
+function toProcessRow(
+  record: NativeProcessRecord,
+  cpu: CpuUsage,
+  staticKey: string,
+  statics: ProcessStatics,
+): ProcessRow {
+  const identity = record.identity;
+  return {
+    identity: {
+      pid: identity?.pid ?? 0,
+      startedAtStatus: toFieldStatus(
+        identity?.startedAtStatus ?? NativeFieldStatus.NATIVE_FIELD_STATUS_UNAVAILABLE,
+      ),
+      startedAtUnixMs: identity?.startedAtUnixMs ?? 0,
+    },
+    staticKey,
+    memory: {
+      physicalFootprintBytes: toUInt64Value(record.memory?.physicalFootprintBytes),
+      residentBytes: toUInt64Value(record.memory?.residentBytes),
+    } satisfies ProcessMemory,
+    cpu,
+    threadCount: toUInt64Value(record.threadCount),
+    cpuTime: toCpuTime(record.cpu),
+    statics,
+  };
+}
+
 /** Snapshot-stable identity key for a native record, or null without a PID. */
 function recordKey(record: NativeProcessRecord): ProcessKey | null {
   const identity = record.identity;
@@ -212,6 +278,18 @@ export class ProcessSnapshotService {
     icons: {},
   };
 
+  /** The wire form of {@link snapshot}: rows carry static_key, never the blob. */
+  private wireSnapshot: ProcessSnapshot = this.snapshot;
+
+  /**
+   * The statics blobs of the current and previous snapshot generations, by
+   * content key. Two generations so an asset fetch racing the next tick (the
+   * renderer pulled revision N, main already produced N+1) still resolves.
+   */
+  private currentStatics = new Map<string, ProcessStatics>();
+
+  private previousStatics = new Map<string, ProcessStatics>();
+
   private revision = 0;
 
   private disposed = false;
@@ -227,28 +305,52 @@ export class ProcessSnapshotService {
     this.loop.setActive(active);
   }
 
-  /** Returns the latest cached snapshot. */
+  /**
+   * Returns the latest cached snapshot in its main-side form, with statics
+   * joined onto every row (the action service reads names and paths from it).
+   * The renderer pull is served by {@link getWireSnapshot}.
+   */
   getSnapshot(): ProcessSnapshot {
     return this.snapshot;
   }
 
   /**
-   * Resolves icon bytes for content keys the renderer does not hold, from the
-   * native session cache. Content-addressed, so a returned value is never
-   * stale; a missing key is omitted and the renderer keeps its fallback glyph.
+   * Returns the wire form of the latest snapshot: rows carry only static_key;
+   * the renderer gateway joins blobs fetched through GetProcessAssets.
    */
-  async getIcons(keys: string[]): Promise<GetProcessIconsResponse> {
-    if (this.disposed || keys.length === 0) {
-      return { icons: {} };
+  getWireSnapshot(): ProcessSnapshot {
+    return this.wireSnapshot;
+  }
+
+  /**
+   * Resolves content-addressed assets the renderer does not hold: statics from
+   * the two retained snapshot generations, icon bytes passed through to the
+   * native session cache. A key that resolves nowhere is omitted; the renderer
+   * degrades that row honestly and the next pull retries.
+   */
+  async getAssets(staticKeys: string[], iconKeys: string[]): Promise<GetProcessAssetsResponse> {
+    if (this.disposed) {
+      return { statics: {}, icons: {} };
     }
 
-    try {
-      const response = await native.processCollector.GetIcons({ keys });
-      return { icons: response.icons };
-    } catch {
-      // Degrade to empty; the next pull retries the still-missing keys.
-      return { icons: {} };
+    const statics: { [key: string]: ProcessStatics } = {};
+    for (const key of staticKeys) {
+      const blob = this.currentStatics.get(key) ?? this.previousStatics.get(key);
+      if (blob !== undefined) {
+        statics[key] = blob;
+      }
     }
+
+    let icons: { [key: string]: string } = {};
+    if (iconKeys.length > 0) {
+      try {
+        icons = (await native.processCollector.GetIcons({ keys: iconKeys })).icons;
+      } catch {
+        // Degrade to empty; the next pull retries the still-missing keys.
+      }
+    }
+
+    return { statics, icons };
   }
 
   /** Stops the cadence and closes the revision stream. Idempotent and final. */
@@ -259,6 +361,8 @@ export class ProcessSnapshotService {
     this.disposed = true;
     this.loop.dispose();
     this.cpuBaselines.clear();
+    this.currentStatics.clear();
+    this.previousStatics.clear();
     this.revisionHandle.dispose();
   }
 
@@ -273,16 +377,28 @@ export class ProcessSnapshotService {
       if (this.disposed) {
         return;
       }
-      this.publishSnapshot(this.buildSnapshot(response.available, response.records));
+      const built = this.buildSnapshot(response.available, response.records);
+      this.publishSnapshot(built.snapshot, built.statics);
     } catch {
       if (!this.disposed) {
-        this.publishSnapshot(this.buildUnavailableSnapshot());
+        this.publishSnapshot(this.buildUnavailableSnapshot(), new Map());
       }
     }
   }
 
-  private publishSnapshot(next: ProcessSnapshot): void {
+  /**
+   * Publishes a built snapshot: rotates the statics generations, caches the
+   * main-side (statics-joined) and wire (statics-stripped) forms, and
+   * broadcasts the revision ping.
+   */
+  private publishSnapshot(next: ProcessSnapshot, statics: Map<string, ProcessStatics>): void {
+    this.previousStatics = this.currentStatics;
+    this.currentStatics = statics;
     this.snapshot = next;
+    this.wireSnapshot = {
+      ...next,
+      processes: next.processes.map((row) => ({ ...row, statics: undefined })),
+    };
     this.revisionHandle.StreamRevisions({
       revision: next.revision,
       timestampMs: next.timestampMs,
@@ -291,19 +407,21 @@ export class ProcessSnapshotService {
   }
 
   /**
-   * Builds a renderer snapshot from native records and updates the CPU
-   * baselines for the next collection.
+   * Builds a renderer snapshot from native records, collecting each row's
+   * statics blob into the content-keyed map served by {@link getAssets}, and
+   * updates the CPU baselines for the next collection.
    */
   private buildSnapshot(
     available: boolean,
     records: NativeProcessRecord[],
-  ): ProcessSnapshot {
+  ): { snapshot: ProcessSnapshot; statics: Map<string, ProcessStatics> } {
     if (!available) {
-      return this.buildUnavailableSnapshot();
+      return { snapshot: this.buildUnavailableSnapshot(), statics: new Map() };
     }
 
     const sampledAtMs = performance.now();
     const nextBaselines = new Map<ProcessKey, CpuBaseline>();
+    const statics = new Map<string, ProcessStatics>();
     let permissionDeniedCount = 0;
     let commandLinePartialCount = 0;
 
@@ -319,21 +437,27 @@ export class ProcessSnapshotService {
         commandLinePartialCount += 1;
       }
 
-      return this.toProcessRow(record, cpu, commandLine);
+      const blob = toStatics(record, commandLine);
+      const blobKey = staticsKey(blob);
+      statics.set(blobKey, blob);
+      return toProcessRow(record, cpu, blobKey, blob);
     });
 
     this.cpuBaselines = nextBaselines;
     this.revision += 1;
 
     return {
-      status: permissionDeniedCount > 0
-        ? SnapshotStatus.SNAPSHOT_STATUS_PERMISSION_LIMITED
-        : SnapshotStatus.SNAPSHOT_STATUS_OK,
-      revision: this.revision,
-      timestampMs: Date.now(),
-      processes,
-      warnings: buildWarnings(permissionDeniedCount, commandLinePartialCount),
-      icons: {},
+      snapshot: {
+        status: permissionDeniedCount > 0
+          ? SnapshotStatus.SNAPSHOT_STATUS_PERMISSION_LIMITED
+          : SnapshotStatus.SNAPSHOT_STATUS_OK,
+        revision: this.revision,
+        timestampMs: Date.now(),
+        processes,
+        warnings: buildWarnings(permissionDeniedCount, commandLinePartialCount),
+        icons: {},
+      },
+      statics,
     };
   }
 
@@ -349,38 +473,6 @@ export class ProcessSnapshotService {
       processes: [],
       warnings: [],
       icons: {},
-    };
-  }
-
-  private toProcessRow(
-    record: NativeProcessRecord,
-    cpu: CpuUsage,
-    commandLine: CommandLine,
-  ): ProcessRow {
-    const identity = record.identity;
-    return {
-      identity: {
-        pid: identity?.pid ?? 0,
-        startedAtStatus: toFieldStatus(
-          identity?.startedAtStatus ?? NativeFieldStatus.NATIVE_FIELD_STATUS_UNAVAILABLE,
-        ),
-        startedAtUnixMs: identity?.startedAtUnixMs ?? 0,
-      },
-      parentStatus: toFieldStatus(record.parentStatus),
-      parentPid: record.parentPid,
-      commandName: toStringValue(record.commandName),
-      executableName: toStringValue(record.executableName),
-      executablePath: toStringValue(record.executablePath),
-      app: toAppMetadata(record.app),
-      commandLine,
-      memory: {
-        physicalFootprintBytes: toUInt64Value(record.memory?.physicalFootprintBytes),
-        residentBytes: toUInt64Value(record.memory?.residentBytes),
-      } satisfies ProcessMemory,
-      cpu,
-      threadCount: toUInt64Value(record.threadCount),
-      cpuTime: toCpuTime(record.cpu),
-      user: toProcessUser(record.user),
     };
   }
 

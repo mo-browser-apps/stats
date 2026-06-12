@@ -97,7 +97,7 @@ export function okString(value: { status: FieldStatus; value: string } | undefin
  * or the key is not in the table.
  */
 export function rowIcon(row: ProcessRow, icons: IconTable): string | undefined {
-  const key = row.app?.iconKey;
+  const key = row.statics?.app?.iconKey;
   if (key === undefined || key.length === 0) {
     return undefined;
   }
@@ -111,9 +111,9 @@ export function rowIcon(row: ProcessRow, icons: IconTable): string | undefined {
  */
 export function rowDisplayName(row: ProcessRow): string {
   return (
-    okString(row.app?.localizedName) ??
-    okString(row.executableName) ??
-    okString(row.commandName) ??
+    okString(row.statics?.app?.localizedName) ??
+    okString(row.statics?.executableName) ??
+    okString(row.statics?.commandName) ??
     `PID ${row.identity?.pid ?? 0}`
   );
 }
@@ -220,11 +220,11 @@ function isSystemPath(path: string): boolean {
  * a singleton.
  */
 function rowGroupKey(row: ProcessRow): string {
-  const bundlePath = okString(row.app?.bundle?.path);
+  const bundlePath = okString(row.statics?.app?.bundle?.path);
   if (bundlePath) {
     return `app:${bundlePath}`;
   }
-  const path = okString(row.executablePath);
+  const path = okString(row.statics?.executablePath);
   if (path !== undefined && isSystemPath(path)) {
     return SYSTEM_GROUP_KEY;
   }
@@ -239,14 +239,15 @@ function rowGroupKey(row: ProcessRow): string {
  */
 function rowHaystack(row: ProcessRow): string {
   const parts: string[] = [rowDisplayName(row), String(rowPid(row))];
-  const path = okString(row.executablePath);
+  const path = okString(row.statics?.executablePath);
   if (path) parts.push(path);
-  const bundle = okString(row.app?.bundleIdentifier);
+  const bundle = okString(row.statics?.app?.bundleIdentifier);
   if (bundle) parts.push(bundle);
-  const command = okString(row.commandName);
+  const command = okString(row.statics?.commandName);
   if (command) parts.push(command);
-  if (row.commandLine && row.commandLine.status === FieldStatus.FIELD_STATUS_OK) {
-    parts.push(row.commandLine.arguments.join(" "));
+  const commandLine = row.statics?.commandLine;
+  if (commandLine && commandLine.status === FieldStatus.FIELD_STATUS_OK) {
+    parts.push(commandLine.arguments.join(" "));
   }
   return parts.join(" ").toLowerCase();
 }
@@ -258,14 +259,15 @@ function rowHaystack(row: ProcessRow): string {
  */
 function groupHaystack(group: ProcessGroup): string {
   const representative = group.members[0];
+  const app = representative.statics?.app;
   const parts: string[] = [group.name, String(group.pid)];
-  const bundle = okString(representative.app?.bundleIdentifier);
+  const bundle = okString(app?.bundleIdentifier);
   if (bundle) parts.push(bundle);
-  const localizedName = okString(representative.app?.localizedName);
+  const localizedName = okString(app?.localizedName);
   if (localizedName) parts.push(localizedName);
-  const bundleName = okString(representative.app?.bundle?.name);
+  const bundleName = okString(app?.bundle?.name);
   if (bundleName) parts.push(bundleName);
-  const bundlePath = okString(representative.app?.bundle?.path);
+  const bundlePath = okString(app?.bundle?.path);
   if (bundlePath) parts.push(bundlePath);
   return parts.join(" ").toLowerCase();
 }
@@ -336,7 +338,7 @@ function buildGroupRow(group: GroupAccumulator, sort: SortMode, icons: IconTable
   // A multi-process group shows the owning `.app` name; a single process shows
   // its own display name. The System group shows its fixed label and the gear
   // glyph (no member's executable icon should brand the whole bucket).
-  const appName = group.members.length > 1 ? okString(representative.app?.bundle?.name) : undefined;
+  const appName = group.members.length > 1 ? okString(representative.statics?.app?.bundle?.name) : undefined;
   return {
     key: group.key,
     name: isSystem ? "System" : appName ?? rowDisplayName(representative),

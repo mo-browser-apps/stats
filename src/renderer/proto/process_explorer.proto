@@ -12,14 +12,15 @@ import "google/protobuf/empty.proto";
 // be logged, persisted, exported, included in telemetry, or sent over a
 // network - and they must not be echoed back in action results.
 //
-// Delivery shape: full snapshots (hundreds of rows with argv) are too large to
-// push every tick, so main owns the collection cadence/cache and the renderer
+// Delivery shape: main owns the collection cadence/cache and the renderer
 // pulls a cached snapshot with GetProcessSnapshot while subscribing to a
 // lightweight StreamRevisions broadcast (revision id + timestamp only) to learn
-// when a newer snapshot exists. Icon bytes never ride snapshots: rows carry a
-// content-hash icon_key and the gateway fetches unknown keys once through
-// GetProcessIcons. Actions stay unary because each has an explicit user target
-// validated in main.
+// when a newer snapshot exists. Immutable data never rides snapshots: rows
+// carry content-hash keys (static_key for the per-process ProcessStatics blob,
+// icon_key inside it for icon bytes) and the gateway fetches unknown content
+// once through GetProcessAssets, so each tick ships only the dynamic readings.
+// Actions stay unary because each has an explicit user target validated in
+// main.
 
 // Availability of a single value or group inside a process snapshot. UNKNOWN is
 // the proto3 default and means "not yet determined"; the other states are
@@ -131,7 +132,7 @@ message AppMetadata {
   // Owning `.app` bundle for grouping; absent for non-bundled processes.
   AppBundle bundle = 3;
   // Content-hash key of this process's icon, or empty when none. The gateway
-  // fetches unknown keys through GetProcessIcons and assembles
+  // fetches unknown keys through GetProcessAssets and assembles
   // ProcessSnapshot.icons locally. Volatile display-only data.
   string icon_key = 4;
 }
@@ -158,34 +159,52 @@ message ProcessIdentity {
   int64 started_at_unix_ms = 3;
 }
 
-// One process row in a snapshot. Most fields carry their own availability so a
-// single unreadable field degrades that field, not the whole row or snapshot.
+// The fields of one process that are fixed for the life of its process image:
+// parent, names, paths, app metadata, command line, and owner. Shipped once per
+// distinct content under a content-hash key (ProcessRow.static_key) and joined
+// back onto rows by the renderer gateway. Any change (e.g. an exec) produces
+// new bytes and therefore a new key, so a held blob can never be stale.
+// Contains the sensitive command line; see the file comment. Fields carry their
+// own availability so a single unreadable field degrades that field only.
+message ProcessStatics {
+  // Parent PID for shallow hierarchy context; status NOT readable -> UNAVAILABLE.
+  FieldStatus parent_status = 1;
+  int32 parent_pid = 2;
+  // Short process command name from macOS.
+  StringValue command_name = 3;
+  // Executable file name (basename of the path or command name).
+  StringValue executable_name = 4;
+  // Absolute executable path when macOS permits access; also drives reveal.
+  StringValue executable_path = 5;
+  // Optional GUI app metadata (bundle id, localized name, icon).
+  AppMetadata app = 6;
+  // Sensitive command-line arguments for display/search/manual copy only.
+  CommandLine command_line = 7;
+  // The user the process runs as (uid + resolved name).
+  ProcessUser user = 8;
+}
+
+// One process row in a snapshot: the per-tick dynamic readings plus the
+// content-hash key of the row's immutable {@link ProcessStatics}.
 message ProcessRow {
   // PID + start-time identity used for selection and action targeting.
   ProcessIdentity identity = 1;
-  // Parent PID for shallow hierarchy context; status NOT readable -> UNAVAILABLE.
-  FieldStatus parent_status = 2;
-  int32 parent_pid = 3;
-  // Short process command name from macOS.
-  StringValue command_name = 4;
-  // Executable file name (basename of the path or command name).
-  StringValue executable_name = 5;
-  // Absolute executable path when macOS permits access; also drives reveal.
-  StringValue executable_path = 6;
-  // Optional GUI app metadata (bundle id, localized name, icon).
-  AppMetadata app = 7;
-  // Sensitive command-line arguments for display/search/manual copy only.
-  CommandLine command_line = 8;
+  // Content-hash key of this row's ProcessStatics, resolved through
+  // GetProcessAssets into `statics` below.
+  string static_key = 2;
   // Per-process memory (physical footprint, resident fallback).
-  ProcessMemory memory = 9;
+  ProcessMemory memory = 3;
   // Per-process CPU usage percent, computed in main from CPU-time deltas.
-  CpuUsage cpu = 10;
+  CpuUsage cpu = 4;
   // Number of threads in the process.
-  UInt64Value thread_count = 11;
+  UInt64Value thread_count = 5;
   // Total CPU time consumed since launch (cumulative; see CpuTime).
-  CpuTime cpu_time = 12;
-  // The user the process runs as (uid + resolved name).
-  ProcessUser user = 13;
+  CpuTime cpu_time = 6;
+  // The joined statics for this row. Main always sends this UNSET over the
+  // wire (each distinct blob ships once through GetProcessAssets); the renderer
+  // gateway joins its content-addressed store back in before presentation code
+  // sees the row - the same local-assembly contract as ProcessSnapshot.icons.
+  ProcessStatics statics = 7;
 }
 
 // A safe, non-sensitive warning about a snapshot. Counts only - it must never
@@ -222,26 +241,31 @@ message ProcessSnapshot {
   // Safe, count-only warnings (no sensitive text).
   repeated SnapshotWarning warnings = 5;
   // Base64 PNG app icons for this snapshot, keyed by content hash; a row
-  // resolves its icon by looking AppMetadata.icon_key up here. Main always sends
-  // this EMPTY over the wire: the renderer gateway assembles it locally from its
-  // content-addressed icon store, fetching unknown keys through GetProcessIcons,
-  // before presentation code sees the snapshot. Volatile display-only data:
-  // never logged or persisted.
+  // resolves its icon by looking its statics' AppMetadata.icon_key up here.
+  // Main always sends this EMPTY over the wire: the renderer gateway assembles
+  // it locally from its content-addressed icon store, fetching unknown keys
+  // through GetProcessAssets, before presentation code sees the snapshot.
+  // Volatile display-only data: never logged or persisted.
   map<string, string> icons = 6;
 }
 
-// Request for icon bytes by content key (AppMetadata.icon_key values the
-// renderer does not hold yet).
-message GetProcessIconsRequest {
-  repeated string keys = 1;
+// Request for content-addressed assets the renderer does not hold yet: statics
+// blobs by ProcessRow.static_key and icon bytes by AppMetadata.icon_key. The
+// gateway fetches the statics a snapshot pull revealed first, then any icon
+// keys those statics reference; both kinds can ride one request.
+message GetProcessAssetsRequest {
+  repeated string static_keys = 1;
+  repeated string icon_keys = 2;
 }
 
-// Resolved icons by content key: base64-encoded PNG bytes. A requested key with
-// no entry is omitted (the icon could not be resolved or its app exited); the
-// row renders a fallback glyph and the next snapshot drops the key. Volatile
-// display-only data: never logged or persisted.
-message GetProcessIconsResponse {
-  map<string, string> icons = 1;
+// Resolved assets by content key; icons are base64-encoded PNG bytes. A
+// requested key with no entry is omitted (its process exited between ticks, or
+// the icon could not be resolved); the affected row degrades honestly for one
+// tick and the next pull retries. Content-addressed, so a returned value can
+// never be stale. Sensitive/volatile display data: never logged or persisted.
+message GetProcessAssetsResponse {
+  map<string, ProcessStatics> statics = 1;
+  map<string, string> icons = 2;
 }
 
 // A lightweight notification that a new snapshot revision exists. Deliberately
@@ -362,10 +386,11 @@ service ProcessExplorerService {
   // the renderer can pull only on change instead of polling.
   rpc StreamRevisions(StreamRevisionsRequest) returns (stream ProcessSnapshotRevision);
 
-  // Returns icon bytes for content keys the renderer does not hold. Stateless
-  // pass-through to the native collector's session icon cache; content-addressed,
-  // so a returned value can never be stale.
-  rpc GetProcessIcons(GetProcessIconsRequest) returns (GetProcessIconsResponse);
+  // Returns content-addressed assets for keys the renderer does not hold.
+  // Statics are served from the latest two snapshot generations in main (two,
+  // so a fetch racing the next tick still resolves); icons pass through to the
+  // native collector's session icon cache.
+  rpc GetProcessAssets(GetProcessAssetsRequest) returns (GetProcessAssetsResponse);
 
   // Returns per-action availability for one target, validated against the
   // latest snapshot.

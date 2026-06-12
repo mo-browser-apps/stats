@@ -291,14 +291,15 @@ describe("ProcessSnapshotService", () => {
       startedAtStatus: FieldStatus.FIELD_STATUS_OK,
       startedAtUnixMs: 10_000,
     });
-    expect(row.parentStatus).toBe(FieldStatus.FIELD_STATUS_OK);
-    expect(row.parentPid).toBe(1);
-    expect(row.commandName?.value).toBe("fake-browser");
-    expect(row.executablePath?.value).toBe("/Applications/FakeBrowser.app/Contents/MacOS/Fake Browser");
-    expect(row.app?.bundleIdentifier?.value).toBe("com.example.FakeBrowser");
-    expect(row.app?.localizedName?.value).toBe("Fake Browser");
-    expect(row.app?.bundle?.path?.value).toBe("/Applications/FakeBrowser.app");
-    expect(row.commandLine).toEqual({
+    expect(row.staticKey).not.toBe("");
+    expect(row.statics?.parentStatus).toBe(FieldStatus.FIELD_STATUS_OK);
+    expect(row.statics?.parentPid).toBe(1);
+    expect(row.statics?.commandName?.value).toBe("fake-browser");
+    expect(row.statics?.executablePath?.value).toBe("/Applications/FakeBrowser.app/Contents/MacOS/Fake Browser");
+    expect(row.statics?.app?.bundleIdentifier?.value).toBe("com.example.FakeBrowser");
+    expect(row.statics?.app?.localizedName?.value).toBe("Fake Browser");
+    expect(row.statics?.app?.bundle?.path?.value).toBe("/Applications/FakeBrowser.app");
+    expect(row.statics?.commandLine).toEqual({
       status: FieldStatus.FIELD_STATUS_OK,
       arguments: ["fake-browser", "--renderer-fixture"],
     });
@@ -318,7 +319,7 @@ describe("ProcessSnapshotService", () => {
       status: FieldStatus.FIELD_STATUS_OK,
       value: 12,
     });
-    expect(row.user).toEqual({
+    expect(row.statics?.user).toEqual({
       status: FieldStatus.FIELD_STATUS_OK,
       uid: 502,
       name: "fixtureuser",
@@ -457,11 +458,11 @@ describe("ProcessSnapshotService", () => {
         affectedCount: 1,
       },
     ]);
-    expect(row.executablePath).toEqual({
+    expect(row.statics?.executablePath).toEqual({
       status: FieldStatus.FIELD_STATUS_PERMISSION_DENIED,
       value: "",
     });
-    expect(row.commandLine).toEqual({
+    expect(row.statics?.commandLine).toEqual({
       status: FieldStatus.FIELD_STATUS_PERMISSION_DENIED,
       arguments: [],
     });
@@ -504,7 +505,7 @@ describe("ProcessSnapshotService field mapping", () => {
     const bare: NativeProcessRecord = { ...record({ pid: 200 }), app: undefined };
     await collectByActivation(service, response([bare]));
 
-    const app = service.getSnapshot().processes[0].app;
+    const app = service.getSnapshot().processes[0].statics?.app;
     expect(app?.bundleIdentifier?.status).toBe(FieldStatus.FIELD_STATUS_UNKNOWN);
     expect(app?.localizedName?.status).toBe(FieldStatus.FIELD_STATUS_UNKNOWN);
     // No app -> empty icon key (the gateway then leaves the icon as a fallback).
@@ -524,8 +525,8 @@ describe("ProcessSnapshotService field mapping", () => {
 
     const snapshot = service.getSnapshot();
     expect(snapshot.icons).toEqual({});
-    expect(snapshot.processes[0].app?.iconKey).toBe("SHARED-ICON");
-    expect(snapshot.processes[1].app?.iconKey).toBe("SHARED-ICON");
+    expect(snapshot.processes[0].statics?.app?.iconKey).toBe("SHARED-ICON");
+    expect(snapshot.processes[1].statics?.app?.iconKey).toBe("SHARED-ICON");
   });
 
   it("drops the app bundle to undefined when its path is not AVAILABLE", async () => {
@@ -547,7 +548,7 @@ describe("ProcessSnapshotService field mapping", () => {
     };
     await collectByActivation(service, response([withUnreadableBundlePath]));
 
-    expect(service.getSnapshot().processes[0].app?.bundle).toBeUndefined();
+    expect(service.getSnapshot().processes[0].statics?.app?.bundle).toBeUndefined();
   });
 
   it("clamps negative native byte/count values to zero", async () => {
@@ -566,21 +567,79 @@ describe("ProcessSnapshotService field mapping", () => {
   });
 });
 
-describe("ProcessSnapshotService icons", () => {
+describe("ProcessSnapshotService assets", () => {
+  it("serves statics by content key from the latest two generations", async () => {
+    const service = makeService();
+
+    await collectByActivation(service, response([
+      record({ pid: 501, startedAtUnixMs: 1_000, commandLine: ["fake-app", "--one"] }),
+    ]));
+
+    // The wire row carries only the key; the blob is fetched on demand. An
+    // unknown key is omitted, not errored.
+    const wireRow = service.getWireSnapshot().processes[0];
+    expect(wireRow.staticKey).not.toBe("");
+    expect(wireRow.statics).toBeUndefined();
+    const assets = await service.getAssets([wireRow.staticKey, "unknown-key"], []);
+    expect(assets.statics[wireRow.staticKey]?.commandLine?.arguments).toEqual(["fake-app", "--one"]);
+    expect(assets.statics["unknown-key"]).toBeUndefined();
+    expect(h.icons).not.toHaveBeenCalled();
+
+    // After the process exits, its blob stays resolvable for exactly one more
+    // generation (an asset fetch racing the next tick), then drops out.
+    await collectByActivation(service, response([]));
+    expect((await service.getAssets([wireRow.staticKey], [])).statics[wireRow.staticKey]).toBeDefined();
+    await collectByActivation(service, response([]));
+    expect((await service.getAssets([wireRow.staticKey], [])).statics[wireRow.staticKey]).toBeUndefined();
+  });
+
+  it("dedupes identical statics under one key and keeps main's own rows joined", async () => {
+    const service = makeService();
+
+    // Twin processes (same image, same argv) share one statics blob.
+    await collectByActivation(service, response([
+      record({ pid: 601, startedAtUnixMs: 1_000, commandLine: ["fake-twin"] }),
+      record({ pid: 602, startedAtUnixMs: 1_000, commandLine: ["fake-twin"] }),
+    ]));
+
+    const [first, second] = service.getWireSnapshot().processes;
+    expect(first.staticKey).toBe(second.staticKey);
+
+    // Main's internal snapshot keeps the blob joined for the action service.
+    expect(service.getSnapshot().processes[0].statics?.commandLine?.arguments).toEqual(["fake-twin"]);
+  });
+
+  it("gives changed statics a new key for the same identity (exec)", async () => {
+    const service = makeService();
+
+    await collectByActivation(service, response([
+      record({ pid: 603, startedAtUnixMs: 1_000, commandLine: ["fake-wrapper"] }),
+    ]));
+    const before = service.getWireSnapshot().processes[0].staticKey;
+
+    // Same (pid, started_at), new argv: the process exec'd into another image.
+    await collectByActivation(service, response([
+      record({ pid: 603, startedAtUnixMs: 1_000, commandLine: ["fake-real-binary", "--exec"] }),
+    ]));
+    const after = service.getWireSnapshot().processes[0].staticKey;
+
+    expect(after).not.toBe(before);
+  });
+
   it("passes icon-byte lookups through to the native cache", async () => {
     const service = makeService();
     h.icons.mockResolvedValueOnce({ icons: { "ICON-A": "BYTES-A" } });
 
-    const result = await service.getIcons(["ICON-A", "ICON-GONE"]);
+    const result = await service.getAssets([], ["ICON-A", "ICON-GONE"]);
 
     expect(h.icons).toHaveBeenCalledWith({ keys: ["ICON-A", "ICON-GONE"] });
-    expect(result).toEqual({ icons: { "ICON-A": "BYTES-A" } });
+    expect(result.icons).toEqual({ "ICON-A": "BYTES-A" });
   });
 
-  it("short-circuits an empty key list without a native call", async () => {
+  it("short-circuits empty key lists without a native call", async () => {
     const service = makeService();
 
-    expect(await service.getIcons([])).toEqual({ icons: {} });
+    expect(await service.getAssets([], [])).toEqual({ statics: {}, icons: {} });
     expect(h.icons).not.toHaveBeenCalled();
   });
 
@@ -588,6 +647,6 @@ describe("ProcessSnapshotService icons", () => {
     const service = makeService();
     h.icons.mockRejectedValueOnce(new Error("native fixture failed"));
 
-    expect(await service.getIcons(["ICON-A"])).toEqual({ icons: {} });
+    expect((await service.getAssets([], ["ICON-A"])).icons).toEqual({});
   });
 });

@@ -121,7 +121,7 @@ function detailString(value: { status: FieldStatus; value: string } | undefined)
 
 /** Reads the representative's command line as a joined string with availability. */
 function detailCommandLine(row: ProcessRow): DetailField {
-  const commandLine = row.commandLine;
+  const commandLine = row.statics?.commandLine;
   if (commandLine && commandLine.status === FieldStatus.FIELD_STATUS_OK) {
     return { state: "ok", text: commandLine.arguments.join(" ") };
   }
@@ -174,7 +174,7 @@ function rowCpuTime(row: ProcessRow): MetricCell {
 
 /** The owning user as a display stat: login name, else `uid N`. */
 function detailUser(row: ProcessRow): DetailField {
-  const user = row.user;
+  const user = row.statics?.user;
   if (user && user.status === FieldStatus.FIELD_STATUS_OK) {
     return { state: "ok", text: user.name.length > 0 ? user.name : `uid ${user.uid}` };
   }
@@ -202,11 +202,12 @@ function buildMember(row: ProcessRow, sort: SortMode, icons: IconTable): DetailM
  */
 export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: IconTable): ProcessDetail {
   const representative = group.members[0];
+  const statics = representative.statics;
   const startedAtUnixMs = rowStartedAt(representative);
   const read = sort === "cpu" ? rowCpu : rowMemory;
 
   const parentAvailable =
-    representative.parentStatus === FieldStatus.FIELD_STATUS_OK && representative.parentPid > 0;
+    statics?.parentStatus === FieldStatus.FIELD_STATUS_OK && statics.parentPid > 0;
 
   // Members ranked by the active metric like the main list, with a PID
   // tie-break so equal-value rows (e.g. idle 0.00% members) stay stable across
@@ -228,14 +229,14 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: I
     name: group.name,
     pid: group.pid,
     iconPngBase64: group.iconPngBase64,
-    bundleIdentifier: okString(representative.app?.bundleIdentifier),
-    executableName: okString(representative.executableName),
-    parentPid: parentAvailable ? representative.parentPid : undefined,
+    bundleIdentifier: okString(statics?.app?.bundleIdentifier),
+    executableName: okString(statics?.executableName),
+    parentPid: parentAvailable ? statics?.parentPid : undefined,
     startedAt: startedAtUnixMs !== undefined
       ? "ok"
       : missingState(representative.identity?.startedAtStatus),
     startedAtUnixMs,
-    path: detailString(representative.executablePath),
+    path: detailString(statics?.executablePath),
     commandLine: detailCommandLine(representative),
     threadCount: sumGroup(group.members, rowThreadCount, (value) => Math.round(value).toString()),
     cpuTime: sumGroup(group.members, rowCpuTime, formatCpuTime),
