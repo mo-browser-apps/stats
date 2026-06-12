@@ -340,7 +340,7 @@ function ScrollableValue({
  * The expandable Members section for a multi-process app. The disclosure
  * header carries the group's selected-metric total on the right; toggling it
  * reveals the member processes (representative first), each drillable into
- * its own detail. Starts collapsed; scrolls within a bounded box.
+ * its own detail. Starts expanded; scrolls within a bounded box.
  */
 function Members({
   members,
@@ -353,7 +353,7 @@ function Members({
   total: DetailField
   onOpenMember: (pid: number, startedAtUnixMs?: number) => void
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   return (
     <section className="flex flex-col border-t border-border/60 pt-1.5">
