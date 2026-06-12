@@ -45,6 +45,7 @@ import {
   type NativeProcessMemory,
   type NativeProcessRecord,
   type NativeProcessUser,
+  type NativeResponsiveness,
   type NativeString,
 } from "@main/gen/native/process_collector";
 import { ProcessSnapshotService } from "@main/processes/process-snapshot-service";
@@ -117,6 +118,8 @@ interface RecordOptions {
   uid?: number;
   userName?: string;
   userStatus?: NativeFieldStatus;
+  notResponding?: boolean;
+  responsivenessStatus?: NativeFieldStatus;
 }
 
 function appMetadata(options: RecordOptions): NativeAppMetadata {
@@ -172,6 +175,18 @@ function user(options: RecordOptions): NativeProcessUser {
   };
 }
 
+// Absent unless the test sets it, like the collector: only NSWorkspace apps
+// carry the field.
+function responsiveness(options: RecordOptions): NativeResponsiveness | undefined {
+  if (options.responsivenessStatus !== undefined) {
+    return { status: options.responsivenessStatus, unresponsive: options.notResponding ?? false };
+  }
+  if (options.notResponding !== undefined) {
+    return { status: OK, unresponsive: options.notResponding };
+  }
+  return undefined;
+}
+
 function record(options: RecordOptions = {}): NativeProcessRecord {
   return {
     identity: {
@@ -193,6 +208,7 @@ function record(options: RecordOptions = {}): NativeProcessRecord {
     cpu: cpu(options),
     threadCount: nativeInt(options.threadCount ?? 8, options.threadStatus ?? OK),
     user: user(options),
+    responsiveness: responsiveness(options),
   };
 }
 
@@ -549,6 +565,35 @@ describe("ProcessSnapshotService field mapping", () => {
     await collectByActivation(service, response([withUnreadableBundlePath]));
 
     expect(service.getSnapshot().processes[0].statics?.app?.bundle).toBeUndefined();
+  });
+
+  it("maps responsiveness absent-in/absent-out and trusts the flag only when OK", async () => {
+    const service = makeService();
+
+    // A hung GUI app, a healthy one, a daemon with no field at all, and a GUI
+    // app whose read failed: only the OK read may surface a true flag, and the
+    // failed read must not leak its native value as a real hang.
+    await collectByActivation(service, response([
+      record({ pid: 401, notResponding: true }),
+      record({ pid: 402, notResponding: false }),
+      record({ pid: 403 }),
+      record({ pid: 404, notResponding: true, responsivenessStatus: UNAVAILABLE }),
+    ]));
+
+    const rows = service.getSnapshot().processes;
+    expect(rows[0].responsiveness).toEqual({
+      status: FieldStatus.FIELD_STATUS_OK,
+      unresponsive: true,
+    });
+    expect(rows[1].responsiveness).toEqual({
+      status: FieldStatus.FIELD_STATUS_OK,
+      unresponsive: false,
+    });
+    expect(rows[2].responsiveness).toBeUndefined();
+    expect(rows[3].responsiveness).toEqual({
+      status: FieldStatus.FIELD_STATUS_UNAVAILABLE,
+      unresponsive: false,
+    });
   });
 
   it("clamps negative native byte/count values to zero", async () => {

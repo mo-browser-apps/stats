@@ -10,6 +10,7 @@ import {
   type ProcessSnapshot,
   type ProcessStatics,
   type ProcessUser,
+  type Responsiveness,
   SnapshotStatus,
   type StringValue,
   type UInt64Value,
@@ -71,6 +72,10 @@ export interface RowOptions {
   uid?: number;
   /** Owning user login name (empty string keeps the numeric uid). */
   userName?: string;
+  /** Window-server "Not Responding" flag; sets the responsiveness OK. */
+  notResponding?: boolean;
+  /** Override the responsiveness availability (e.g. UNSUPPORTED). */
+  responsivenessStatus?: FieldStatus;
   /** Content key of the statics blob; defaults to a per-PID fake key. */
   staticKey?: string;
 }
@@ -162,6 +167,17 @@ function makeCommandLine(options: RowOptions): CommandLine | undefined {
   return undefined;
 }
 
+/** Builds the responsiveness cell, honoring an explicit non-OK status override. */
+function makeResponsiveness(options: RowOptions): Responsiveness | undefined {
+  if (options.responsivenessStatus !== undefined) {
+    return { status: options.responsivenessStatus, unresponsive: options.notResponding ?? false };
+  }
+  if (options.notResponding !== undefined) {
+    return { status: FieldStatus.FIELD_STATUS_OK, unresponsive: options.notResponding };
+  }
+  return undefined;
+}
+
 /** Builds the process identity, defaulting start time to OK when a value is set. */
 function makeIdentity(options: RowOptions): ProcessIdentity {
   const startedAtStatus =
@@ -205,6 +221,7 @@ export function makeRow(options: RowOptions = {}): ProcessRow {
     cpu: makeCpu(options),
     threadCount: options.threadCount !== undefined ? okU64(options.threadCount) : undefined,
     cpuTime: makeCpuTime(options),
+    responsiveness: makeResponsiveness(options),
     statics: makeStatics(options),
   };
 }

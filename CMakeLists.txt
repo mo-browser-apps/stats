@@ -25,7 +25,9 @@ set(APP_SOURCES
         src/native/processes/process_collector.h
         src/native/processes/process_collector.cc
         src/native/processes/app_metadata.h
-        src/native/processes/app_metadata.mm)
+        src/native/processes/app_metadata.mm
+        src/native/processes/responsiveness.h
+        src/native/processes/responsiveness.cc)
 
 # The AppKit/NSWorkspace bridge uses Objective-C objects while rasterizing icons.
 # Scope ARC to this Objective-C++ file so native C++ sources stay unchanged.
@@ -46,8 +48,12 @@ target_include_directories(mobrowser_lib PUBLIC
 # Framework links: IOKit + CoreFoundation for the CPU-temperature probe (AppleSMC
 # core keys plus the HID CPU-core sensors), and AppKit for the NSWorkspace
 # GUI-app icon/metadata enrichment in the process collector. The network probe
-# uses only libSystem (POSIX).
+# uses only libSystem (POSIX). ApplicationServices contributes no link-time
+# symbols (the responsiveness probe resolves its private CGS/Process Manager
+# entry points with dlsym), but linking it guarantees the HIServices image is
+# loaded so GetProcessForPID resolves at runtime.
 target_link_libraries(mobrowser_lib PRIVATE
         "-framework IOKit"
         "-framework CoreFoundation"
-        "-framework AppKit")
+        "-framework AppKit"
+        "-framework ApplicationServices")

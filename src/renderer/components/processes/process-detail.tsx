@@ -63,6 +63,7 @@ export function ProcessDetailView({
     : `${secondary ? `${secondary} - ` : ""}PID ${detail.pid}${
       detail.parentPid !== undefined ? ` - Parent ${detail.parentPid}` : ""
     }`;
+  const metadataTitle = detail.notResponding ? `Not Responding - ${metadata}` : metadata;
   const grouped = detail.memberCount > 1;
 
   return (
@@ -94,8 +95,11 @@ export function ProcessDetailView({
                 {detail.name}
               </h2>
             </ScrollFade>
-            <ScrollFade title={metadata}>
+            <ScrollFade title={metadataTitle}>
               <p className="w-max whitespace-nowrap text-[11px] text-muted-foreground">
+                {detail.notResponding ? (
+                  <span className="font-medium text-destructive">Not Responding - </span>
+                ) : null}
                 {metadata}
               </p>
             </ScrollFade>
@@ -395,7 +399,14 @@ const MemberRow = memo(
         className="no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <ProcessIcon iconPngBase64={member.iconPngBase64} name={member.name} />
-        <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">{member.name}</span>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-[12px]",
+            member.notResponding ? "text-destructive" : "text-foreground",
+          )}
+        >
+          {member.name}
+        </span>
         <MetricValue
           metric={{ state: member.metricState, text: member.metricText }}
           className="w-20 text-[12px]"
@@ -410,5 +421,6 @@ const MemberRow = memo(
     prev.member.name === next.member.name &&
     prev.member.iconPngBase64 === next.member.iconPngBase64 &&
     prev.member.metricState === next.member.metricState &&
-    prev.member.metricText === next.member.metricText,
+    prev.member.metricText === next.member.metricText &&
+    prev.member.notResponding === next.member.notResponding,
 );

@@ -98,6 +98,22 @@ message NativeProcessUser {
   string name = 3;
 }
 
+// Window-server responsiveness of a GUI app: whether macOS currently marks it
+// "Not Responding" - the same signal behind the beachball, the system Force
+// Quit dialog, and Activity Monitor's red label (an event has sat unserviced
+// in the app's event queue past the system threshold). Read through private
+// CGS symbols resolved at runtime: UNSUPPORTED when this macOS no longer
+// exposes them (the row simply shows no state), UNAVAILABLE when the app has
+// no Process Manager entry. Only set for processes in the NSWorkspace
+// running-apps set; absent for daemons and helpers, which have no
+// window-server connection and therefore no notion of responsiveness.
+message NativeResponsiveness {
+  NativeFieldStatus status = 1;
+  // True when the window server currently marks the app unresponsive. Only
+  // meaningful when status is AVAILABLE.
+  bool unresponsive = 2;
+}
+
 // The application bundle a process belongs to, used to group a multi-process
 // app's members (a browser and its helpers/renderers) into one row. It is the
 // outermost `.app` in the executable path, so the main app process and its
@@ -151,6 +167,8 @@ message NativeProcessRecord {
   NativeInt64 thread_count = 11;
   // The user the process runs as (uid + resolved name).
   NativeProcessUser user = 12;
+  // Window-server responsiveness; set only for GUI apps (see message comment).
+  NativeResponsiveness responsiveness = 13;
   // Per-process network is intentionally absent: macOS has no reliable,
   // non-brittle per-process source, so the collector does not gather it.
 }

@@ -9,6 +9,7 @@ import {
   rowIcon,
   rowMemory,
   rowMetric,
+  rowNotResponding,
   rowPid,
   rowStartedAt,
   type IconTable,
@@ -50,6 +51,8 @@ export interface DetailMember {
   metricState: ProcessMetricState;
   /** Formatted active-metric value; set only when metricState is `ok`. */
   metricText?: string;
+  /** True when macOS currently marks this member Not Responding. */
+  notResponding: boolean;
 }
 
 /**
@@ -98,6 +101,8 @@ export interface ProcessDetail {
    * the action row, while the summed stats and member list still apply.
    */
   system: boolean;
+  /** True when macOS marks any member app Not Responding (see ProcessGroup). */
+  notResponding: boolean;
 }
 
 /**
@@ -191,6 +196,7 @@ function buildMember(row: ProcessRow, sort: SortMode, icons: IconTable): DetailM
     iconPngBase64: rowIcon(row, icons),
     metricState,
     metricText: metricState === "ok" ? formatDetailMetric(cell.value ?? 0, sort) : undefined,
+    notResponding: rowNotResponding(row),
   };
 }
 
@@ -246,5 +252,6 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: I
     memberCount: group.memberCount,
     members,
     system: group.system,
+    notResponding: group.notResponding,
   };
 }

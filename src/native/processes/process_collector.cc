@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "processes/app_metadata.h"
+#include "processes/responsiveness.h"
 
 namespace mostats {
 namespace {
@@ -681,6 +682,11 @@ void FillRecord(
   const auto match = app_metadata.find(static_cast<int32_t>(pid));
   if (match != app_metadata.end()) {
     *record->mutable_app() = match->second;
+    // Window-server responsiveness exists only for these NSWorkspace apps and
+    // is the one per-app value that is dynamic (a hang flips tick to tick), so
+    // it is read fresh every pass - never from the metadata cache.
+    FillResponsiveness(static_cast<int32_t>(pid),
+                       record->mutable_responsiveness());
   }
 
   // Normalize the grouping bundle from the executable path when it lives inside a

@@ -7,7 +7,9 @@ import { metricValueText, type DetailSelection, type ProcessGroup } from "@/doma
 /**
  * One fixed-height process row: app icon, name, an optional "+N" grouped-child
  * badge, and the right-aligned active metric. The whole row is a button
- * opening the detail view.
+ * opening the detail view. An app macOS marks Not Responding gets its name in
+ * the destructive color plus a matching badge (Activity Monitor's convention),
+ * since a hung app often shows nothing abnormal in CPU or memory.
  *
  * Memoized with a field-wise comparator: the projection rebuilds fresh group
  * objects every tick, so comparing the rendered fields lets an unchanged row
@@ -29,7 +31,23 @@ export const ProcessRow = memo(function ProcessRow({
     >
       <ProcessIcon iconPngBase64={group.iconPngBase64} name={group.name} system={group.system} />
 
-      <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{group.name}</span>
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate text-[13px]",
+          group.notResponding ? "text-destructive" : "text-foreground",
+        )}
+      >
+        {group.name}
+      </span>
+
+      {group.notResponding ? (
+        <span
+          className="shrink-0 rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
+          title={`macOS reports ${group.name} as not responding`}
+        >
+          Not Responding
+        </span>
+      ) : null}
 
       {group.childCount > 0 ? (
         <span
@@ -67,6 +85,7 @@ function areGroupsEqual(
     a.memberCount === b.memberCount &&
     a.metricState === b.metricState &&
     a.metricText === b.metricText &&
+    a.notResponding === b.notResponding &&
     areSelectionsEqual(a.openSelection, b.openSelection)
   );
 }

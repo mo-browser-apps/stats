@@ -11,6 +11,7 @@ import {
   NativeProcessCpu,
   NativeProcessRecord,
   NativeProcessUser,
+  NativeResponsiveness,
   NativeString,
 } from "../gen/native/process_collector";
 import {
@@ -27,6 +28,7 @@ import {
   ProcessSnapshotRevision,
   ProcessStatics,
   ProcessUser,
+  Responsiveness,
   SnapshotStatus,
   SnapshotWarning,
   SnapshotWarning_Code,
@@ -156,6 +158,25 @@ function toProcessUser(user: NativeProcessUser | undefined): ProcessUser {
 }
 
 /**
+ * Maps the window-server responsiveness of a GUI app. Absent in, absent out:
+ * only NSWorkspace apps carry the field, and a row without it renders no
+ * responsiveness state at all. The flag is only trusted when the native read
+ * succeeded.
+ */
+function toResponsiveness(
+  value: NativeResponsiveness | undefined,
+): Responsiveness | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const status = toFieldStatus(value.status);
+  return {
+    status,
+    unresponsive: status === FieldStatus.FIELD_STATUS_OK ? value.unresponsive : false,
+  };
+}
+
+/**
  * Maps the sensitive command-line group. Arguments are forwarded verbatim for
  * local display/search only and are never logged or persisted here.
  */
@@ -230,6 +251,7 @@ function toProcessRow(
     cpu,
     threadCount: toUInt64Value(record.threadCount),
     cpuTime: toCpuTime(record.cpu),
+    responsiveness: toResponsiveness(record.responsiveness),
     statics,
   };
 }

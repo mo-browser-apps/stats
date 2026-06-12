@@ -88,6 +88,20 @@ message CpuTime {
   uint64 nanos = 2;
 }
 
+// Window-server responsiveness of a GUI app: OK with unresponsive=true means
+// macOS currently marks the app "Not Responding" - the same state behind the
+// beachball and the system Force Quit dialog. Absent on rows for daemons,
+// helpers, and CLIs, which have no window-server connection and therefore no
+// notion of responsiveness; UNSUPPORTED when the OS does not expose the
+// signal. Per-tick dynamic state, deliberately NOT part of ProcessStatics: a
+// hang flips tick to tick and must not mint a new statics key.
+message Responsiveness {
+  FieldStatus status = 1;
+  // True when the app is currently marked unresponsive. Only meaningful when
+  // status is OK.
+  bool unresponsive = 2;
+}
+
 // The user a process runs as. uid and name share one availability; an unmapped
 // uid keeps the numeric value with an empty name. Useful for telling a user
 // process from a root/system daemon, and explains why a Quit can be refused by
@@ -200,11 +214,14 @@ message ProcessRow {
   UInt64Value thread_count = 5;
   // Total CPU time consumed since launch (cumulative; see CpuTime).
   CpuTime cpu_time = 6;
+  // Window-server responsiveness; absent for processes with no window-server
+  // connection (see Responsiveness).
+  Responsiveness responsiveness = 7;
   // The joined statics for this row. Main always sends this UNSET over the
   // wire (each distinct blob ships once through GetProcessAssets); the renderer
   // gateway joins its content-addressed store back in before presentation code
   // sees the row - the same local-assembly contract as ProcessSnapshot.icons.
-  ProcessStatics statics = 7;
+  ProcessStatics statics = 8;
 }
 
 // A safe, non-sensitive warning about a snapshot. Counts only - it must never

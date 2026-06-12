@@ -69,6 +69,12 @@ export interface ProcessGroup {
    */
   system: boolean;
   /**
+   * True when macOS marks any member app Not Responding. In practice only an
+   * app's main process carries the window-server flag, so this is the app
+   * hanging, not a helper.
+   */
+  notResponding: boolean;
+  /**
    * The member rows with the representative first, so the detail view can show
    * identity, command line, hierarchy, and per-member totals without
    * re-deriving them.
@@ -160,6 +166,21 @@ export function rowMemory(row: ProcessRow): MetricCell {
 /** The active-metric reading for one row under the current sort. */
 export function rowMetric(row: ProcessRow, sort: SortMode): MetricCell {
   return sort === "cpu" ? rowCpu(row) : rowMemory(row);
+}
+
+/**
+ * True when macOS currently marks this row's app "Not Responding" (the same
+ * state behind the beachball and the system Force Quit dialog). Only a
+ * successful read of a real flag counts: rows without the field (daemons,
+ * helpers) or with an unavailable/unsupported read render no state at all.
+ */
+export function rowNotResponding(row: ProcessRow): boolean {
+  const responsiveness = row.responsiveness;
+  return (
+    responsiveness !== undefined &&
+    responsiveness.status === FieldStatus.FIELD_STATUS_OK &&
+    responsiveness.unresponsive
+  );
 }
 
 /** Maps a {@link MetricCell} to its display state. */
@@ -282,6 +303,7 @@ interface GroupAccumulator {
   sortValueSum: number;
   hasMetric: boolean;
   anyPending: boolean;
+  anyNotResponding: boolean;
   members: ProcessRow[];
 }
 
@@ -292,6 +314,7 @@ function createGroupAccumulator(key: string, row: ProcessRow, sort: SortMode): G
     sortValueSum: metric.value ?? 0,
     hasMetric: metric.value !== undefined,
     anyPending: metric.pending,
+    anyNotResponding: rowNotResponding(row),
     members: [row],
   };
 }
@@ -301,6 +324,7 @@ function addRowToGroup(group: GroupAccumulator, row: ProcessRow, sort: SortMode)
   group.sortValueSum += metric.value ?? 0;
   group.hasMetric = group.hasMetric || metric.value !== undefined;
   group.anyPending = group.anyPending || metric.pending;
+  group.anyNotResponding = group.anyNotResponding || rowNotResponding(row);
   group.members.push(row);
 }
 
@@ -352,6 +376,7 @@ function buildGroupRow(group: GroupAccumulator, sort: SortMode, icons: IconTable
     openSelection: { kind: "group", key: group.key },
     members: representativeFirst(group.members, representative),
     system: isSystem,
+    notResponding: group.anyNotResponding,
   };
 }
 

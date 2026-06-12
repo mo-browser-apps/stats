@@ -13,6 +13,7 @@ import {
   rowDisplayName,
   rowMemory,
   rowMetric,
+  rowNotResponding,
   rowPid,
   singleProcessGroup,
   SYSTEM_GROUP_KEY,
@@ -71,6 +72,19 @@ describe("row readers", () => {
     expect(cellState({ pending: true })).toBe("pending");
     expect(cellState({ pending: false })).toBe("unavailable");
   });
+
+  it("rowNotResponding is true only for an OK read with the flag set", () => {
+    expect(rowNotResponding(makeRow({ notResponding: true }))).toBe(true);
+    expect(rowNotResponding(makeRow({ notResponding: false }))).toBe(false);
+    // Daemons/helpers carry no responsiveness field at all.
+    expect(rowNotResponding(makeRow({}))).toBe(false);
+    // A failed/unsupported read must not surface as a real hang.
+    expect(
+      rowNotResponding(
+        makeRow({ notResponding: true, responsivenessStatus: FieldStatus.FIELD_STATUS_UNSUPPORTED }),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("projectProcessList - grouping", () => {
@@ -125,6 +139,18 @@ describe("projectProcessList - grouping", () => {
     // Two unrelated "node" CLIs are NOT merged into one misleading row.
     expect(groups).toHaveLength(2);
     expect(groups.every((g) => g.memberCount === 1)).toBe(true);
+  });
+
+  it("marks a group Not Responding when any member is", () => {
+    const rows = [
+      // The hung app's flag sits on its main process; helpers carry none.
+      makeRow({ pid: 100, localizedName: "Hung", bundlePath: "/Applications/Hung.app", bundleName: "Hung", notResponding: true }),
+      makeRow({ pid: 200, executableName: "Hung Helper", bundlePath: "/Applications/Hung.app" }),
+      makeRow({ pid: 300, localizedName: "Fine", bundlePath: "/Applications/Fine.app", bundleName: "Fine", notResponding: false }),
+    ];
+    const groups = projectProcessList(makeSnapshot(rows), "cpu", "");
+    expect(groups.find((group) => group.name === "Hung")?.notResponding).toBe(true);
+    expect(groups.find((group) => group.name === "Fine")?.notResponding).toBe(false);
   });
 });
 
