@@ -13,7 +13,7 @@ Built with [MōBrowser](https://teamdev.com/mobrowser/), React, and TypeScript, 
 
 ## Requirements
 
-- macOS 14 (Apple Silicon) or later.
+- macOS 12 (Apple Silicon) or later.
 - [Node.js](https://nodejs.org/en/download/) 24.14.1 (LTS) or later.
 
 ## Setup
