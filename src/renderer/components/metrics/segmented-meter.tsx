@@ -104,15 +104,12 @@ function MeterLegend({
   onLeave: (key: string) => void;
 }) {
   return (
-    <div className="flex items-center justify-between text-[10px] text-muted-foreground/85">
+    <div className="flex items-center justify-between text-[10px] text-muted-foreground/85" aria-hidden="true">
       {segments.map((segment) => {
         const active = hovered === segment.key;
         return (
-          <button
+          <span
             key={segment.key}
-            type="button"
-            tabIndex={-1}
-            aria-hidden="true"
             className={cn(
               "flex shrink-0 cursor-default items-center gap-1.5 whitespace-nowrap outline-none transition-colors",
               active ? "text-foreground" : hovered ? "text-muted-foreground/55" : "hover:text-foreground/90",
@@ -122,7 +119,7 @@ function MeterLegend({
           >
             <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", segment.fillClass)} />
             <span>{segment.label}</span>
-          </button>
+          </span>
         );
       })}
     </div>
