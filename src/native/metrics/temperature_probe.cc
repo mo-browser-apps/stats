@@ -20,15 +20,16 @@
 #include <unordered_map>
 
 // Private IOKit HID symbols. These are not declared in any public SDK header,
-// so they are forward-declared here exactly as the upstream research reference
-// (exelban/stats Modules/Sensors/bridge.h, in turn based on MenuMeters) does.
-// They are read-only sensor queries; the app never controls hardware. If a
-// future macOS removes or changes them the probe degrades to unavailable
-// (handled below by null/empty checks), never crashing the app.
-extern "C" {
-typedef struct __IOHIDEvent* IOHIDEventRef;
-typedef struct __IOHIDServiceClient* IOHIDServiceClientRef;
+// so they are forward-declared here with local opaque pointer tags. They are
+// read-only sensor queries; the app never controls hardware. If a future macOS
+// removes or changes them the probe degrades to unavailable (handled below by
+// null/empty checks), never crashing the app.
+struct IOHIDEvent;
+struct IOHIDServiceClient;
+using IOHIDEventRef = IOHIDEvent*;
+using IOHIDServiceClientRef = IOHIDServiceClient*;
 
+extern "C" {
 IOHIDEventSystemClientRef IOHIDEventSystemClientCreate(CFAllocatorRef allocator);
 void IOHIDEventSystemClientSetMatching(IOHIDEventSystemClientRef client,
                                        CFDictionaryRef match);
