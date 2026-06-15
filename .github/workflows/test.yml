@@ -1,32 +1,29 @@
-name: Static Analysis
+name: Test
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
 
 jobs:
-  checks:
-    name: Lint and Typecheck
+  test:
+    name: Unit Tests
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
 
-      - name: Install dependencies
+      - name: Install
         run: npm ci
 
-      - name: Generate source code
+      - name: Generate
         run: npm run gen
 
-      - name: Lint (zero warnings)
-        run: npm run lint
-
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Test
+        run: npm run test
