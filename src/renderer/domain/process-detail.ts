@@ -55,6 +55,11 @@ export interface DetailMember {
   notResponding: boolean;
 }
 
+/** Stable identity reader for a member, for order-pinning member lists. */
+export function memberPid(member: DetailMember): number {
+  return member.pid;
+}
+
 /**
  * Presentation model for the detail view of one selected group (or one
  * process - then a single-member group).
@@ -186,7 +191,7 @@ function detailUser(row: ProcessRow): DetailField {
   return { state: missingState(user?.status) };
 }
 
-function buildMember(row: ProcessRow, sort: SortMode, icons: IconTable): DetailMember {
+export function buildMember(row: ProcessRow, sort: SortMode, icons: IconTable): DetailMember {
   const cell = rowMetric(row, sort);
   const metricState = cellState(cell);
   return {
@@ -206,6 +211,23 @@ function buildMember(row: ProcessRow, sort: SortMode, icons: IconTable): DetailM
  * collapsed list shows); CPU/memory/threads/CPU-time are summed across all
  * members so a grouped app reports its whole footprint.
  */
+/**
+ * A group's members as display rows ranked by the active metric (descending),
+ * with a PID tie-break so equal-value rows (e.g. idle 0.00% members) stay
+ * stable across ticks. Shared by the detail view and the inline expanded list
+ * so both order members identically.
+ */
+export function rankMembers(group: ProcessGroup, sort: SortMode, icons: IconTable): DetailMember[] {
+  const read = sort === "cpu" ? rowCpu : rowMemory;
+  return group.members
+    .slice()
+    .sort((left, right) => {
+      const delta = (read(right).value ?? 0) - (read(left).value ?? 0);
+      return delta !== 0 ? delta : rowPid(left) - rowPid(right);
+    })
+    .map((row) => buildMember(row, sort, icons));
+}
+
 export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: IconTable): ProcessDetail {
   const representative = group.members[0];
   const statics = representative.statics;
@@ -215,20 +237,9 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: I
   const parentAvailable =
     statics?.parentStatus === FieldStatus.FIELD_STATUS_OK && statics.parentPid > 0;
 
-  // Members ranked by the active metric like the main list, with a PID
-  // tie-break so equal-value rows (e.g. idle 0.00% members) stay stable across
-  // ticks. The representative stays group.members[0] for the header identity;
-  // only the displayed list is ranked.
-  const members =
-    group.memberCount > 1
-      ? group.members
-        .slice()
-        .sort((left, right) => {
-          const delta = (read(right).value ?? 0) - (read(left).value ?? 0);
-          return delta !== 0 ? delta : rowPid(left) - rowPid(right);
-        })
-        .map((row) => buildMember(row, sort, icons))
-      : [];
+  // The representative stays group.members[0] for the header identity; only the
+  // displayed list is ranked.
+  const members = group.memberCount > 1 ? rankMembers(group, sort, icons) : [];
 
   return {
     key: group.key,
@@ -254,27 +265,4 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: I
     system: group.system,
     notResponding: group.notResponding,
   };
-}
-
-/**
- * Reorders members to match a previously rendered PID order, so the Members
- * list can pin row positions while the pointer or focus is inside it (a live
- * re-rank would move rows between aiming and clicking). Mirrors
- * {@link pinGroupOrder}: only the order is held; member objects and their
- * values are the fresh ones, new PIDs append, vanished PIDs drop out.
- */
-export function pinMemberOrder(members: DetailMember[], pinnedPids: number[]): DetailMember[] {
-  if (pinnedPids.length === 0) {
-    return members;
-  }
-
-  const rankByPid = new Map(pinnedPids.map((pid, index) => [pid, index] as const));
-  const pinned: DetailMember[] = [];
-  const fresh: DetailMember[] = [];
-  for (const member of members) {
-    (rankByPid.has(member.pid) ? pinned : fresh).push(member);
-  }
-  pinned.sort((left, right) => (rankByPid.get(left.pid) ?? 0) - (rankByPid.get(right.pid) ?? 0));
-
-  return [...pinned, ...fresh];
 }

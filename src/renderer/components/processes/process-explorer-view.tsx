@@ -222,7 +222,7 @@ function ProcessListPanel({
   }, [active, searchInputRef]);
 
   const focusFirstRow = useCallback(() => {
-    listRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    listRef.current?.querySelector<HTMLButtonElement>("button[data-process-row]")?.focus();
   }, []);
 
   const openTopMatch = useCallback(() => {
@@ -247,6 +247,8 @@ function ProcessListPanel({
 
       <ProcessList
         groups={groups}
+        sort={sort}
+        icons={snapshot.icons}
         status={snapshot.status}
         hasQuery={query.trim().length > 0}
         onOpenSelection={onOpenSelection}

@@ -1,8 +1,19 @@
-import { memo } from "react";
+import { memo, useCallback, useMemo } from "react";
+import { ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { DisclosureContent } from "@/components/processes/disclosure";
+import { MemberRow } from "@/components/processes/member-row";
 import { ProcessIcon } from "@/components/processes/process-icon";
-import { metricValueText, type DetailSelection, type ProcessGroup } from "@/domain/process-list";
+import { useOrderPin } from "@/components/processes/use-order-pin";
+import { memberPid, rankMembers, type DetailMember } from "@/domain/process-detail";
+import {
+  metricValueText,
+  type DetailSelection,
+  type IconTable,
+  type ProcessGroup,
+  type SortMode,
+} from "@/domain/process-list";
 
 /**
  * One fixed-height process row: app icon, name, an optional "+N" grouped-child
@@ -10,75 +21,137 @@ import { metricValueText, type DetailSelection, type ProcessGroup } from "@/doma
  * opening the detail view. An app macOS marks Not Responding gets its name in
  * the destructive color plus a matching badge (Activity Monitor's convention),
  * since a hung app often shows nothing abnormal in CPU or memory.
- *
- * Memoized with a field-wise comparator: the projection rebuilds fresh group
- * objects every tick, so comparing the rendered fields lets an unchanged row
- * skip re-rendering. `onOpen` is a stable callback and is not compared.
  */
 export const ProcessRow = memo(function ProcessRow({
   group,
+  sort,
+  icons,
+  expanded,
+  pinned,
   onOpen,
+  onToggle,
 }: {
   group: ProcessGroup
+  sort: SortMode
+  icons: IconTable
+  expanded: boolean
+  pinned: boolean
   onOpen: (selection: DetailSelection) => void
+  onToggle: (key: string) => void
 }) {
+  const expandable = group.childCount > 0;
+
+  // Members ranked by the active metric, held in place while the list is pinned
+  // so a tick can't move a child between aiming and clicking. Empty (and skips
+  // the ranking) while collapsed, which also re-baselines the pin on reopen.
+  const ranked = useMemo<DetailMember[]>(
+    () => (expanded ? rankMembers(group, sort, icons) : []),
+    [expanded, group, sort, icons],
+  );
+  const children = useOrderPin(ranked, memberPid, pinned);
+
+  // Adapt MemberRow's (pid, startedAt) open to this row's selection open, kept
+  // stable so MemberRow's memo holds across ticks.
+  const openMember = useCallback(
+    (pid: number, startedAtUnixMs?: number) => onOpen({ kind: "process", pid, startedAtUnixMs }),
+    [onOpen],
+  );
+
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(group.openSelection)}
-      // No aria-label override: the content (name, badges, metric) is the
-      // accessible name, so AT users hear the metric and "Not Responding" too.
-      title={group.name}
-      className="flex h-11 w-full items-center gap-2.5 rounded-md px-1 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-    >
-      <ProcessIcon iconPngBase64={group.iconPngBase64} name={group.name} system={group.system} />
+    <div className="flex flex-col">
+      <div className="relative flex h-11 items-center">
+        {expandable ? (
+          <button
+            type="button"
+            onClick={() => onToggle(group.key)}
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${group.name} processes`}
+            className="absolute inset-y-0 left-0 z-10 flex w-6 items-center justify-center focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          >
+            <ChevronRight
+              className={cn(
+                "h-3.5 w-3.5 text-muted-foreground transition-transform duration-150 ease-out motion-reduce:transition-none",
+                expanded && "rotate-90",
+              )}
+              strokeWidth={1.75}
+              aria-hidden="true"
+            />
+          </button>
+        ) : null}
 
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate text-[13px]",
-          group.notResponding ? "text-destructive" : "text-foreground",
-        )}
-      >
-        {group.name}
-      </span>
-
-      {group.notResponding ? (
-        <span
-          className="shrink-0 rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
-          title={`macOS reports ${group.name} as not responding`}
+        <button
+          type="button"
+          data-process-row
+          onClick={() => onOpen(group.openSelection)}
+          title={group.name}
+          className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-md pl-6 pr-1 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
         >
-          Not Responding
-        </span>
-      ) : null}
+          <ProcessIcon iconPngBase64={group.iconPngBase64} name={group.name} system={group.system} />
 
-      {group.childCount > 0 ? (
-        <span
-          className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground"
-          title={`${group.memberCount} processes`}
-        >
-          +{group.childCount}
-        </span>
-      ) : null}
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <span
+              className={cn(
+                "min-w-0 truncate text-[13px]",
+                group.notResponding ? "text-destructive" : "text-foreground",
+              )}
+            >
+              {group.name}
+            </span>
 
-      <span
-        className={cn(
-          "shrink-0 whitespace-nowrap text-right text-[13px] font-medium tabular-nums",
-          group.metricState === "ok" ? "text-foreground" : "text-muted-foreground",
-        )}
-      >
-        {metricValueText(group.metricState, group.metricText)}
-      </span>
-    </button>
+            {group.notResponding ? (
+              <span
+                className="shrink-0 rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
+                title={`macOS reports ${group.name} as not responding`}
+              >
+                Not Responding
+              </span>
+            ) : null}
+
+            {group.childCount > 0 ? (
+              <span
+                className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground"
+                title={`${group.memberCount} processes`}
+              >
+                +{group.childCount}
+              </span>
+            ) : null}
+          </div>
+
+          <span
+            className={cn(
+              "shrink-0 whitespace-nowrap text-right text-[13px] font-medium tabular-nums",
+              group.metricState === "ok" ? "text-foreground" : "text-muted-foreground",
+            )}
+          >
+            {metricValueText(group.metricState, group.metricText)}
+          </span>
+        </button>
+      </div>
+
+      {expandable ? (
+        <DisclosureContent open={expanded}>
+          <ul className="flex flex-col">
+            {children.map((child) => (
+              <li key={child.pid}>
+                <MemberRow member={child} indented onOpen={openMember} />
+              </li>
+            ))}
+          </ul>
+        </DisclosureContent>
+      ) : null}
+    </div>
   );
 }, areGroupsEqual);
 
 function areGroupsEqual(
-  previous: { group: ProcessGroup; onOpen: (selection: DetailSelection) => void },
-  next: { group: ProcessGroup; onOpen: (selection: DetailSelection) => void },
+  previous: { group: ProcessGroup; expanded: boolean; pinned: boolean },
+  next: { group: ProcessGroup; expanded: boolean; pinned: boolean },
 ): boolean {
   const a = previous.group;
   const b = next.group;
   return (
+    previous.expanded === next.expanded &&
+    previous.pinned === next.pinned &&
     a.key === b.key &&
     a.name === b.name &&
     a.iconPngBase64 === b.iconPngBase64 &&
@@ -88,8 +161,22 @@ function areGroupsEqual(
     a.metricState === b.metricState &&
     a.metricText === b.metricText &&
     a.notResponding === b.notResponding &&
+    membersEqual(a.members, b.members) &&
     areSelectionsEqual(a.openSelection, b.openSelection)
   );
+}
+
+/** Member identity/metric comparison so an expanded row re-renders on changes. */
+function membersEqual(a: ProcessGroup["members"], b: ProcessGroup["members"]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function areSelectionsEqual(left: DetailSelection, right: DetailSelection): boolean {

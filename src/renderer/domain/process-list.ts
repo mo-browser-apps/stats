@@ -494,27 +494,37 @@ export function projectProcessList(
 }
 
 /**
- * Reorders projected groups to match a previously rendered key order, so the
- * list can pin row positions while the pointer is inside it (a live re-rank
- * would move rows between aiming and clicking). Only the order is held; the
- * group objects and their metric values are the fresh ones. New arrivals
- * append after the pinned rows so they never displace a row mid-list; vanished
- * keys drop out naturally.
+ * Reorders freshly ranked items to match a previously rendered identity order,
+ * so a list can pin row positions while the pointer or focus is inside it (a
+ * live re-rank would move rows between aiming and clicking). Only the order is
+ * held; the items and their values are the fresh ones. New arrivals append
+ * after the pinned rows so they never displace a row mid-list; vanished
+ * identities drop out naturally. Shared by every pinned list (groups, detail
+ * members, inline expanded children).
  */
-export function pinGroupOrder(groups: ProcessGroup[], pinnedKeys: string[]): ProcessGroup[] {
+export function pinOrder<Item, Key>(
+  items: Item[],
+  getKey: (item: Item) => Key,
+  pinnedKeys: Key[],
+): Item[] {
   if (pinnedKeys.length === 0) {
-    return groups;
+    return items;
   }
 
   const rankByKey = new Map(pinnedKeys.map((key, index) => [key, index] as const));
-  const pinned: ProcessGroup[] = [];
-  const fresh: ProcessGroup[] = [];
-  for (const group of groups) {
-    (rankByKey.has(group.key) ? pinned : fresh).push(group);
+  const pinned: Item[] = [];
+  const fresh: Item[] = [];
+  for (const item of items) {
+    (rankByKey.has(getKey(item)) ? pinned : fresh).push(item);
   }
-  pinned.sort((left, right) => (rankByKey.get(left.key) ?? 0) - (rankByKey.get(right.key) ?? 0));
+  pinned.sort((left, right) => (rankByKey.get(getKey(left)) ?? 0) - (rankByKey.get(getKey(right)) ?? 0));
 
   return [...pinned, ...fresh];
+}
+
+/** Stable identity reader for a group, for order-pinning the list. */
+export function groupKey(group: ProcessGroup): string {
+  return group.key;
 }
 
 /**

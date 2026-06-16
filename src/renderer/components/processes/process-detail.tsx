@@ -1,16 +1,18 @@
 import { ChevronLeft, ChevronRight, Clock, Cpu, User } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import { UNAVAILABLE_TEXT, formatStartTime } from "@/lib/format";
 import type { ActionState, ProcessActionKind } from "@/gen/process_explorer";
 import { CopyButton, DisclosureContent } from "@/components/processes/disclosure";
+import { MemberRow } from "@/components/processes/member-row";
 import { ProcessActions } from "@/components/processes/process-actions";
 import { ScrollFade } from "@/components/processes/scroll-fade";
 import { ProcessIcon } from "@/components/processes/process-icon";
 import { ProcessSortControl } from "@/components/processes/process-sort-control";
+import { useOrderPin } from "@/components/processes/use-order-pin";
 import { metricValueText, type SortMode } from "@/domain/process-list";
-import { pinMemberOrder } from "@/domain/process-detail";
+import { memberPid } from "@/domain/process-detail";
 import type {
   DetailField,
   DetailMember,
@@ -361,22 +363,7 @@ function Members({
   const [expanded, setExpanded] = useState(true);
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
-  // The PID order last shown; the baseline the next pinned tick replays.
-  const pinnedPids = useRef<number[]>([]);
-
-  useEffect(() => {
-    pinnedPids.current = [];
-  }, [resetKey]);
-
-  const pinActive = pointerInside || focusInside;
-  const members = useMemo(
-    () => (pinActive ? pinMemberOrder(rankedMembers, pinnedPids.current) : rankedMembers),
-    [pinActive, rankedMembers],
-  );
-
-  useEffect(() => {
-    pinnedPids.current = members.map((member) => member.pid);
-  }, [members]);
+  const members = useOrderPin(rankedMembers, memberPid, pointerInside || focusInside, resetKey);
 
   return (
     <section className="flex flex-col border-t border-border/60 pt-1.5">
@@ -423,46 +410,3 @@ function Members({
   );
 }
 
-/** One member row: icon, name, and the active-metric value. */
-const MemberRow = memo(
-  function MemberRow({
-    member,
-    onOpen,
-  }: {
-    member: DetailMember
-    onOpen: (pid: number, startedAtUnixMs?: number) => void
-  }) {
-    return (
-      <button
-        type="button"
-        onClick={() => onOpen(member.pid, member.startedAtUnixMs)}
-        aria-label={`Show details for ${member.name}, PID ${member.pid}`}
-        title={`${member.name} - PID ${member.pid}`}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-      >
-        <ProcessIcon iconPngBase64={member.iconPngBase64} name={member.name} />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-[12px]",
-            member.notResponding ? "text-destructive" : "text-foreground",
-          )}
-        >
-          {member.name}
-        </span>
-        <MetricValue
-          metric={{ state: member.metricState, text: member.metricText }}
-          className="w-20 text-[12px]"
-        />
-      </button>
-    );
-  },
-  (prev, next) =>
-    prev.onOpen === next.onOpen &&
-    prev.member.pid === next.member.pid &&
-    prev.member.startedAtUnixMs === next.member.startedAtUnixMs &&
-    prev.member.name === next.member.name &&
-    prev.member.iconPngBase64 === next.member.iconPngBase64 &&
-    prev.member.metricState === next.member.metricState &&
-    prev.member.metricText === next.member.metricText &&
-    prev.member.notResponding === next.member.notResponding,
-);
