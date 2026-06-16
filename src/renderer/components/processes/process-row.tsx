@@ -6,7 +6,7 @@ import { DisclosureContent } from "@/components/processes/disclosure";
 import { MemberRow } from "@/components/processes/member-row";
 import { ProcessIcon } from "@/components/processes/process-icon";
 import { useOrderPin } from "@/components/processes/use-order-pin";
-import { memberPid, rankMembers, type DetailMember } from "@/domain/process-detail";
+import { memberKey, rankMembers, type DetailMember } from "@/domain/process-detail";
 import {
   metricValueText,
   type DetailSelection,
@@ -50,7 +50,7 @@ export const ProcessRow = memo(function ProcessRow({
     () => (expanded ? rankMembers(group, sort, icons) : []),
     [expanded, group, sort, icons],
   );
-  const children = useOrderPin(ranked, memberPid, pinned);
+  const children = useOrderPin(ranked, memberKey, pinned, sort);
 
   // Adapt MemberRow's (pid, startedAt) open to this row's selection open, kept
   // stable so MemberRow's memo holds across ticks.
@@ -134,7 +134,7 @@ export const ProcessRow = memo(function ProcessRow({
         <DisclosureContent open={expanded}>
           <ul className="flex flex-col">
             {children.map((child) => (
-              <li key={child.pid}>
+              <li key={memberKey(child)}>
                 <MemberRow member={child} indented onOpen={openMember} />
               </li>
             ))}
@@ -146,12 +146,13 @@ export const ProcessRow = memo(function ProcessRow({
 }, areGroupsEqual);
 
 function areGroupsEqual(
-  previous: { group: ProcessGroup; expanded: boolean; pinned: boolean },
-  next: { group: ProcessGroup; expanded: boolean; pinned: boolean },
+  previous: { group: ProcessGroup; sort: SortMode; expanded: boolean; pinned: boolean },
+  next: { group: ProcessGroup; sort: SortMode; expanded: boolean; pinned: boolean },
 ): boolean {
   const a = previous.group;
   const b = next.group;
   if (
+    previous.sort !== next.sort ||
     previous.expanded !== next.expanded ||
     a.key !== b.key ||
     a.name !== b.name ||

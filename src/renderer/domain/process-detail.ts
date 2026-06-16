@@ -56,8 +56,8 @@ export interface DetailMember {
 }
 
 /** Stable identity reader for a member, for order-pinning member lists. */
-export function memberPid(member: DetailMember): number {
-  return member.pid;
+export function memberKey(member: DetailMember): string {
+  return `${member.pid}:${member.startedAtUnixMs ?? "unknown"}`;
 }
 
 /**

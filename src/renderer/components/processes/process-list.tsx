@@ -58,7 +58,7 @@ export function ProcessList({
     });
   }, []);
   const pinActive = pointerInside || focusInside;
-  const groups = useOrderPin(rankedGroups, groupKey, pinActive);
+  const groups = useOrderPin(rankedGroups, groupKey, pinActive, sort);
 
   // Moves focus between row buttons on ArrowDown/ArrowUp. Focus may sit on a
   // row's content button or on its expand chevron; both live in the same <li>,

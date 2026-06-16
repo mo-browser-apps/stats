@@ -12,7 +12,7 @@ import { ProcessIcon } from "@/components/processes/process-icon";
 import { ProcessSortControl } from "@/components/processes/process-sort-control";
 import { useOrderPin } from "@/components/processes/use-order-pin";
 import { metricValueText, type SortMode } from "@/domain/process-list";
-import { memberPid } from "@/domain/process-detail";
+import { memberKey } from "@/domain/process-detail";
 import type {
   DetailField,
   DetailMember,
@@ -363,7 +363,7 @@ function Members({
   const [expanded, setExpanded] = useState(true);
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
-  const members = useOrderPin(rankedMembers, memberPid, pointerInside || focusInside, resetKey);
+  const members = useOrderPin(rankedMembers, memberKey, pointerInside || focusInside, resetKey);
 
   return (
     <section className="flex flex-col border-t border-border/60 pt-1.5">
@@ -400,7 +400,7 @@ function Members({
           }}
         >
           {members.map((member) => (
-            <li key={member.pid}>
+            <li key={memberKey(member)}>
               <MemberRow member={member} onOpen={onOpenMember} />
             </li>
           ))}
