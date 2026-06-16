@@ -153,7 +153,7 @@ export function ProcessDetailView({
             members={detail.members}
             memberCount={detail.memberCount}
             total={detail.total}
-            resetKey={`${detail.pid}:${detail.totalSort}`}
+            resetKey={`${detail.pid}:${detail.startedAtUnixMs}:${detail.totalSort}`}
             onOpenMember={onOpenMember}
           />
         ) : (
