@@ -173,7 +173,6 @@ function areGroupsEqual(
   return previous.pinned === next.pinned && membersEqual(a.members, b.members);
 }
 
-/** Member identity/metric comparison so an expanded row re-renders on changes. */
 function membersEqual(a: ProcessGroup["members"], b: ProcessGroup["members"]): boolean {
   if (a.length !== b.length) {
     return false;

@@ -19,21 +19,17 @@ export function useOrderPin<Item, Key>(
   resetKey?: unknown,
 ): Item[] {
   const pinnedKeys = useRef<Key[]>([]);
-
   const lastResetKey = useRef(resetKey);
-  if (resetKey !== lastResetKey.current) {
-    lastResetKey.current = resetKey;
-    pinnedKeys.current = [];
-  }
+  const baselineChanged = resetKey !== lastResetKey.current;
 
   const ordered = useMemo(() => {
-    void resetKey;
-    return active ? pinOrder(ranked, getKey, pinnedKeys.current) : ranked;
-  }, [active, getKey, ranked, resetKey]);
+    return active && !baselineChanged ? pinOrder(ranked, getKey, pinnedKeys.current) : ranked;
+  }, [active, baselineChanged, getKey, ranked]);
 
   useEffect(() => {
+    lastResetKey.current = resetKey;
     pinnedKeys.current = ordered.map(getKey);
-  }, [getKey, ordered]);
+  }, [getKey, ordered, resetKey]);
 
   return ordered;
 }
