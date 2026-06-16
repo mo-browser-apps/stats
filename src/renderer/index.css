@@ -1,0 +1,227 @@
+@import 'tailwindcss';
+
+/*
+ * Tailwind v4 CSS-first config. `@theme inline` maps the semantic CSS variables
+ * below onto Tailwind's color/radius utility namespace so classes like
+ * `bg-popover`, `text-muted-foreground`, `bg-success`, and `text-destructive`
+ * resolve against the tokens (not inlined values) at runtime. This replaces the
+ * former HSL `tailwind.config.js`; colors are oklch, matching ../voice/../icons.
+ *
+ * Token set is trimmed to what a compact monitor needs: surface/text,
+ * interactive, chrome, and metric-status colors. Sidebar/chart/recording tokens
+ * from the sibling apps are intentionally omitted.
+ */
+@theme inline {
+  --font-sans: 'Sora Variable', system-ui, sans-serif;
+
+  /* Surface & text */
+  --color-background:         var(--background);
+  --color-foreground:         var(--foreground);
+  --color-popover:            var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  /* Interactive */
+  --color-accent:            var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  /* Chrome */
+  --color-muted:            var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border:           var(--border);
+  --color-input:            var(--input);
+  --color-ring:             var(--ring);
+  --color-track:            var(--track);
+
+  /* Metric status — saturated only for state, never decoration. */
+  --color-success:                var(--success);
+  --color-warning:                var(--warning);
+  --color-destructive:            var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  /* Memory composition — the segmented RAM bar's categories. */
+  --color-mem-app:        var(--mem-app);
+  --color-mem-wired:      var(--mem-wired);
+  --color-mem-compressed: var(--mem-compressed);
+  --color-mem-cached:     var(--mem-cached);
+  --color-mem-free:       var(--mem-free);
+
+  /* Network throughput — the mirrored chart's two directions. */
+  --color-net-down: var(--net-down);
+  --color-net-up:   var(--net-up);
+
+  /* Border radius */
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/*
+ * Semantic tokens — Light mode.
+ *
+ * MoStats ships dark-only (the document root carries `.dark`), but the light
+ * values are kept as a sensible fallback and to keep the token system honest.
+ * Colors use oklch (perceptually uniform) to match the sibling apps.
+ */
+:root {
+  /* Surface & text */
+  --background:         oklch(100% 0 0deg);
+  --foreground:         oklch(25% 0 0deg);
+  --popover:            oklch(100% 0 0deg);
+  --popover-foreground: oklch(25% 0 0deg);
+
+  /* Interactive */
+  --accent:            oklch(92% 0 0deg);
+  --accent-foreground: oklch(20.5% 0 0deg);
+
+  /* Chrome */
+  --muted:            oklch(97% 0 0deg);
+  --muted-foreground: oklch(50% 0 0deg);
+  --border:           oklch(92.2% 0 0deg);
+  --input:            oklch(82% 0 0deg);
+  --ring:             oklch(70% 0.245 262.9deg);
+  /* Unfilled meter rail; faint, but a step stronger than dividers. */
+  --track:            oklch(0% 0 0deg / 8%);
+
+  /* Metric status — soft blue normal, amber elevated, pink-red critical. */
+  --success:                oklch(58% 0.130 258deg);
+  --warning:                oklch(60% 0.140 75deg);
+  --destructive:            oklch(57% 0.235 12deg);
+  --destructive-foreground: oklch(98.5% 0 0deg);
+
+  /* Memory composition (light fallback; app ships dark). Same hue assignments
+     as dark, shifted darker for contrast on a light rail. */
+  --mem-app:        oklch(58% 0.130 258deg); /* matches --success blue (own token, shared value) */
+  --mem-wired:      oklch(50% 0.150 300deg);
+  --mem-compressed: oklch(55% 0.095 195deg);
+  --mem-cached:     oklch(60% 0.020 90deg);
+  --mem-free:       oklch(80% 0.006 258deg);
+
+  /* Network directions (light fallback; app ships dark). Same hue assignments
+     as dark, shifted darker for contrast on a light surface. */
+  --net-down: oklch(58% 0.130 258deg); /* matches --success blue (own token, shared value) */
+  --net-up:   oklch(50% 0.150 300deg); /* matches --mem-wired violet (own token, shared value) */
+
+  /* Base radius — 10px, matching ../voice/../icons. */
+  --radius: 0.625rem;
+}
+
+/* Semantic tokens — Dark mode (the shipped appearance). */
+.dark {
+  /* Surface & text — near-black shell, popover slightly elevated above it. */
+  --background:         oklch(18% 0 0deg);
+  --foreground:         oklch(90% 0 0deg);
+  --popover:            oklch(20.5% 0 0deg);
+  --popover-foreground: oklch(90% 0 0deg);
+
+  /* Interactive */
+  --accent:            oklch(35% 0 0deg);
+  --accent-foreground: oklch(90% 0 0deg);
+
+  /* Chrome — low-contrast bordered surfaces. */
+  --muted:            oklch(30% 0 0deg);
+  --muted-foreground: oklch(70.8% 0 0deg);
+  --border:           oklch(100% 0 0deg / 10%);
+  --input:            oklch(100% 0 0deg / 15%);
+  --ring:             oklch(67% 0.19 262deg / 80%);
+  /* Unfilled meter rail; faint, but a step stronger than dividers so the meter
+     and the row separators read as different elements (DESIGN.md track token). */
+  --track:            oklch(100% 0 0deg / 9%);
+
+  /* Metric status — soft blue normal, amber elevated, pink-red critical.
+     Blue keeps the resting panel quiet (a monitor should not celebrate idle);
+     amber is the universal caution hue and, unlike the former violet, stays
+     distinguishable from the blue ok state under red-deficient color vision. */
+  --success:                oklch(72% 0.130 258deg);
+  --warning:                oklch(75% 0.155 75deg);
+  --destructive:            oklch(68% 0.230 12deg);
+  --destructive-foreground: oklch(90% 0 0deg);
+
+  /* Memory composition segments. */
+  --mem-app:        oklch(72% 0.130 258deg); /* matches --success blue */
+  --mem-wired:      oklch(62% 0.150 300deg); /* violet/magenta-leaning */
+  --mem-compressed: oklch(68% 0.095 195deg); /* teal/cyan - cool, off the blue arc */
+  --mem-cached:     oklch(67% 0.020 90deg);  /* near-neutral taupe, only a touch warm */
+  --mem-free:       oklch(48% 0.006 258deg); /* dark neutral - the empty tail, visible */
+
+  /* Network directions — categorical like the memory segments, not state.
+     Down stays on the app's resting blue; up borrows the wired violet so the
+     two lanes separate without introducing a new hue. */
+  --net-down: oklch(72% 0.130 258deg); /* matches --success blue (own token, shared value) */
+  --net-up:   oklch(62% 0.150 300deg); /* matches --mem-wired violet (own token, shared value) */
+}
+
+@layer utilities {
+  /*
+   * Draggable compact title row. The window hides its native title bar on
+   * macOS, so this region provides the drag handle and leaves room for the
+   * traffic-light buttons on the left.
+   */
+  .title-bar {
+    height: 44px;
+    flex-shrink: 0;
+    -webkit-app-region: drag;
+  }
+
+  /* Reserve space for the macOS traffic-light buttons on the left. */
+  .title-bar-mac {
+    padding-left: 76px;
+  }
+
+  /* Opt interactive controls out of the draggable region so they stay clickable. */
+  .no-drag,
+  .title-bar button {
+    -webkit-app-region: no-drag;
+  }
+
+  /*
+   * Hide the scrollbar while keeping the element scrollable (wheel/trackpad).
+   * Used by the compact process list so a long ranked list stays scannable
+   * without a visible scrollbar in the small popover.
+   */
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  /*
+   * Edge fade for a horizontally scrollable lane.
+   */
+  .scroll-fade {
+    --scroll-fade-size: 1.5rem;
+  }
+
+  .scroll-fade[data-fade="end"] {
+    mask-image: linear-gradient(
+      to right,
+      black calc(100% - var(--scroll-fade-size)),
+      transparent
+    );
+  }
+
+  .scroll-fade[data-fade="start"] {
+    mask-image: linear-gradient(to right, transparent, black var(--scroll-fade-size));
+  }
+
+  .scroll-fade[data-fade="both"] {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black var(--scroll-fade-size),
+      black calc(100% - var(--scroll-fade-size)),
+      transparent
+    );
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}

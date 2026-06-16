@@ -1,0 +1,205 @@
+syntax = "proto3";
+
+// Native process collector contract (main <- native C++).
+//
+// Modeled for MoStats, not copied from any reference app. The native collector
+// is inspection-only: it enumerates processes and reports raw per-field values
+// with explicit availability, and it never sends signals or performs actions
+// (process actions are main-owned, validated against the latest snapshot, and
+// land in a later iteration). Host-level CPU ticks and system memory totals are
+// deliberately omitted because MoStats already samples those through its own
+// metrics probes; this collector reports only per-process records.
+//
+// Privacy: command-line arguments are sensitive display/search data. The
+// collector returns them for local display and search only - main must never
+// log, persist, export, auto-copy, or transmit them.
+
+// Availability of a native per-process value. UNSPECIFIED is the proto3 default;
+// the other states let main map each field to an explicit renderer status
+// instead of guessing from a zero value.
+enum NativeFieldStatus {
+  NATIVE_FIELD_STATUS_UNSPECIFIED = 0;
+  // Value is present in the matching field.
+  NATIVE_FIELD_STATUS_AVAILABLE = 1;
+  // Value could not be read for an unspecified reason.
+  NATIVE_FIELD_STATUS_UNAVAILABLE = 2;
+  // macOS denied access to this value for this process.
+  NATIVE_FIELD_STATUS_PERMISSION_DENIED = 3;
+  // The process exited before the value could be read.
+  NATIVE_FIELD_STATUS_PROCESS_EXITED = 4;
+  // The current platform/API path does not support this value.
+  NATIVE_FIELD_STATUS_UNSUPPORTED = 5;
+  // Source data was read but could not be parsed safely.
+  NATIVE_FIELD_STATUS_PARSE_FAILED = 6;
+}
+
+// A native string with explicit availability; empty is only real when AVAILABLE.
+message NativeString {
+  NativeFieldStatus status = 1;
+  string value = 2;
+}
+
+// A native signed 64-bit value with explicit availability; zero is only real
+// when AVAILABLE.
+message NativeInt64 {
+  NativeFieldStatus status = 1;
+  int64 value = 2;
+}
+
+// Process identity inputs: PID plus optional start time used by main to build a
+// snapshot-stable identity (a reused PID is disambiguated by start time).
+message NativeProcessIdentity {
+  int32 pid = 1;
+  NativeFieldStatus started_at_status = 2;
+  int64 started_at_unix_ms = 3;
+}
+
+// Sensitive command-line argument data; display/search only (see file comment).
+// Always carried in full: the collector's argv cache avoids the KERN_PROCARGS2
+// syscall, never the payload.
+message NativeCommandLine {
+  // Availability for the argument vector.
+  NativeFieldStatus status = 1;
+  // Parsed argument vector when AVAILABLE. Sensitive: never log/persist/export.
+  repeated string arguments = 2;
+}
+
+// Per-process memory metrics in bytes. Physical footprint is preferred for
+// display; resident is a fallback.
+message NativeProcessMemory {
+  // macOS physical footprint in bytes from proc_pid_rusage.
+  NativeInt64 physical_footprint_bytes = 1;
+  // Resident set size in bytes from PROC_PIDTASKALLINFO (display fallback).
+  NativeInt64 resident_bytes = 2;
+}
+
+// Cumulative per-process CPU time. This is a raw counter that must be diffed
+// across snapshots in main to produce a CPU usage percentage; the collector
+// never computes rates. Main also forwards the cumulative value itself to the
+// renderer as the displayed "CPU time" (total CPU consumed since launch).
+message NativeProcessCpu {
+  // Total user + system CPU time in nanoseconds (PROC_PIDTASKALLINFO).
+  NativeInt64 cumulative_cpu_time_ns = 1;
+}
+
+// The user a process runs as. uid and name share one availability: the uid
+// comes from PROC_PIDTASKALLINFO (pbi_uid) and the name is resolved from it with
+// getpwuid_r; an unmapped uid (no passwd entry) keeps the numeric uid and leaves
+// the name empty.
+message NativeProcessUser {
+  NativeFieldStatus status = 1;
+  // Effective user id when status is AVAILABLE.
+  int32 uid = 2;
+  // Resolved login name (getpwuid_r) when known; empty if the uid has no entry.
+  string name = 3;
+}
+
+// Window-server responsiveness of a GUI app: whether macOS currently marks it
+// "Not Responding" - the same signal behind the beachball, the system Force
+// Quit dialog, and Activity Monitor's red label (an event has sat unserviced
+// in the app's event queue past the system threshold). Read through private
+// CGS symbols resolved at runtime: UNSUPPORTED when this macOS no longer
+// exposes them (the row simply shows no state), UNAVAILABLE when the app has
+// no Process Manager entry. Only set for processes in the NSWorkspace
+// running-apps set; absent for daemons and helpers, which have no
+// window-server connection and therefore no notion of responsiveness.
+message NativeResponsiveness {
+  NativeFieldStatus status = 1;
+  // True when the window server currently marks the app unresponsive. Only
+  // meaningful when status is AVAILABLE.
+  bool unresponsive = 2;
+}
+
+// The application bundle a process belongs to, used to group a multi-process
+// app's members (a browser and its helpers/renderers) into one row. It is the
+// outermost `.app` in the executable path, so the main app process and its
+// helpers - which carry no bundle id of their own - share one bundle. Set for
+// any process whose executable lives inside a `.app`, independent of GUI
+// enrichment; absent for daemons/CLIs with no `.app`.
+message NativeAppBundle {
+  // Absolute path to the owning `.app` bundle (the stable grouping key).
+  NativeString path = 1;
+  // Display name of the bundle (its basename without the `.app` suffix).
+  NativeString name = 2;
+}
+
+// Optional GUI app metadata discovered through NSWorkspace enrichment, plus the
+// owning app bundle (which is set from the executable path for any bundled
+// process, not only GUI-enriched ones).
+message NativeAppMetadata {
+  NativeString bundle_identifier = 1;
+  NativeString localized_name = 2;
+  // Content-hash key of this process's icon, or empty when none was resolved.
+  // The bytes are fetched by key through GetIcons, never carried here.
+  string icon_key = 3;
+  // Owning `.app` bundle for grouping; absent for non-bundled processes.
+  NativeAppBundle bundle = 4;
+}
+
+// One raw native process record. Most fields carry their own availability so a
+// single unreadable field degrades that field rather than the whole record.
+message NativeProcessRecord {
+  // PID + start-time identity inputs.
+  NativeProcessIdentity identity = 1;
+  // Parent PID input for shallow main-side hierarchy context.
+  NativeFieldStatus parent_status = 2;
+  int32 parent_pid = 3;
+  // Short process command name.
+  NativeString command_name = 4;
+  // Executable file name (basename) when derivable.
+  NativeString executable_name = 5;
+  // Absolute executable path when macOS permits access.
+  NativeString executable_path = 6;
+  // Optional GUI app metadata.
+  NativeAppMetadata app = 7;
+  // Sensitive command-line arguments for local display/search only.
+  NativeCommandLine command_line = 8;
+  // Per-process memory metrics.
+  NativeProcessMemory memory = 9;
+  // Cumulative per-process CPU time counter (diffed in main, and forwarded as
+  // the displayed total CPU time).
+  NativeProcessCpu cpu = 10;
+  // Number of threads in the task (PROC_PIDTASKALLINFO pti_threadnum).
+  NativeInt64 thread_count = 11;
+  // The user the process runs as (uid + resolved name).
+  NativeProcessUser user = 12;
+  // Window-server responsiveness; set only for GUI apps (see message comment).
+  NativeResponsiveness responsiveness = 13;
+  // Per-process network is intentionally absent: macOS has no reliable,
+  // non-brittle per-process source, so the collector does not gather it.
+}
+
+// Request to collect the current macOS process list. Empty for now.
+message CollectProcessesRequest {}
+
+// Result of one native collection pass. Main maps these raw records into the
+// renderer ProcessSnapshot, computing per-process CPU deltas, deriving its
+// renderer-facing warnings from the per-field statuses, and applying
+// availability/privacy rules.
+message CollectProcessesResponse {
+  // Whether collection produced a usable process list at all.
+  bool available = 1;
+  // Raw per-process records for main-side mapping.
+  repeated NativeProcessRecord records = 2;
+}
+
+// Request for icon bytes by content key (NativeAppMetadata.icon_key values).
+message GetIconsRequest {
+  repeated string keys = 1;
+}
+
+// Resolved icons by content key: base64-encoded PNG bytes. A key with no cached
+// entry is omitted; the caller falls back to a generic glyph. Volatile
+// display-only data: never logged or persisted.
+message GetIconsResponse {
+  map<string, string> icons = 1;
+}
+
+// Main-to-native process collection API. Inspection-only: no actions here.
+service ProcessCollectorService {
+  // Collects current macOS process records with per-field availability.
+  rpc CollectProcesses(CollectProcessesRequest) returns (CollectProcessesResponse);
+
+  // Returns icon bytes for content keys, served from the session icon cache.
+  rpc GetIcons(GetIconsRequest) returns (GetIconsResponse);
+}

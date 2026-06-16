@@ -1,0 +1,75 @@
+name: Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate
+        run: npm run gen
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  native:
+    name: Native
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate
+        run: npm run gen
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
+          cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_OSX_SYSROOT="${sdk_path}" -B build -S .
+
+      - name: Setup LLVM
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "20"
+
+      - name: Lint native
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang_tidy_version="$(clang-tidy --version)"
+          if [[ "$clang_tidy_version" == *"version 20."* ]]; then
+            run-clang-tidy -checks=-cppcoreguidelines-avoid-const-or-ref-data-members -source-filter='^.*/src/native/(?!gen/).*' -p build
+          else
+            run-clang-tidy -source-filter='^.*/src/native/(?!gen/).*' -p build
+          fi

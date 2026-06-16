@@ -1,0 +1,145 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { processExplorerGateway } from "@/gateway/process-explorer-gateway";
+import {
+  FieldStatus,
+  ProcessActionKind,
+  RunProcessActionResponse_Outcome as Outcome,
+  type ActionState,
+  type ProcessIdentity,
+} from "@/gen/process_explorer";
+import type { ProcessDetail } from "@/domain/process-detail";
+
+interface ProcessActionsState {
+  /** Main's authoritative per-action availability for the current target. */
+  actions: ActionState[];
+  /** True while an action is in flight; the whole row disables. */
+  actionsBusy: boolean;
+  /** Transient, non-sensitive message for an OS refusal / failure. */
+  actionMessage?: string;
+  /**
+   * Forwards an action kind to main, then re-pulls; action states refresh
+   * unless the action terminated the target (the detail navigates away then).
+   */
+  runAction: (kind: ProcessActionKind) => Promise<void>;
+}
+
+/**
+ * Owns the detail's process-action concerns: the action target, its
+ * main-authoritative {@link ActionState} list, the in-flight flag, and the
+ * action runner.
+ */
+export function useProcessActions(
+  detail: ProcessDetail | undefined,
+  onActed: () => Promise<void>,
+  onTerminated: (terminatedPid: number) => void,
+): ProcessActionsState {
+  // The synthetic System group has no single action target (its representative
+  // would be launchd); the view hides the action row, and no states are fetched.
+  const targetPid = detail === undefined || detail.system ? undefined : detail.pid;
+  const targetStartedAt = detail?.startedAt === "ok" ? detail.startedAtUnixMs : undefined;
+  const target = useMemo<ProcessIdentity | undefined>(() => {
+    if (targetPid === undefined) {
+      return undefined;
+    }
+    return {
+      pid: targetPid,
+      startedAtStatus:
+        targetStartedAt === undefined
+          ? FieldStatus.FIELD_STATUS_UNKNOWN
+          : FieldStatus.FIELD_STATUS_OK,
+      startedAtUnixMs: targetStartedAt ?? 0,
+    };
+  }, [targetPid, targetStartedAt]);
+  const targetKey = target ? `${target.pid}:${target.startedAtStatus}:${target.startedAtUnixMs}` : "";
+  const targetKeyRef = useRef(targetKey);
+  targetKeyRef.current = targetKey;
+
+  const [actions, setActions] = useState<ActionState[]>([]);
+  const [actionsBusy, setActionsBusy] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | undefined>(undefined);
+
+  const refreshActionStates = useCallback(async () => {
+    if (!target) {
+      setActions([]);
+      return;
+    }
+    const requestedKey = targetKey;
+    setActions([]);
+    try {
+      const response = await processExplorerGateway.getActionStates(target);
+      // Ignore a response that arrived after the selection moved on.
+      if (targetKeyRef.current === requestedKey) {
+        setActions(response.actions);
+      }
+    } catch {
+      // Keep the row disabled for this target until the next successful fetch.
+      if (targetKeyRef.current === requestedKey) {
+        setActions([]);
+      }
+    }
+  }, [target, targetKey]);
+
+  // Refresh states and clear any prior message whenever the target changes.
+  useEffect(() => {
+    setActionMessage(undefined);
+    void refreshActionStates();
+  }, [refreshActionStates]);
+
+  const runAction = useCallback(
+    async (kind: ProcessActionKind) => {
+      if (!target || actionsBusy) {
+        return;
+      }
+      setActionsBusy(true);
+      setActionMessage(undefined);
+      let terminated = false;
+      try {
+        const response = await processExplorerGateway.runAction(kind, target);
+        terminated =
+          response.outcome === Outcome.OUTCOME_SUCCEEDED &&
+          response.affectedCount > 0 &&
+          (kind === ProcessActionKind.PROCESS_ACTION_KIND_QUIT ||
+            kind === ProcessActionKind.PROCESS_ACTION_KIND_FORCE_QUIT);
+        setActionMessage(actionOutcomeMessage(response.outcome));
+      } catch {
+        // No diagnostic is logged - the target/result can carry process identity.
+        setActionMessage("Action could not be completed.");
+      }
+      // The row stays disabled until the re-pull and state refresh land, so it
+      // can never be clicked for a beat with pre-action states still showing.
+      try {
+        await onActed();
+        if (terminated) {
+          onTerminated(target.pid);
+        } else {
+          await refreshActionStates();
+        }
+      } finally {
+        setActionsBusy(false);
+      }
+    },
+    [target, actionsBusy, onActed, onTerminated, refreshActionStates],
+  );
+
+  return { actions, actionsBusy, actionMessage, runAction };
+}
+
+/**
+ * Maps a coarse action outcome to a short, non-sensitive message for the
+ * detail's action row, or undefined when nothing needs to be said. Only an OS
+ * refusal or an unspecified failure shows a message. The message is derived from
+ * the outcome enum alone - it never includes a process name, path, or argv.
+ */
+function actionOutcomeMessage(outcome: Outcome): string | undefined {
+  switch (outcome) {
+    case Outcome.OUTCOME_NOT_PERMITTED:
+      return "Couldn't quit - this process is owned by the system.";
+    case Outcome.OUTCOME_NOT_ALLOWED:
+      return "This action isn't allowed for this process.";
+    case Outcome.OUTCOME_FAILED:
+      return "Action could not be completed.";
+    default:
+      return undefined;
+  }
+}

@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+
+// Native memory probe (main <- native C++).
+//
+// Node exposes total/free memory, but on macOS that free value does not expose
+// the VM page categories needed to separate reclaimable file cache from memory
+// that is genuinely in use. This probe reads host VM statistics and returns an
+// Activity Monitor-style composition: app + wired + compressed + cached + free
+// sum to total. The grouped used_bytes (app + wired + compressed) and
+// available_bytes are kept for the percentage and headroom math.
+
+message MemoryUsage {
+  // False when VM statistics cannot be read; the sampler degrades only memory
+  // to unavailable.
+  bool available = 1;
+  uint64 total_bytes = 2;
+  // Memory in use after subtracting reclaimable cache: app + wired + compressed.
+  uint64 used_bytes = 3;
+  // Memory available to apps: true free space plus reclaimable cached files.
+  uint64 available_bytes = 4;
+  // Reclaimable file-backed/purgeable memory shown separately from used memory.
+  uint64 cached_bytes = 5;
+  // App (anonymous/private) memory: used_bytes minus wired and compressed.
+  uint64 app_bytes = 6;
+  // Wired (unpageable: kernel, drivers, locked) memory.
+  uint64 wired_bytes = 7;
+  // Compressed (OS-compressed inactive) memory.
+  uint64 compressed_bytes = 8;
+}
+
+service MemoryService {
+  // Reads the current macOS VM memory usage breakdown.
+  rpc ReadUsage(google.protobuf.Empty) returns (MemoryUsage);
+}

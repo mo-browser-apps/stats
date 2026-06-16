@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+
+// Native CPU temperature probe (main <- native C++).
+//
+// No Node API exposes thermal sensors, and macOS has no documented public CPU
+// temperature source on Apple Silicon, so this is best-effort: when no plausible
+// CPU-core reading is available the probe reports available=false rather than a
+// guessed value. See temperature_probe.cc for the sources and decode rules.
+
+// A single CPU temperature reading. Optional by design: temperature is a
+// best-effort metric because public macOS APIs do not guarantee a stable CPU
+// sensor on all Apple Silicon machines.
+message CpuTemperature {
+  // False when no trustworthy CPU sensor could be read; celsius is then 0 and
+  // the sampler degrades only the temperature card to unavailable.
+  bool available = 1;
+  double celsius = 2; // Average CPU core temperature in degrees Celsius.
+}
+
+service TemperatureService {
+  // Reads the current CPU temperature, or reports it unavailable.
+  rpc ReadCpuTemperature(google.protobuf.Empty) returns (CpuTemperature);
+}

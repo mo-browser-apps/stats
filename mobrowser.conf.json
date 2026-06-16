@@ -1,0 +1,60 @@
+{
+  "app": {
+    "name": "MoStats",
+    "version": {
+      "major": "1",
+      "minor": "0",
+      "patch": "0"
+    },
+    "author": "TeamDev",
+    "copyright": "Copyright © 2026 TeamDev",
+    "description": "Compact macOS system resources monitor and process explorer.",
+    "locales": ["en-US"],
+    "trustedOrigins": [],
+    "schemes": [],
+    "bundle": {
+      "macOS": {
+        "icon": "assets/app.icns",
+        "bundleID": "com.teamdev.MoStats",
+        "codesignIdentity": "${MACOS_CODESIGN_IDENTITY}",
+        "codesignKeychain": "${KEYCHAIN_PATH}",
+        "codesignEntitlements": "assets/entitlements.plist",
+        "teamID": "${MACOS_TEAM_ID}",
+        "appleID": "${MACOS_APPLE_ID}",
+        "password": "${MACOS_APPLE_PASSWORD}",
+        "installer": {
+          "dmg": {
+            "name": "",
+            "volumeName": "",
+            "volumeIcon": "assets/app.icns",
+            "eula": "",
+            "window": {
+              "textSize": 14,
+              "skipPrettifying": false,
+              "backgroundImage": "",
+              "position": {
+                "x": 500,
+                "y": 400
+              },
+              "size": {
+                "width": 600,
+                "height": 400
+              },
+              "icon": {
+                "size": 150,
+                "position": {
+                  "x": 160,
+                  "y": 160
+                }
+              },
+              "appDropLink": {
+                "x": 430,
+                "y": 160
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

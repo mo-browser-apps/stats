@@ -1,0 +1,13 @@
+---
+# clang-tidy configuration for the MoStats native module.
+# Keep this focused on correctness checks for the macOS system probes.
+
+Checks: >
+  bugprone-*,
+  clang-analyzer-*,
+  -bugprone-easily-swappable-parameters,
+  -clang-analyzer-nullability.*,
+  -clang-analyzer-optin.osx.cocoa.localizability.NonLocalizedStringChecker
+
+WarningsAsErrors: "*"
+HeaderFilterRegex: "^src/native/(?!gen/).*"

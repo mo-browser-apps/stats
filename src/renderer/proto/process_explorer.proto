@@ -1,0 +1,397 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+
+// Process explorer IPC contract (renderer <-> main).
+//
+// Kept separate from metrics.proto on purpose: command-line arguments are
+// sensitive local debugging data, so the process explorer surface is isolated
+// in its own service/contract that can be gated, tested, and reviewed
+// independently of the always-on metrics stream. Command-line arguments may be
+// displayed, searched locally, and manually copied by the user, but must never
+// be logged, persisted, exported, included in telemetry, or sent over a
+// network - and they must not be echoed back in action results.
+//
+// Delivery shape: main owns the collection cadence/cache and the renderer
+// pulls a cached snapshot with GetProcessSnapshot while subscribing to a
+// lightweight StreamRevisions broadcast (revision id + timestamp only) to learn
+// when a newer snapshot exists. Immutable data never rides snapshots: rows
+// carry content-hash keys (static_key for the per-process ProcessStatics blob,
+// icon_key inside it for icon bytes) and the gateway fetches unknown content
+// once through GetProcessAssets, so each tick ships only the dynamic readings.
+// Actions stay unary because each has an explicit user target validated in
+// main.
+
+// Availability of a single value or group inside a process snapshot. UNKNOWN is
+// the proto3 default and means "not yet determined"; the other states are
+// explicit so the UI can distinguish missing data from a real zero.
+enum FieldStatus {
+  FIELD_STATUS_UNKNOWN = 0;
+  // Value is present and should be read from the matching field.
+  FIELD_STATUS_OK = 1;
+  // Source was tried and could not be read for an unspecified reason.
+  FIELD_STATUS_UNAVAILABLE = 2;
+  // macOS denied access to this value for this process.
+  FIELD_STATUS_PERMISSION_DENIED = 3;
+  // The process exited before the value could be read.
+  FIELD_STATUS_PROCESS_EXITED = 4;
+  // The current platform/source does not support this value.
+  FIELD_STATUS_UNSUPPORTED = 5;
+}
+
+// Overall state of a process snapshot, so the list view can render loading,
+// empty, unavailable, and permission-limited states without faking rows.
+enum SnapshotStatus {
+  SNAPSHOT_STATUS_UNKNOWN = 0;
+  // Collection has not produced a first snapshot yet.
+  SNAPSHOT_STATUS_LOADING = 1;
+  // Snapshot is populated (it may still carry per-row unavailable fields).
+  SNAPSHOT_STATUS_OK = 2;
+  // Collection failed entirely; no usable rows are present.
+  SNAPSHOT_STATUS_UNAVAILABLE = 3;
+  // Collection succeeded but macOS withheld some processes/fields, so the list
+  // is known to be partial.
+  SNAPSHOT_STATUS_PERMISSION_LIMITED = 4;
+}
+
+// A string value with explicit availability; an empty string is only a real
+// value when status is OK.
+message StringValue {
+  FieldStatus status = 1;
+  string value = 2;
+}
+
+// A 64-bit unsigned value with explicit availability; zero is only a real value
+// when status is OK. Used for memory byte counts.
+message UInt64Value {
+  FieldStatus status = 1;
+  uint64 value = 2;
+}
+
+// A per-process CPU usage reading, derived in main from cumulative CPU-time
+// deltas across snapshots. Uses Activity Monitor semantics: CPU time over wall
+// time, NOT divided by core count, so one fully busy core reads ~100% and a
+// multi-threaded process can exceed 100% (capped at cores*100). Carries its own
+// status so a first sample, a restarted process, or an invalid delta renders as
+// unknown/unavailable rather than a fake value.
+message CpuUsage {
+  FieldStatus status = 1;
+  double usage_percent = 2; // >= 0; not capped at 100 (see message comment).
+}
+
+// Total CPU time a process has consumed since launch (user + system),
+// in nanoseconds. This is the cumulative counter main also diffs for CpuUsage,
+// surfaced here as a display value: unlike the instantaneous percent it does not
+// reset to UNKNOWN on a first sample, so it is shown as soon as it is read.
+message CpuTime {
+  FieldStatus status = 1;
+  uint64 nanos = 2;
+}
+
+// Window-server responsiveness of a GUI app: OK with unresponsive=true means
+// macOS currently marks the app "Not Responding" - the same state behind the
+// beachball and the system Force Quit dialog. Absent on rows for daemons,
+// helpers, and CLIs, which have no window-server connection and therefore no
+// notion of responsiveness; UNSUPPORTED when the OS does not expose the
+// signal. Per-tick dynamic state, deliberately NOT part of ProcessStatics: a
+// hang flips tick to tick and must not mint a new statics key.
+message Responsiveness {
+  FieldStatus status = 1;
+  // True when the app is currently marked unresponsive. Only meaningful when
+  // status is OK.
+  bool unresponsive = 2;
+}
+
+// The user a process runs as. uid and name share one availability; an unmapped
+// uid keeps the numeric value with an empty name. Useful for telling a user
+// process from a root/system daemon, and explains why a Quit can be refused by
+// the OS (a process owned by another user returns EPERM).
+message ProcessUser {
+  FieldStatus status = 1;
+  // Effective user id when status is OK.
+  int32 uid = 2;
+  // Resolved login name when known; empty if the uid has no passwd entry.
+  string name = 3;
+}
+
+// Per-process memory. Physical footprint is the primary display value when
+// macOS permits reading it; resident size is a fallback display metric.
+message ProcessMemory {
+  // macOS physical footprint in bytes (proc_pid_rusage) when available.
+  UInt64Value physical_footprint_bytes = 1;
+  // Resident set size in bytes (PROC_PIDTASKALLINFO) as a display fallback.
+  UInt64Value resident_bytes = 2;
+}
+
+// The application bundle a process belongs to, used by the list to group a
+// multi-process app's members (a browser and its helpers) into one row. It is
+// the outermost `.app` in the executable path, so helpers - which carry no
+// bundle id of their own - group with the main app process. Present for any
+// process inside a `.app`; absent for daemons/CLIs.
+message AppBundle {
+  // Absolute path to the owning `.app` bundle (the stable grouping key).
+  StringValue path = 1;
+  // Display name of the bundle (its basename without the `.app` suffix).
+  StringValue name = 2;
+}
+
+// Optional GUI application metadata discovered through NSWorkspace, plus the
+// owning app bundle for grouping. The icon is volatile display-only data: it
+// must not be logged or persisted.
+message AppMetadata {
+  // Application bundle identifier (e.g. com.apple.dt.Xcode) when found.
+  StringValue bundle_identifier = 1;
+  // User-facing localized application name when found.
+  StringValue localized_name = 2;
+  // Owning `.app` bundle for grouping; absent for non-bundled processes.
+  AppBundle bundle = 3;
+  // Content-hash key of this process's icon, or empty when none. The gateway
+  // fetches unknown keys through GetProcessAssets and assembles
+  // ProcessSnapshot.icons locally. Volatile display-only data.
+  string icon_key = 4;
+}
+
+// Sensitive command-line arguments for one process. Display/search data only:
+// never logged, persisted, exported, auto-copied, or sent over a network.
+message CommandLine {
+  // Availability for the argument vector (UNAVAILABLE / PERMISSION_DENIED /
+  // PROCESS_EXITED when it cannot be read).
+  FieldStatus status = 1;
+  // Parsed argument vector when status is OK. Sensitive; see message comment.
+  repeated string arguments = 2;
+}
+
+// Stable identity for one process: PID plus an optional start time. Start time
+// disambiguates a reused PID, which is why actions validate against it; main
+// uses (pid, started_at) as the snapshot-stable identity for action targeting.
+message ProcessIdentity {
+  // OS PID observed during collection.
+  int32 pid = 1;
+  // Availability for started_at_unix_ms.
+  FieldStatus started_at_status = 2;
+  // Process start time in Unix milliseconds when available.
+  int64 started_at_unix_ms = 3;
+}
+
+// The fields of one process that are fixed for the life of its process image:
+// parent, names, paths, app metadata, command line, and owner. Shipped once per
+// distinct content under a content-hash key (ProcessRow.static_key) and joined
+// back onto rows by the renderer gateway. Any change (e.g. an exec) produces
+// new bytes and therefore a new key, so a held blob can never be stale.
+// Contains the sensitive command line; see the file comment. Fields carry their
+// own availability so a single unreadable field degrades that field only.
+message ProcessStatics {
+  // Parent PID for shallow hierarchy context; status NOT readable -> UNAVAILABLE.
+  FieldStatus parent_status = 1;
+  int32 parent_pid = 2;
+  // Short process command name from macOS.
+  StringValue command_name = 3;
+  // Executable file name (basename of the path or command name).
+  StringValue executable_name = 4;
+  // Absolute executable path when macOS permits access; also drives reveal.
+  StringValue executable_path = 5;
+  // Optional GUI app metadata (bundle id, localized name, icon).
+  AppMetadata app = 6;
+  // Sensitive command-line arguments for display/search/manual copy only.
+  CommandLine command_line = 7;
+  // The user the process runs as (uid + resolved name).
+  ProcessUser user = 8;
+}
+
+// One process row in a snapshot: the per-tick dynamic readings plus the
+// content-hash key of the row's immutable {@link ProcessStatics}.
+message ProcessRow {
+  // PID + start-time identity used for selection and action targeting.
+  ProcessIdentity identity = 1;
+  // Content-hash key of this row's ProcessStatics, resolved through
+  // GetProcessAssets into `statics` below.
+  string static_key = 2;
+  // Per-process memory (physical footprint, resident fallback).
+  ProcessMemory memory = 3;
+  // Per-process CPU usage percent, computed in main from CPU-time deltas.
+  CpuUsage cpu = 4;
+  // Number of threads in the process.
+  UInt64Value thread_count = 5;
+  // Total CPU time consumed since launch (cumulative; see CpuTime).
+  CpuTime cpu_time = 6;
+  // Window-server responsiveness; absent for processes with no window-server
+  // connection (see Responsiveness).
+  Responsiveness responsiveness = 7;
+  // The joined statics for this row. Main always sends this UNSET over the
+  // wire (each distinct blob ships once through GetProcessAssets); the renderer
+  // gateway joins its content-addressed store back in before presentation code
+  // sees the row - the same local-assembly contract as ProcessSnapshot.icons.
+  ProcessStatics statics = 8;
+}
+
+// A point-in-time list of processes. The renderer pulls this with
+// GetProcessSnapshot; the revision increments whenever main produces a newer
+// snapshot so the renderer can pull only when something changed.
+message ProcessSnapshot {
+  // Overall snapshot state (loading/ok/unavailable/permission-limited).
+  SnapshotStatus status = 1;
+  // Monotonic revision id; 0 before the first snapshot. The renderer uses this
+  // to ignore out-of-order snapshot pulls.
+  uint64 revision = 2;
+  // Epoch milliseconds when this snapshot was produced in main.
+  int64 timestamp_ms = 3;
+  // Process rows. Empty for loading/unavailable states.
+  repeated ProcessRow processes = 4;
+  // Base64 PNG app icons for this snapshot, keyed by content hash; a row
+  // resolves its icon by looking its statics' AppMetadata.icon_key up here.
+  // Main always sends this EMPTY over the wire: the renderer gateway assembles
+  // it locally from its content-addressed icon store, fetching unknown keys
+  // through GetProcessAssets, before presentation code sees the snapshot.
+  // Volatile display-only data: never logged or persisted.
+  map<string, string> icons = 5;
+}
+
+// Request for content-addressed assets the renderer does not hold yet: statics
+// blobs by ProcessRow.static_key and icon bytes by AppMetadata.icon_key. The
+// gateway fetches the statics a snapshot pull revealed first, then any icon
+// keys those statics reference; both kinds can ride one request.
+message GetProcessAssetsRequest {
+  repeated string static_keys = 1;
+  repeated string icon_keys = 2;
+}
+
+// Resolved assets by content key; icons are base64-encoded PNG bytes. A
+// requested key with no entry is omitted (its process exited between ticks, or
+// the icon could not be resolved); the affected row degrades honestly for one
+// tick and the next pull retries. Content-addressed, so a returned value can
+// never be stale. Sensitive/volatile display data: never logged or persisted.
+message GetProcessAssetsResponse {
+  map<string, ProcessStatics> statics = 1;
+  map<string, string> icons = 2;
+}
+
+// A lightweight notification that a new snapshot revision exists. Deliberately
+// tiny (no rows) so it is cheap to broadcast on the collection cadence; the
+// renderer pulls the full snapshot with GetProcessSnapshot when the revision
+// advances.
+message ProcessSnapshotRevision {
+  uint64 revision = 1;
+  int64 timestamp_ms = 2;
+  // Mirrors ProcessSnapshot.status so the UI can show loading/unavailable
+  // without an extra pull.
+  SnapshotStatus status = 3;
+}
+
+// Request for the current revision stream. Empty for now.
+message StreamRevisionsRequest {}
+
+// The destructive/navigational actions the detail view exposes. Reveal opens
+// the executable in Finder; Quit sends SIGTERM; Force Quit sends SIGKILL. All
+// are validated and executed in main (I14); never run directly from renderer
+// state.
+enum ProcessActionKind {
+  PROCESS_ACTION_KIND_UNSPECIFIED = 0;
+  PROCESS_ACTION_KIND_REVEAL = 1;
+  PROCESS_ACTION_KIND_QUIT = 2;
+  PROCESS_ACTION_KIND_FORCE_QUIT = 3;
+}
+
+// Why an action is unavailable for a target, so the UI can disable a control
+// with an honest reason instead of letting an invalid action be attempted.
+enum ActionDisabledReason {
+  ACTION_DISABLED_REASON_UNSPECIFIED = 0;
+  // The action is currently allowed.
+  ACTION_DISABLED_REASON_NONE = 1;
+  // Reveal requires an executable path that is not available for this target.
+  ACTION_DISABLED_REASON_NO_PATH = 2;
+  // The target is MoStats itself; self-termination is not allowed.
+  ACTION_DISABLED_REASON_SELF = 3;
+  // The target is a session-critical process whose termination would destabilize
+  // the macOS session (e.g. PID 0/1, kernel_task, launchd, WindowServer,
+  // loginwindow). Ordinary apps - including Apple's bundled apps like Notes - are
+  // NOT protected; only a small hardcoded denylist of critical processes is.
+  ACTION_DISABLED_REASON_PROTECTED = 4;
+  // The target no longer matches the latest snapshot (exited / reused PID).
+  ACTION_DISABLED_REASON_STALE = 5;
+  // Quit/Force Quit require a known start time so PID reuse cannot hit another
+  // process. Reveal can still be allowed because it only opens Finder.
+  ACTION_DISABLED_REASON_UNSTABLE_IDENTITY = 6;
+}
+
+// Whether one action kind is currently available for a target.
+message ActionState {
+  ProcessActionKind kind = 1;
+  bool enabled = 2;
+  // Why it is disabled when enabled is false; NONE when enabled.
+  ActionDisabledReason disabled_reason = 3;
+}
+
+// Request the current per-action availability for one target, validated against
+// the latest snapshot in main.
+message GetProcessActionStatesRequest {
+  // Target process identity (pid + start time).
+  ProcessIdentity target = 1;
+}
+
+// Per-action availability for one target.
+message GetProcessActionStatesResponse {
+  // True when the target still matches the latest snapshot.
+  bool target_valid = 1;
+  repeated ActionState actions = 2;
+}
+
+// Run one action against one target. Main re-validates against the latest
+// snapshot and applies self/critical/stale protections before acting.
+message RunProcessActionRequest {
+  ProcessActionKind action = 1;
+  // Target process identity (pid + start time).
+  ProcessIdentity target = 2;
+}
+
+// Result of an attempted action. Outcome is a coarse status with no sensitive
+// detail; results are count-only and never include OS diagnostics, command
+// lines, executable paths, process names, or bundle identifiers.
+message RunProcessActionResponse {
+  enum Outcome {
+    OUTCOME_UNSPECIFIED = 0;
+    OUTCOME_SUCCEEDED = 1;
+    // The target did not match the latest snapshot (exited / reused PID).
+    OUTCOME_STALE_TARGET = 2;
+    // The action is not allowed for this target (self/system/protected).
+    OUTCOME_NOT_ALLOWED = 3;
+    // The user declined the confirmation (or one was already showing);
+    // nothing was signaled.
+    OUTCOME_CANCELED = 4;
+    // The action failed for an unspecified, non-sensitive reason.
+    OUTCOME_FAILED = 5;
+    // The OS refused the signal because the process is owned by another user
+    // (typically a root-owned daemon); an unprivileged signal returns EPERM.
+    // MoStats does not escalate privileges, so this is reported, not retried.
+    OUTCOME_NOT_PERMITTED = 6;
+  }
+  Outcome outcome = 1;
+  // Number of processes the action affected (e.g. 1 for a single target, or a
+  // group count later). No sensitive text.
+  int32 affected_count = 2;
+}
+
+// Renderer-to-main process explorer service. Snapshot reads are a cached unary
+// pull plus a lightweight revision broadcast; actions are unary with explicit
+// per-target validation.
+service ProcessExplorerService {
+  // Returns the latest cached process snapshot, or an explicit
+  // loading/unavailable state. Main owns the collection cadence and cache.
+  rpc GetProcessSnapshot(google.protobuf.Empty) returns (ProcessSnapshot);
+
+  // Broadcasts a lightweight revision ping whenever a newer snapshot exists, so
+  // the renderer can pull only on change instead of polling.
+  rpc StreamRevisions(StreamRevisionsRequest) returns (stream ProcessSnapshotRevision);
+
+  // Returns content-addressed assets for keys the renderer does not hold.
+  // Statics are served from the latest two snapshot generations in main (two,
+  // so a fetch racing the next tick still resolves); icons pass through to the
+  // native collector's session icon cache.
+  rpc GetProcessAssets(GetProcessAssetsRequest) returns (GetProcessAssetsResponse);
+
+  // Returns per-action availability for one target, validated against the
+  // latest snapshot.
+  rpc GetProcessActionStates(GetProcessActionStatesRequest) returns (GetProcessActionStatesResponse);
+
+  // Runs one validated action against one target.
+  rpc RunProcessAction(RunProcessActionRequest) returns (RunProcessActionResponse);
+}
