@@ -389,7 +389,7 @@ function Members({
 
       <DisclosureContent open={expanded}>
         <ul
-          className="scrollbar-hidden flex max-h-72 flex-col gap-0.5 overflow-y-auto"
+          className="scrollbar-hidden mt-1.5 flex max-h-72 flex-col gap-0.5 overflow-y-auto"
           onPointerOver={() => setPointerInside(true)}
           onPointerLeave={() => setPointerInside(false)}
           onFocusCapture={() => setFocusInside(true)}
