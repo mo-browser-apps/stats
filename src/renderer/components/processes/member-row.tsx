@@ -30,7 +30,7 @@ export const MemberRow = memo(
         title={`${member.name} - PID ${member.pid}`}
         className={cn(
           "flex h-9 w-full items-center gap-2.5 rounded-md pr-1 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
-          indented ? "pl-8" : "pl-2",
+          indented ? "pl-6" : "pl-2",
         )}
       >
         <ProcessIcon iconPngBase64={member.iconPngBase64} name={member.name} />
