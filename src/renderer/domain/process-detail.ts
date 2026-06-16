@@ -191,6 +191,7 @@ function detailUser(row: ProcessRow): DetailField {
   return { state: missingState(user?.status) };
 }
 
+/** Projects one process row into a member display item under the active sort. */
 export function buildMember(row: ProcessRow, sort: SortMode, icons: IconTable): DetailMember {
   const cell = rowMetric(row, sort);
   const metricState = cellState(cell);
@@ -205,12 +206,6 @@ export function buildMember(row: ProcessRow, sort: SortMode, icons: IconTable): 
   };
 }
 
-/**
- * Projects a selected {@link ProcessGroup} into its display model. Identity,
- * path, argv, and started-at come from the representative (the row the
- * collapsed list shows); CPU/memory/threads/CPU-time are summed across all
- * members so a grouped app reports its whole footprint.
- */
 /**
  * A group's members as display rows ranked by the active metric (descending),
  * with a PID tie-break so equal-value rows (e.g. idle 0.00% members) stay
@@ -228,6 +223,12 @@ export function rankMembers(group: ProcessGroup, sort: SortMode, icons: IconTabl
     .map((row) => buildMember(row, sort, icons));
 }
 
+/**
+ * Projects a selected {@link ProcessGroup} into its display model. Identity,
+ * path, argv, and started-at come from the representative (the row the
+ * collapsed list shows); CPU/memory/threads/CPU-time are summed across all
+ * members so a grouped app reports its whole footprint.
+ */
 export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: IconTable): ProcessDetail {
   const representative = group.members[0];
   const statics = representative.statics;

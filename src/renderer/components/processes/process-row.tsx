@@ -17,10 +17,12 @@ import {
 
 /**
  * One fixed-height process row: app icon, name, an optional "+N" grouped-child
- * badge, and the right-aligned active metric. The whole row is a button
- * opening the detail view. An app macOS marks Not Responding gets its name in
- * the destructive color plus a matching badge (Activity Monitor's convention),
- * since a hung app often shows nothing abnormal in CPU or memory.
+ * badge, and the right-aligned active metric. The row body is a button opening
+ * the detail view; a grouped row also carries a leading chevron that expands
+ * its member processes inline (ranked, and held in place while the list is
+ * pinned). An app macOS marks Not Responding gets its name in the destructive
+ * color plus a matching badge (Activity Monitor's convention), since a hung app
+ * often shows nothing abnormal in CPU or memory.
  */
 export const ProcessRow = memo(function ProcessRow({
   group,

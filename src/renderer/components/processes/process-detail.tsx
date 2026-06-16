@@ -343,8 +343,8 @@ function ScrollableValue({
 /**
  * The expandable Members section for a multi-process app. The disclosure
  * header carries the group's selected-metric total on the right; toggling it
- * reveals the member processes (representative first), each drillable into
- * its own detail. Starts expanded; scrolls within a bounded box.
+ * reveals the member processes (ranked by the active metric), each drillable
+ * into its own detail. Starts expanded; scrolls within a bounded box.
  */
 function Members({
   members: rankedMembers,
