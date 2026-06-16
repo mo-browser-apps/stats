@@ -151,21 +151,25 @@ function areGroupsEqual(
 ): boolean {
   const a = previous.group;
   const b = next.group;
-  return (
-    previous.expanded === next.expanded &&
-    previous.pinned === next.pinned &&
-    a.key === b.key &&
-    a.name === b.name &&
-    a.iconPngBase64 === b.iconPngBase64 &&
-    a.system === b.system &&
-    a.childCount === b.childCount &&
-    a.memberCount === b.memberCount &&
-    a.metricState === b.metricState &&
-    a.metricText === b.metricText &&
-    a.notResponding === b.notResponding &&
-    membersEqual(a.members, b.members) &&
-    areSelectionsEqual(a.openSelection, b.openSelection)
-  );
+  if (
+    previous.expanded !== next.expanded ||
+    a.key !== b.key ||
+    a.name !== b.name ||
+    a.iconPngBase64 !== b.iconPngBase64 ||
+    a.system !== b.system ||
+    a.childCount !== b.childCount ||
+    a.memberCount !== b.memberCount ||
+    a.metricState !== b.metricState ||
+    a.metricText !== b.metricText ||
+    a.notResponding !== b.notResponding ||
+    !areSelectionsEqual(a.openSelection, b.openSelection)
+  ) {
+    return false;
+  }
+  if (!next.expanded) {
+    return true;
+  }
+  return previous.pinned === next.pinned && membersEqual(a.members, b.members);
 }
 
 /** Member identity/metric comparison so an expanded row re-renders on changes. */
