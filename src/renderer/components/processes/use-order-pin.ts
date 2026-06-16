@@ -18,21 +18,20 @@ export function useOrderPin<Item, Key>(
   active: boolean,
   resetKey?: unknown,
 ): Item[] {
-  // The identity order last shown; the baseline a pinned tick replays.
   const pinnedKeys = useRef<Key[]>([]);
-  // Held in a ref so the reorder never re-runs merely because the reader's
-  // identity changed - only `ranked`/`active` should drive it.
   const getKeyRef = useRef(getKey);
   getKeyRef.current = getKey;
 
-  useEffect(() => {
+  const lastResetKey = useRef(resetKey);
+  if (resetKey !== lastResetKey.current) {
+    lastResetKey.current = resetKey;
     pinnedKeys.current = [];
-  }, [resetKey]);
+  }
 
-  const ordered = useMemo(
-    () => (active ? pinOrder(ranked, getKeyRef.current, pinnedKeys.current) : ranked),
-    [active, ranked],
-  );
+  const ordered = useMemo(() => {
+    void resetKey;
+    return active ? pinOrder(ranked, getKeyRef.current, pinnedKeys.current) : ranked;
+  }, [active, ranked, resetKey]);
 
   useEffect(() => {
     pinnedKeys.current = ordered.map(getKeyRef.current);
