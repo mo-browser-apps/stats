@@ -6,6 +6,7 @@ import {
   findGroupByKey,
   isPending,
   okString,
+  pinOrder,
   projectProcessList,
   resolveSelection,
   rowCpu,
@@ -183,6 +184,60 @@ describe("projectProcessList - sorting", () => {
     const groups = projectProcessList(makeSnapshot(rows), "cpu", "");
     expect(groups.map((g) => g.name)).toEqual(["zeta", "alpha"]);
     expect(groups.every((g) => g.metricState === "pending")).toBe(true);
+  });
+});
+
+describe("pinOrder", () => {
+  // Simple keyed items stand in for the ranked rows/groups the list pins: each
+  // tick rebuilds them with fresh `value`s, while the pinned key order holds.
+  interface Item {
+    key: string;
+    value: number;
+  }
+  const item = (key: string, value: number): Item => ({ key, value });
+  const keyOf = (it: Item) => it.key;
+
+  it("replays the pinned identity order over a re-ranked list, keeping fresh values", () => {
+    const pinned = ["a", "b", "c"];
+    // Fresh tick ranked c-first, but the pinned order must win.
+    const ranked = [item("c", 90), item("a", 10), item("b", 20)];
+
+    const result = pinOrder(ranked, keyOf, pinned);
+
+    expect(result.map(keyOf)).toEqual(["a", "b", "c"]);
+    // The items are the fresh ones - only the order is held, not the values.
+    expect(result.map((it) => it.value)).toEqual([10, 20, 90]);
+  });
+
+  it("appends new keys after the pinned ones, in their ranked order", () => {
+    const pinned = ["a", "b"];
+    // d and c are new arrivals; d outranks c but both go below the pinned rows.
+    const ranked = [item("d", 95), item("b", 20), item("c", 50), item("a", 10)];
+
+    const result = pinOrder(ranked, keyOf, pinned);
+
+    expect(result.map(keyOf)).toEqual(["a", "b", "d", "c"]);
+  });
+
+  it("drops vanished pinned keys without leaving a gap", () => {
+    const pinned = ["a", "b", "c"];
+    // b vanished this tick; a and c keep their relative pinned order.
+    const ranked = [item("c", 30), item("a", 10)];
+
+    expect(pinOrder(ranked, keyOf, pinned).map(keyOf)).toEqual(["a", "c"]);
+  });
+
+  it("returns the input unchanged when nothing is pinned", () => {
+    const ranked = [item("a", 50), item("b", 40)];
+    expect(pinOrder(ranked, keyOf, [])).toBe(ranked);
+  });
+
+  it("appends and drops together: vanished key gone, new key after the pinned ones", () => {
+    const pinned = ["a", "b", "c"];
+    // b exited; d arrived at the top of the ranking.
+    const ranked = [item("d", 95), item("a", 10), item("c", 30)];
+
+    expect(pinOrder(ranked, keyOf, pinned).map(keyOf)).toEqual(["a", "c", "d"]);
   });
 });
 
