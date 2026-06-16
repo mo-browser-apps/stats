@@ -255,3 +255,26 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: I
     notResponding: group.notResponding,
   };
 }
+
+/**
+ * Reorders members to match a previously rendered PID order, so the Members
+ * list can pin row positions while the pointer or focus is inside it (a live
+ * re-rank would move rows between aiming and clicking). Mirrors
+ * {@link pinGroupOrder}: only the order is held; member objects and their
+ * values are the fresh ones, new PIDs append, vanished PIDs drop out.
+ */
+export function pinMemberOrder(members: DetailMember[], pinnedPids: number[]): DetailMember[] {
+  if (pinnedPids.length === 0) {
+    return members;
+  }
+
+  const rankByPid = new Map(pinnedPids.map((pid, index) => [pid, index] as const));
+  const pinned: DetailMember[] = [];
+  const fresh: DetailMember[] = [];
+  for (const member of members) {
+    (rankByPid.has(member.pid) ? pinned : fresh).push(member);
+  }
+  pinned.sort((left, right) => (rankByPid.get(left.pid) ?? 0) - (rankByPid.get(right.pid) ?? 0));
+
+  return [...pinned, ...fresh];
+}

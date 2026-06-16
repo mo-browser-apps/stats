@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Clock, Cpu, User } from "lucide-react";
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import { UNAVAILABLE_TEXT, formatStartTime } from "@/lib/format";
@@ -10,6 +10,7 @@ import { ScrollFade } from "@/components/processes/scroll-fade";
 import { ProcessIcon } from "@/components/processes/process-icon";
 import { ProcessSortControl } from "@/components/processes/process-sort-control";
 import { metricValueText, type SortMode } from "@/domain/process-list";
+import { pinMemberOrder } from "@/domain/process-detail";
 import type {
   DetailField,
   DetailMember,
@@ -150,6 +151,7 @@ export function ProcessDetailView({
             members={detail.members}
             memberCount={detail.memberCount}
             total={detail.total}
+            resetKey={`${detail.pid}:${detail.totalSort}`}
             onOpenMember={onOpenMember}
           />
         ) : (
@@ -343,17 +345,38 @@ function ScrollableValue({
  * its own detail. Starts expanded; scrolls within a bounded box.
  */
 function Members({
-  members,
+  members: rankedMembers,
   memberCount,
   total,
+  resetKey,
   onOpenMember,
 }: {
   members: DetailMember[]
   memberCount: number
   total: DetailField
+  /** Changes when the drilled target or sort changes, dropping any stale pin. */
+  resetKey: string
   onOpenMember: (pid: number, startedAtUnixMs?: number) => void
 }) {
   const [expanded, setExpanded] = useState(true);
+  const [pointerInside, setPointerInside] = useState(false);
+  const [focusInside, setFocusInside] = useState(false);
+  // The PID order last shown; the baseline the next pinned tick replays.
+  const pinnedPids = useRef<number[]>([]);
+
+  useEffect(() => {
+    pinnedPids.current = [];
+  }, [resetKey]);
+
+  const pinActive = pointerInside || focusInside;
+  const members = useMemo(
+    () => (pinActive ? pinMemberOrder(rankedMembers, pinnedPids.current) : rankedMembers),
+    [pinActive, rankedMembers],
+  );
+
+  useEffect(() => {
+    pinnedPids.current = members.map((member) => member.pid);
+  }, [members]);
 
   return (
     <section className="flex flex-col border-t border-border/60 pt-1.5">
@@ -378,7 +401,17 @@ function Members({
       </button>
 
       <DisclosureContent open={expanded}>
-        <ul className="scrollbar-hidden flex max-h-72 flex-col gap-0.5 overflow-y-auto">
+        <ul
+          className="scrollbar-hidden flex max-h-72 flex-col gap-0.5 overflow-y-auto"
+          onPointerOver={() => setPointerInside(true)}
+          onPointerLeave={() => setPointerInside(false)}
+          onFocusCapture={() => setFocusInside(true)}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              setFocusInside(false);
+            }
+          }}
+        >
           {members.map((member) => (
             <li key={member.pid}>
               <MemberRow member={member} onOpen={onOpenMember} />
