@@ -7,6 +7,7 @@ import { ProcessList } from "@/components/processes/process-list";
 import { ProcessSearchField } from "@/components/processes/process-search-field";
 import { ProcessSortControl } from "@/components/processes/process-sort-control";
 import { useProcessActions } from "@/components/processes/use-process-actions";
+import { useProcessHistories } from "@/components/processes/use-process-histories";
 import {
   projectProcessList,
   resolveSelection,
@@ -122,6 +123,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     return undefined;
   }, [snapshot, sort, selectionStack]);
 
+  const readHistory = useProcessHistories(snapshot);
   const { actions, actionsBusy, actionMessage, runAction } = useProcessActions(
     detail,
     pull,
@@ -162,6 +164,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
         <ProcessDetailView
           key={detail.key}
           detail={detail}
+          history={readHistory(detail.key, sort).history}
           sort={sort}
           actions={actions}
           actionsBusy={actionsBusy}

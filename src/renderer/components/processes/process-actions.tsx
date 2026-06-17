@@ -33,12 +33,11 @@ export function ProcessActions({
 
   return (
     <div className="flex flex-col gap-2 border-t border-border/60 pt-3">
-      <p
-        className={cn("min-h-4 text-[11px] text-muted-foreground", message ? undefined : "invisible")}
-        role="status"
-      >
-        {message}
-      </p>
+      {message ? (
+        <p className="text-[11px] text-muted-foreground" role="status">
+          {message}
+        </p>
+      ) : null}
       <div className="flex items-center gap-2">
         <ActionButton
           label="Open"

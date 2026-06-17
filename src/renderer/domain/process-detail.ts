@@ -92,6 +92,8 @@ export interface ProcessDetail {
   user: DetailField;
   /** The group's total for the selected metric, with detail precision. */
   total: DetailField;
+  /** Raw active-metric total for the trend graph. */
+  totalValue: number | null;
   /** Which metric {@link total} reflects, for the "Total CPU"/"Total RAM" label. */
   totalSort: SortMode;
   memberCount: number;
@@ -164,6 +166,20 @@ function sumGroup(
     return { state: "ok", text: format(sum) };
   }
   return { state: anyPending ? "pending" : "unavailable" };
+}
+
+/** Raw counterpart to {@link sumGroup}; `null` means the graph should draw a gap. */
+function sumGroupValue(members: ProcessRow[], read: (row: ProcessRow) => MetricCell): number | null {
+  let sum = 0;
+  let hasValue = false;
+  for (const row of members) {
+    const value = read(row).value;
+    if (value !== undefined) {
+      sum += value;
+      hasValue = true;
+    }
+  }
+  return hasValue ? sum : null;
 }
 
 function rowThreadCount(row: ProcessRow): MetricCell {
@@ -260,6 +276,7 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: I
     cpuTime: sumGroup(group.members, rowCpuTime, formatCpuTime),
     user: detailUser(representative),
     total: sumGroup(group.members, read, (value) => formatDetailMetric(value, sort)),
+    totalValue: sumGroupValue(group.members, read),
     totalSort: sort,
     memberCount: group.memberCount,
     members,

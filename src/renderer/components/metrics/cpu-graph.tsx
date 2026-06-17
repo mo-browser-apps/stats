@@ -3,11 +3,11 @@ import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { cn } from "@/lib/utils";
 import type { MetricState } from "@/domain/metric-view";
 import { areaRuns } from "@/domain/area-path";
-import { HISTORY_CAPACITY, sampleIndexAtFraction } from "@/domain/sample-history";
+import { HISTORY_CAPACITY, sampleIndexAtFraction, type HistorySample } from "@/domain/sample-history";
 import { AreaLayer, Baseline, ScrubBand } from "@/components/metrics/area-layer";
 
-/** A 0-100 percent reading, or `null` for a tick whose reading was not OK. */
-export type CpuSample = number | null;
+/** A CPU percent reading, or `null` for a tick whose reading was not OK. */
+export type CpuSample = HistorySample;
 
 const FILL_BY_STATE: Record<MetricState, string> = {
   ok: "text-success",

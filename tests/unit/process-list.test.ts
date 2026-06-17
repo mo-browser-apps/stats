@@ -15,6 +15,7 @@ import {
   rowMetric,
   rowNotResponding,
   rowPid,
+  sampleMetricsByKey,
   singleProcessGroup,
   SYSTEM_GROUP_KEY,
 } from "@/domain/process-list";
@@ -471,5 +472,37 @@ describe("projectProcessList - System group", () => {
     expect(resolved?.memberCount).toBe(3);
     // Representative is the lowest PID, but the display identity stays "System".
     expect(resolved?.name).toBe("System");
+  });
+});
+
+describe("sampleMetricsByKey", () => {
+  it("sums a group's members under the group key, with per-member identity keys", () => {
+    const rows = [
+      makeRow({ pid: 100, bundlePath: "/Applications/Chrome.app", startedAtUnixMs: 1, cpuPercent: 4, footprintBytes: 300 * MB }),
+      makeRow({ pid: 200, bundlePath: "/Applications/Chrome.app", startedAtUnixMs: 2, cpuPercent: 8, footprintBytes: 150 * MB }),
+    ];
+    const samples = sampleMetricsByKey(makeSnapshot(rows));
+
+    expect(samples.get("app:/Applications/Chrome.app")).toEqual({ cpu: 12, memory: 450 * MB });
+    expect(samples.get("pid:100:1")).toEqual({ cpu: 4, memory: 300 * MB });
+    expect(samples.get("pid:200:2")).toEqual({ cpu: 8, memory: 150 * MB });
+  });
+
+  it("keys an ungrouped process once (group key == identity)", () => {
+    const rows = [makeRow({ pid: 321, commandName: "tool", startedAtUnixMs: 5, cpuPercent: 7, footprintBytes: 20 * MB })];
+    const samples = sampleMetricsByKey(makeSnapshot(rows));
+
+    expect(samples.get("pid:321:5")).toEqual({ cpu: 7, memory: 20 * MB });
+    expect(samples.size).toBe(1);
+  });
+
+  it("records an unreadable metric as null, not a fabricated 0", () => {
+    const rows = [
+      makeRow({ pid: 10, commandName: "x", startedAtUnixMs: 1, cpuStatus: FieldStatus.FIELD_STATUS_UNAVAILABLE, footprintBytes: 5 * MB }),
+    ];
+    const sample = sampleMetricsByKey(makeSnapshot(rows)).get("pid:10:1");
+
+    expect(sample?.cpu).toBeNull();
+    expect(sample?.memory).toBe(5 * MB);
   });
 });

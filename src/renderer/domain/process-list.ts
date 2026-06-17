@@ -493,6 +493,42 @@ export function projectProcessList(
   return groups.slice(0, DISPLAY_LIMIT);
 }
 
+/** Raw CPU/memory readings for one graph tick; `null` draws as a gap. */
+export interface MetricSample {
+  cpu: number | null;
+  memory: number | null;
+}
+
+function addSample(current: number | null, cell: MetricCell): number | null {
+  if (cell.value === undefined) {
+    return current;
+  }
+  return (current ?? 0) + cell.value;
+}
+
+/** Samples graph values under the same keys {@link resolveSelection} uses. */
+export function sampleMetricsByKey(snapshot: ProcessSnapshot): Map<string, MetricSample> {
+  const samples = new Map<string, MetricSample>();
+
+  const fold = (key: string, row: ProcessRow) => {
+    const existing = samples.get(key);
+    const cpu = addSample(existing?.cpu ?? null, rowCpu(row));
+    const memory = addSample(existing?.memory ?? null, rowMemory(row));
+    samples.set(key, { cpu, memory });
+  };
+
+  for (const row of snapshot.processes) {
+    const groupKeyValue = rowGroupKey(row);
+    fold(groupKeyValue, row);
+    const identityKey = rowIdentityKey(row);
+    if (identityKey !== groupKeyValue) {
+      fold(identityKey, row);
+    }
+  }
+
+  return samples;
+}
+
 /**
  * Reorders freshly ranked items to match a previously rendered identity order,
  * so a list can pin row positions while the pointer or focus is inside it (a
