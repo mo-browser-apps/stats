@@ -95,7 +95,7 @@ export function ProcessDetailView({
         <ProcessSortControl sort={sort} onChange={onSortChange} className="ml-auto" />
       </div>
 
-      <div className="scrollbar-hidden flex flex-1 flex-col gap-4 overflow-y-auto pb-1">
+      <div className="scrollbar-hidden flex flex-1 flex-col gap-3 overflow-y-auto pb-1">
         <header className="flex items-center gap-3">
           <ProcessIcon
             iconPngBase64={detail.iconPngBase64}
@@ -127,7 +127,7 @@ export function ProcessDetailView({
         <HeaderStats detail={detail} grouped={grouped} />
 
         {detail.system ? null : (
-          <dl className="flex flex-col gap-3">
+          <dl className="flex flex-col gap-2">
             <Field label="Started">
               <StateText
                 state={detail.startedAt}
@@ -160,7 +160,6 @@ export function ProcessDetailView({
           <Members
             members={detail.members}
             memberCount={detail.memberCount}
-            total={detail.total}
             resetKey={`${detail.pid}:${detail.startedAtUnixMs}:${detail.totalSort}`}
             onOpenMember={onOpenMember}
           />
@@ -205,7 +204,7 @@ function ProcessMetricGraph({ detail, history }: { detail: ProcessDetail; histor
       <MetricRowHeader icon={isCpu ? Cpu : MemoryStick} label={TOTAL_LABEL[detail.totalSort]}>
         <ValueUnit value={valueText} valueClassName="text-foreground" />
       </MetricRowHeader>
-      <div className="relative h-20 w-full">
+      <div className="relative h-18 w-full">
         {isCpu ? (
           <CpuGraph history={history} scrubIndex={scrubIndex} state="ok" onScrub={setScrubIndex} />
         ) : (
@@ -297,21 +296,6 @@ function HeaderStat({
   );
 }
 
-/** Renders a {@link DetailField} value with the ok/pending/unavailable rule. */
-function MetricValue({ metric, className }: { metric: DetailField; className?: string }) {
-  return (
-    <span
-      className={cn(
-        "shrink-0 whitespace-nowrap text-right font-medium tabular-nums",
-        metric.state === "ok" ? "text-foreground" : "text-muted-foreground",
-        className,
-      )}
-    >
-      {metricValueText(metric.state, metric.text)}
-    </span>
-  );
-}
-
 /** A labeled detail field: a quiet uppercase label, the value below. */
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -374,21 +358,17 @@ function ScrollableValue({
 }
 
 /**
- * The expandable Members section for a multi-process app. The disclosure
- * header carries the group's selected-metric total on the right; toggling it
- * reveals the member processes (ranked by the active metric), each drillable
- * into its own detail. Starts expanded; scrolls within a bounded box.
+ * The expandable Members section for a multi-process app. Rows are ranked by
+ * the active metric and drill into individual process details.
  */
 function Members({
   members: rankedMembers,
   memberCount,
-  total,
   resetKey,
   onOpenMember,
 }: {
   members: DetailMember[]
   memberCount: number
-  total: DetailField
   /** Changes when the drilled target or sort changes, dropping any stale pin. */
   resetKey: string
   onOpenMember: (pid: number, startedAtUnixMs?: number) => void
@@ -399,7 +379,7 @@ function Members({
   const members = useOrderPin(rankedMembers, memberKey, pointerInside || focusInside, resetKey);
 
   return (
-    <section className="flex flex-col border-t border-border/60 pt-1.5">
+    <section className="flex flex-col border-t border-border/60 pt-1">
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
@@ -417,7 +397,6 @@ function Members({
         <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Members ({memberCount})
         </span>
-        <MetricValue metric={total} className="ml-auto text-[13px]" />
       </button>
 
       <DisclosureContent open={expanded}>
