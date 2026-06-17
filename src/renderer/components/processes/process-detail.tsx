@@ -356,17 +356,17 @@ function GraphAndMembers({
           type="button"
           onClick={onToggleMembers}
           aria-expanded={membersOpen}
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          className="group flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
         >
           <ChevronRight
             className={cn(
-              "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out motion-reduce:transition-none",
+              "h-3.5 w-3.5 shrink-0 text-foreground/70 transition-[transform,color] duration-150 ease-out group-hover:text-foreground motion-reduce:transition-none",
               membersOpen && "rotate-90",
             )}
             strokeWidth={1.75}
             aria-hidden="true"
           />
-          <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground transition-colors group-hover:text-foreground">
             Members ({memberCount})
           </span>
         </button>
