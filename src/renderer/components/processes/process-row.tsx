@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useMemo, useRef } from "react";
 import { ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -50,7 +50,12 @@ export const ProcessRow = memo(function ProcessRow({
     () => (expanded ? rankMembers(group, sort, icons) : []),
     [expanded, group, sort, icons],
   );
-  const children = useOrderPin(ranked, memberKey, pinned, sort);
+  const ordered = useOrderPin(ranked, memberKey, pinned, sort);
+  const lastChildren = useRef<DetailMember[]>([]);
+  if (expanded) {
+    lastChildren.current = ordered;
+  }
+  const children = expanded ? ordered : lastChildren.current;
 
   // Adapt MemberRow's (pid, startedAt) open to this row's selection open, kept
   // stable so MemberRow's memo holds across ticks.
