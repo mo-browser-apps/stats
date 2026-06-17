@@ -127,7 +127,7 @@ export function ProcessDetailView({
         <HeaderStats detail={detail} grouped={grouped} />
 
         {detail.system ? null : (
-          <dl className="flex flex-col gap-2">
+          <dl className="flex flex-col gap-3">
             <Field label="Started">
               <StateText
                 state={detail.startedAt}
@@ -204,7 +204,7 @@ function ProcessMetricGraph({ detail, history }: { detail: ProcessDetail; histor
       <MetricRowHeader icon={isCpu ? Cpu : MemoryStick} label={TOTAL_LABEL[detail.totalSort]}>
         <ValueUnit value={valueText} valueClassName="text-foreground" />
       </MetricRowHeader>
-      <div className="relative h-18 w-full">
+      <div className="relative h-16 w-full">
         {isCpu ? (
           <CpuGraph history={history} scrubIndex={scrubIndex} state="ok" onScrub={setScrubIndex} />
         ) : (

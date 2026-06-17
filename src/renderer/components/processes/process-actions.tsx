@@ -32,7 +32,7 @@ export function ProcessActions({
   );
 
   return (
-    <div className="flex flex-col gap-2 border-t border-border/60 pt-3">
+    <div className="flex flex-col gap-2 border-t border-border/60 pt-2">
       {message ? (
         <p className="text-[11px] text-muted-foreground" role="status">
           {message}
