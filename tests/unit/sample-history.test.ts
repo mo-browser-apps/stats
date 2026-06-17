@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pushSample, sampleIndexAtFraction } from "@/domain/sample-history";
+import { pickedIndexAtFraction, pushSample, sampleIndexAtFraction } from "@/domain/sample-history";
 
 describe("pushSample", () => {
   it("appends and keeps at most capacity newest entries", () => {
@@ -28,5 +28,24 @@ describe("sampleIndexAtFraction", () => {
   it("maps a full buffer linearly", () => {
     expect(sampleIndexAtFraction(0, 60, 60)).toBe(0);
     expect(sampleIndexAtFraction(1, 60, 60)).toBe(59);
+  });
+});
+
+describe("pickedIndexAtFraction", () => {
+  it("returns null when empty", () => {
+    expect(pickedIndexAtFraction(0.5, 0)).toBeNull();
+  });
+
+  it("returns null over the unfilled left region instead of clamping (resume gesture)", () => {
+    // Hover clamps the empty left to the oldest sample; a click there is null,
+    // so the detail view reads it as "resume live" rather than picking tick 0.
+    expect(sampleIndexAtFraction(0, 10, 60)).toBe(0);
+    expect(pickedIndexAtFraction(0, 10, 60)).toBeNull();
+  });
+
+  it("maps a click within the filled region to that sample", () => {
+    expect(pickedIndexAtFraction(1, 10, 60)).toBe(9);
+    expect(pickedIndexAtFraction(1, 60, 60)).toBe(59);
+    expect(pickedIndexAtFraction(0, 60, 60)).toBe(0);
   });
 });

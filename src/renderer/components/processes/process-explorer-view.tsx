@@ -123,7 +123,10 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     return undefined;
   }, [snapshot, sort, selectionStack]);
 
-  const readHistory = useProcessHistories(snapshot);
+  // True while the detail view is inspecting a past tick; freezes history so
+  // the inspected tick cannot scroll off the graph (see useProcessHistories).
+  const [inspecting, setInspecting] = useState(false);
+  const readHistory = useProcessHistories(snapshot, inspecting);
   const { actions, actionsBusy, actionMessage, runAction } = useProcessActions(
     detail,
     pull,
@@ -159,12 +162,15 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
   }, [active, hasDetail, goBack]);
 
   if (detail) {
+    const { history, memberHistory } = readHistory(detail.key, sort);
     return (
       <div className="flex flex-1 flex-col overflow-hidden px-4 pb-4 pt-3">
         <ProcessDetailView
           key={detail.key}
           detail={detail}
-          history={readHistory(detail.key, sort).history}
+          history={history}
+          memberHistory={memberHistory}
+          icons={snapshot.icons}
           sort={sort}
           actions={actions}
           actionsBusy={actionsBusy}
@@ -173,6 +179,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
           onBack={goBack}
           onOpenMember={openMember}
           onRunAction={runAction}
+          onInspectingChange={setInspecting}
         />
       </div>
     );

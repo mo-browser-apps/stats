@@ -1,28 +1,25 @@
 import { useState } from "react";
-import { Box, Cog } from "lucide-react";
+import { Box } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 /**
  * App icon for a process row or the detail header: the base64 PNG when
  * available, else (or if it fails to decode) a neutral glyph so every row
- * keeps the same footprint. The System group gets a gear glyph by design.
+ * keeps the same footprint.
  */
 export function ProcessIcon({
   iconPngBase64,
   name,
   size = "sm",
-  system = false,
 }: {
   iconPngBase64?: string
   name: string
   size?: "sm" | "lg"
-  system?: boolean
 }) {
   const [failedSrc, setFailedSrc] = useState<string | undefined>(undefined);
   const box = size === "lg" ? "h-9 w-9 rounded-xl" : "h-5 w-5 rounded-lg";
   const glyph = size === "lg" ? "h-5 w-5" : "h-3 w-3";
-  const Glyph = system ? Cog : Box;
 
   if (iconPngBase64 && iconPngBase64 !== failedSrc) {
     return (
@@ -42,7 +39,7 @@ export function ProcessIcon({
       aria-hidden="true"
       title={name}
     >
-      <Glyph className={cn("text-muted-foreground", glyph)} strokeWidth={1.75} />
+      <Box className={cn("text-muted-foreground", glyph)} strokeWidth={1.75} />
     </span>
   );
 }

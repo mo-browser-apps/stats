@@ -1,22 +1,36 @@
 import { ChevronLeft, ChevronRight, Clock, Cpu, MemoryStick, User } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type AnimationEvent as ReactAnimationEvent,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 import { cn } from "@/lib/utils";
 import { UNAVAILABLE_TEXT, formatBytes, formatCpuPercentPrecise, formatStartTime } from "@/lib/format";
 import type { ActionState, ProcessActionKind } from "@/gen/process_explorer";
-import { CopyButton, DisclosureContent } from "@/components/processes/disclosure";
+import { CopyButton } from "@/components/processes/disclosure";
 import { MemberRow } from "@/components/processes/member-row";
 import { ProcessActions } from "@/components/processes/process-actions";
 import { ScrollFade } from "@/components/processes/scroll-fade";
 import { ProcessIcon } from "@/components/processes/process-icon";
 import { ProcessSortControl } from "@/components/processes/process-sort-control";
-import { MetricRowHeader, MeterTooltip, ValueUnit } from "@/components/metrics/metric-row-header";
+import { MetricRowHeader, ValueUnit } from "@/components/metrics/metric-row-header";
 import { CpuGraph } from "@/components/metrics/cpu-graph";
 import { MemoryGraph } from "@/components/metrics/memory-graph";
 import { useOrderPin } from "@/components/processes/use-order-pin";
-import { HISTORY_CAPACITY, type HistorySample } from "@/domain/sample-history";
-import { metricValueText, type SortMode } from "@/domain/process-list";
-import { memberKey } from "@/domain/process-detail";
+import { type HistorySample } from "@/domain/sample-history";
+import {
+  metricValueText,
+  type IconTable,
+  type MemberMetricSample,
+  type SortMode,
+} from "@/domain/process-list";
+import { memberKey, rankMemberSamples } from "@/domain/process-detail";
 import type {
   DetailField,
   DetailMember,
@@ -29,6 +43,12 @@ const TOTAL_LABEL: Record<SortMode, string> = {
   cpu: "CPU",
   memory: "RAM",
 };
+
+function shouldAnimatePanelClose(): boolean {
+  return typeof window !== "undefined" &&
+    window.matchMedia !== undefined &&
+    !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 /**
  * The process detail view for one selected group (or one drilled-in process):
@@ -44,6 +64,8 @@ const TOTAL_LABEL: Record<SortMode, string> = {
 export function ProcessDetailView({
   detail,
   history,
+  memberHistory,
+  icons,
   sort,
   actions,
   actionsBusy,
@@ -52,9 +74,12 @@ export function ProcessDetailView({
   onBack,
   onOpenMember,
   onRunAction,
+  onInspectingChange,
 }: {
   detail: ProcessDetail
   history: HistorySample[]
+  memberHistory: MemberMetricSample[][]
+  icons: IconTable
   sort: SortMode
   actions: ActionState[]
   actionsBusy: boolean
@@ -63,17 +88,77 @@ export function ProcessDetailView({
   onBack: () => void
   onOpenMember: (pid: number, startedAtUnixMs?: number) => void
   onRunAction: (kind: ProcessActionKind) => void
+  onInspectingChange?: (inspecting: boolean) => void
 }) {
   const secondary = detail.bundleIdentifier ?? detail.executableName;
-  // The synthetic System group has no single identity: its subtitle is the
-  // member count, and the per-process fields/actions below are omitted.
-  const metadata = detail.system
-    ? `${detail.memberCount} ${detail.memberCount === 1 ? "process" : "processes"}`
-    : `${secondary ? `${secondary} - ` : ""}PID ${detail.pid}${
-      detail.parentPid !== undefined ? ` - Parent ${detail.parentPid}` : ""
-    }`;
+  const metadata = `${secondary ? `${secondary} - ` : ""}PID ${detail.pid}${
+    detail.parentPid !== undefined ? ` - Parent ${detail.parentPid}` : ""
+  }`;
   const metadataTitle = detail.notResponding ? `Not Responding - ${metadata}` : metadata;
   const grouped = detail.memberCount > 1;
+
+  // scrubIndex = transient hover (moves only the readout/band); pinned = a
+  // clicked tick that freezes the graph and drives the breakdown. Hover never freezes.
+  const [scrubIndex, setScrubIndex] = useState<number | null>(null);
+  const [pinned, setPinned] = useState<number | null>(null);
+  const bandIndex = pinned ?? scrubIndex;
+  const inspecting = pinned !== null;
+
+  const pickIndex = useCallback((index: number | null) => {
+    setPinned((current) => (index === null || current === index ? null : index));
+  }, []);
+
+  // Freeze history while inspecting so the held tick doesn't scroll off.
+  useEffect(() => {
+    onInspectingChange?.(inspecting);
+  }, [inspecting, onInspectingChange]);
+  useEffect(() => () => onInspectingChange?.(false), [onInspectingChange]);
+
+  // Members disclosure. Closed: graph sits at the bottom, stats visible. Open: the
+  // graph+members lift into a top overlay covering the stats (see GraphAndMembers).
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [slideFrom, setSlideFrom] = useState(0);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const inflowGraphRef = useRef<HTMLDivElement>(null);
+
+  const measureSlide = useCallback((): number => {
+    const content = contentRef.current?.getBoundingClientRect();
+    const graph = inflowGraphRef.current?.getBoundingClientRect();
+    if (!content || !graph) {
+      return 0;
+    }
+    return Math.max(0, graph.top - content.top);
+  }, []);
+
+  const toggleMembers = useCallback(() => {
+    setMembersOpen((open) => {
+      setSlideFrom(measureSlide());
+      setClosing(open && shouldAnimatePanelClose());
+      if (open) {
+        setPinned(null);
+        setScrubIndex(null);
+      }
+      return !open;
+    });
+  }, [measureSlide]);
+  const onOverlayAnimationEnd = useCallback(
+    (event: ReactAnimationEvent) => {
+      if (event.target === event.currentTarget && closing) {
+        setClosing(false);
+      }
+    },
+    [closing],
+  );
+  const canPin = grouped || pinned !== null;
+  const overlayMounted = (membersOpen || closing) && canPin;
+
+  useEffect(() => {
+    if (!grouped && pinned === null) {
+      setMembersOpen(false);
+      setClosing(false);
+    }
+  }, [grouped, pinned]);
 
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -82,7 +167,7 @@ export function ProcessDetailView({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex items-center gap-2 pb-3">
+      <div className="flex items-center gap-2 pb-2">
         <button
           type="button"
           onClick={onBack}
@@ -95,39 +180,41 @@ export function ProcessDetailView({
         <ProcessSortControl sort={sort} onChange={onSortChange} className="ml-auto" />
       </div>
 
-      <div className="scrollbar-hidden flex flex-1 flex-col gap-3 overflow-y-auto pb-1">
-        <header className="flex items-center gap-3">
-          <ProcessIcon
-            iconPngBase64={detail.iconPngBase64}
-            name={detail.name}
-            size="lg"
-            system={detail.system}
-          />
-          <div className="min-w-0 flex-1 space-y-0.5">
-            <ScrollFade title={detail.name}>
-              <h2
-                ref={headingRef}
-                tabIndex={-1}
-                className="w-max whitespace-nowrap text-[15px] font-medium text-foreground outline-none"
-              >
-                {detail.name}
-              </h2>
-            </ScrollFade>
-            <ScrollFade title={metadataTitle}>
-              <p className="w-max whitespace-nowrap text-[11px] text-muted-foreground">
-                {detail.notResponding ? (
-                  <span className="font-medium text-destructive">Not Responding - </span>
-                ) : null}
-                {metadata}
-              </p>
-            </ScrollFade>
-          </div>
-        </header>
+      <div ref={contentRef} className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div
+          className={cn(
+            "scrollbar-hidden flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pb-1",
+            overlayMounted && "pointer-events-none",
+          )}
+          aria-hidden={overlayMounted ? true : undefined}
+          inert={overlayMounted ? true : undefined}
+        >
+          <header className="flex items-center gap-3">
+            <ProcessIcon iconPngBase64={detail.iconPngBase64} name={detail.name} size="lg" />
+            <div className="min-w-0 flex-1 space-y-0.5">
+              <ScrollFade title={detail.name}>
+                <h2
+                  ref={headingRef}
+                  tabIndex={-1}
+                  className="w-max whitespace-nowrap text-[15px] font-medium text-foreground outline-none"
+                >
+                  {detail.name}
+                </h2>
+              </ScrollFade>
+              <ScrollFade title={metadataTitle}>
+                <p className="w-max whitespace-nowrap text-[11px] text-muted-foreground">
+                  {detail.notResponding ? (
+                    <span className="font-medium text-destructive">Not Responding - </span>
+                  ) : null}
+                  {metadata}
+                </p>
+              </ScrollFade>
+            </div>
+          </header>
 
-        <HeaderStats detail={detail} grouped={grouped} />
+          <HeaderStats detail={detail} grouped={grouped} />
 
-        {detail.system ? null : (
-          <dl className="flex flex-col gap-3">
+          <dl className="flex flex-col gap-2.5">
             <Field label="Started">
               <StateText
                 state={detail.startedAt}
@@ -152,36 +239,175 @@ export function ProcessDetailView({
               />
             </Field>
           </dl>
-        )}
 
-        <ProcessMetricGraph detail={detail} history={history} />
+          <div ref={inflowGraphRef}>
+            <GraphAndMembers
+              detail={detail}
+              history={history}
+              memberHistory={memberHistory}
+              icons={icons}
+              sort={sort}
+              scrubIndex={overlayMounted ? null : bandIndex}
+              pinnedIndex={null}
+              membersOpen={false}
+              canPin={canPin}
+              onScrub={setScrubIndex}
+              onPick={pickIndex}
+              onToggleMembers={toggleMembers}
+              onOpenMember={onOpenMember}
+            />
+          </div>
+        </div>
 
-        {grouped ? (
-          <Members
-            members={detail.members}
-            memberCount={detail.memberCount}
-            resetKey={`${detail.pid}:${detail.startedAtUnixMs}:${detail.totalSort}`}
-            onOpenMember={onOpenMember}
-          />
+        {overlayMounted ? (
+          <div
+            className={cn(
+              "absolute inset-0 z-10 flex min-h-0 flex-col overflow-hidden bg-background pb-2",
+              closing ? "panel-pin-out pointer-events-none" : "panel-pin-in",
+            )}
+            style={{ "--pin-from": `${slideFrom}px` } as CSSProperties}
+            onAnimationEnd={onOverlayAnimationEnd}
+          >
+            <GraphAndMembers
+              detail={detail}
+              history={history}
+              memberHistory={memberHistory}
+              icons={icons}
+              sort={sort}
+              scrubIndex={bandIndex}
+              pinnedIndex={pinned}
+              membersOpen
+              canPin={canPin}
+              onScrub={setScrubIndex}
+              onPick={pickIndex}
+              onToggleMembers={toggleMembers}
+              onOpenMember={onOpenMember}
+            />
+          </div>
         ) : null}
       </div>
 
-      {detail.system ? null : (
-        <ProcessActions
-          actions={actions}
-          busy={actionsBusy}
-          message={actionMessage}
-          onRun={onRunAction}
-        />
-      )}
+      <ProcessActions
+        actions={actions}
+        busy={actionsBusy}
+        message={actionMessage}
+        onRun={onRunAction}
+      />
     </div>
   );
 }
 
-/** Recent trend for the selected process or group under the active metric. */
-function ProcessMetricGraph({ detail, history }: { detail: ProcessDetail; history: HistorySample[] }) {
+/**
+ * The graph + members card: the trend graph and, for a grouped process, a
+ * "Members (N)" disclosure. Closed, it shows just the graph and sits in the
+ * detail's normal flow. Open, the members list appears and the owner lifts the
+ * whole card into a top overlay.
+ */
+function GraphAndMembers({
+  detail,
+  history,
+  memberHistory,
+  icons,
+  sort,
+  scrubIndex,
+  pinnedIndex,
+  membersOpen,
+  canPin,
+  onScrub,
+  onPick,
+  onToggleMembers,
+  onOpenMember,
+}: {
+  detail: ProcessDetail
+  history: HistorySample[]
+  memberHistory: MemberMetricSample[][]
+  icons: IconTable
+  sort: SortMode
+  scrubIndex: number | null
+  pinnedIndex: number | null
+  membersOpen: boolean
+  canPin: boolean
+  onScrub: (index: number | null) => void
+  onPick: (index: number | null) => void
+  onToggleMembers: () => void
+  onOpenMember: (pid: number, startedAtUnixMs?: number) => void
+}) {
+  const showMembers = membersOpen && canPin;
+  const pinnedMembers = pinnedIndex !== null ? memberHistory[pinnedIndex] : undefined;
+  const memberCount = pinnedMembers !== undefined ? pinnedMembers.length : detail.memberCount;
+  return (
+    <section className={cn("flex flex-col gap-2", showMembers ? "min-h-0 flex-1" : "shrink-0")}>
+      <ProcessMetricGraph
+        detail={detail}
+        history={history}
+        scrubIndex={scrubIndex}
+        pinned={pinnedIndex !== null}
+        divider={!showMembers}
+        onScrub={onScrub}
+        onPick={showMembers ? onPick : undefined}
+      />
+
+      {canPin ? (
+        <button
+          type="button"
+          onClick={onToggleMembers}
+          aria-expanded={membersOpen}
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <ChevronRight
+            className={cn(
+              "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out motion-reduce:transition-none",
+              membersOpen && "rotate-90",
+            )}
+            strokeWidth={1.75}
+            aria-hidden="true"
+          />
+          <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            Members ({memberCount})
+          </span>
+        </button>
+      ) : null}
+
+      {showMembers ? (
+        <Members
+          liveMembers={detail.members}
+          memberHistory={memberHistory}
+          pinnedIndex={pinnedIndex}
+          sort={sort}
+          icons={icons}
+          resetKey={`${detail.pid}:${detail.startedAtUnixMs}:${detail.totalSort}`}
+          onOpenMember={onOpenMember}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * Recent trend for the selected process or group under the active metric. The
+ * scrub index is controlled by the parent: `onScrub` reports the hover (graph
+ * read-out only), while `onPick` (wired only when the members list is open)
+ * holds a tick that drives the breakdown. The header value reflects the
+ * inspected tick, else the live total.
+ */
+function ProcessMetricGraph({
+  detail,
+  history,
+  scrubIndex,
+  pinned,
+  divider = true,
+  onScrub,
+  onPick,
+}: {
+  detail: ProcessDetail
+  history: HistorySample[]
+  scrubIndex: number | null
+  pinned: boolean
+  divider?: boolean
+  onScrub: (index: number | null) => void
+  onPick?: (index: number | null) => void
+}) {
   const isCpu = detail.totalSort === "cpu";
-  const [scrubIndex, setScrubIndex] = useState<number | null>(null);
 
   const format = isCpu ? formatCpuPercentPrecise : (value: number) => formatBytes(value, true);
 
@@ -194,37 +420,36 @@ function ProcessMetricGraph({ detail, history }: { detail: ProcessDetail; histor
       ? format(detail.totalValue)
       : metricValueText(detail.total.state, detail.total.text);
 
-  const scrubPercent =
-    scrubIndex !== null
-      ? ((HISTORY_CAPACITY - history.length + scrubIndex + 0.5) / HISTORY_CAPACITY) * 100
-      : null;
-
   return (
-    <div className="flex flex-col gap-2 border-t border-border/60 pt-3">
+    <div className={cn("flex shrink-0 flex-col gap-2 pt-3", divider && "border-t border-border/60")}>
       <MetricRowHeader icon={isCpu ? Cpu : MemoryStick} label={TOTAL_LABEL[detail.totalSort]}>
         <ValueUnit value={valueText} valueClassName="text-foreground" />
       </MetricRowHeader>
-      <div className="relative h-16 w-full">
+      <div className="relative h-20 w-full">
         {isCpu ? (
-          <CpuGraph history={history} scrubIndex={scrubIndex} state="ok" onScrub={setScrubIndex} />
+          <CpuGraph
+            history={history}
+            scrubIndex={scrubIndex}
+            pinned={pinned}
+            state="ok"
+            onScrub={onScrub}
+            onPick={onPick}
+          />
         ) : (
-          <MemoryGraph history={history} scrubIndex={scrubIndex} onScrub={setScrubIndex} />
+          <MemoryGraph
+            history={history}
+            scrubIndex={scrubIndex}
+            pinned={pinned}
+            onScrub={onScrub}
+            onPick={onPick}
+          />
         )}
-        {scrubbed !== null && scrubPercent !== null ? (
-          <MeterTooltip leftPercent={scrubPercent} className="-top-1">
-            {format(scrubbed)}
-          </MeterTooltip>
-        ) : null}
       </div>
     </div>
   );
 }
 
-/**
- * The secondary-stat strip under the header (user, threads, CPU time). The
- * System group hides the user stat - its members run as many different users,
- * so the representative's would be misleading.
- */
+/** The secondary-stat strip under the header: user, threads, CPU time. */
 function HeaderStats({ detail, grouped }: { detail: ProcessDetail; grouped: boolean }) {
   const threadsText =
     detail.threadCount.state === "ok"
@@ -233,18 +458,14 @@ function HeaderStats({ detail, grouped }: { detail: ProcessDetail; grouped: bool
 
   return (
     <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
-      {detail.system ? (
-        <span className="min-w-0 flex-1" aria-hidden="true" />
-      ) : (
-        <HeaderStat
-          icon={<User className="h-3 w-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
-          state={detail.user.state}
-          text={detail.user.text}
-          label="User"
-          className="min-w-0 flex-1"
-          valueClassName="truncate"
-        />
-      )}
+      <HeaderStat
+        icon={<User className="h-3 w-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
+        state={detail.user.state}
+        text={detail.user.text}
+        label="User"
+        className="min-w-0 flex-1"
+        valueClassName="truncate"
+      />
       <div className="flex shrink-0 items-center gap-2">
         <HeaderStat
           icon={<Cpu className="h-3 w-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
@@ -320,12 +541,7 @@ function StateText({ state, text }: { state: DetailState; text?: string }) {
   );
 }
 
-/**
- * A long single-line value (executable path, command line) scrolling
- * horizontally in a hidden-scrollbar lane rather than wrapping, with a copy
- * button when a real value exists. Sensitive process text is copied only on
- * explicit user action and routes through main (the renderer is sandboxed).
- */
+/** Long single-line value (path, command line) with a copy button routed through main. */
 function ScrollableValue({
   field,
   copyLabel,
@@ -357,67 +573,60 @@ function ScrollableValue({
   );
 }
 
-/**
- * The expandable Members section for a multi-process app. Rows are ranked by
- * the active metric and drill into individual process details.
- */
+/** Members list (shown when the disclosure is open), ranked by the active metric. */
 function Members({
-  members: rankedMembers,
-  memberCount,
+  liveMembers,
+  memberHistory,
+  pinnedIndex,
+  sort,
+  icons,
   resetKey,
   onOpenMember,
 }: {
-  members: DetailMember[]
-  memberCount: number
-  /** Changes when the drilled target or sort changes, dropping any stale pin. */
+  liveMembers: DetailMember[]
+  memberHistory: MemberMetricSample[][]
+  pinnedIndex: number | null
+  sort: SortMode
+  icons: IconTable
   resetKey: string
   onOpenMember: (pid: number, startedAtUnixMs?: number) => void
 }) {
-  const [expanded, setExpanded] = useState(true);
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
-  const members = useOrderPin(rankedMembers, memberKey, pointerInside || focusInside, resetKey);
+
+  const tick = pinnedIndex !== null ? memberHistory[pinnedIndex] : undefined;
+  const showingTick = pinnedIndex !== null && tick !== undefined;
+  const rankedMembers = useMemo(
+    () => (showingTick ? rankMemberSamples(tick, sort, icons) : liveMembers),
+    [showingTick, tick, sort, icons, liveMembers],
+  );
+
+  // Suspended while showing a held tick (rows already frozen).
+  const ordered = useOrderPin(
+    rankedMembers,
+    memberKey,
+    !showingTick && (pointerInside || focusInside),
+    resetKey,
+  );
+  const members = showingTick ? rankedMembers : ordered;
 
   return (
-    <section className="flex flex-col border-t border-border/60 pt-1">
-      <button
-        type="button"
-        onClick={() => setExpanded((value) => !value)}
-        aria-expanded={expanded}
-        className="flex items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-      >
-        <ChevronRight
-          className={cn(
-            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out motion-reduce:transition-none",
-            expanded && "rotate-90",
-          )}
-          strokeWidth={1.75}
-          aria-hidden="true"
-        />
-        <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Members ({memberCount})
-        </span>
-      </button>
-
-      <DisclosureContent open={expanded}>
-        <ul
-          className="scrollbar-hidden mt-1.5 flex max-h-72 flex-col gap-0.5 overflow-y-auto"
-          onPointerOver={() => setPointerInside(true)}
-          onPointerLeave={() => setPointerInside(false)}
-          onFocusCapture={() => setFocusInside(true)}
-          onBlurCapture={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-              setFocusInside(false);
-            }
-          }}
-        >
-          {members.map((member) => (
-            <li key={memberKey(member)}>
-              <MemberRow member={member} onOpen={onOpenMember} />
-            </li>
-          ))}
-        </ul>
-      </DisclosureContent>
-    </section>
+    <ul
+      className="scrollbar-hidden flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pb-1"
+      onPointerOver={() => setPointerInside(true)}
+      onPointerLeave={() => setPointerInside(false)}
+      onFocusCapture={() => setFocusInside(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setFocusInside(false);
+        }
+      }}
+    >
+      {members.map((member) => (
+        <li key={memberKey(member)}>
+          <MemberRow member={member} onOpen={onOpenMember} />
+        </li>
+      ))}
+    </ul>
   );
 }

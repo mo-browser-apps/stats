@@ -15,9 +15,11 @@ import {
   rowMetric,
   rowNotResponding,
   rowPid,
+  sampleMembersByKey,
+  sampleMembersForKeys,
   sampleMetricsByKey,
+  sampleMetricsForKeys,
   singleProcessGroup,
-  SYSTEM_GROUP_KEY,
 } from "@/domain/process-list";
 import { makeRow, makeSnapshot } from "../helpers/process-fixtures";
 
@@ -406,72 +408,55 @@ describe("projectProcessList - icon resolution", () => {
   });
 });
 
-describe("projectProcessList - System group", () => {
+describe("projectProcessList - system daemons", () => {
+  // The list shows every running process; macOS daemons are not bucketed or
+  // hidden. A non-app process (no .app bundle) is its own singleton row.
   const daemons = [
     makeRow({ pid: 1, commandName: "launchd", startedAtUnixMs: 1, executablePath: "/sbin/launchd", cpuPercent: 0.5 }),
     makeRow({ pid: 400, commandName: "fake-sharingd", startedAtUnixMs: 2, executablePath: "/usr/libexec/fake-sharingd", cpuPercent: 1 }),
     makeRow({ pid: 401, commandName: "fake-mds", startedAtUnixMs: 3, executablePath: "/System/Library/fake-mds", cpuPercent: 2 }),
   ];
 
-  it("buckets Apple-path non-app processes into one System group", () => {
+  it("shows Apple-path non-app daemons as individual singleton rows", () => {
     const groups = projectProcessList(makeSnapshot(daemons), "cpu", "");
-
-    expect(groups).toHaveLength(1);
-    const system = groups[0];
-    expect(system.key).toBe(SYSTEM_GROUP_KEY);
-    expect(system.system).toBe(true);
-    expect(system.name).toBe("System");
-    // No member's generic executable icon brands the bucket.
-    expect(system.iconPngBase64).toBeUndefined();
-    expect(system.memberCount).toBe(3);
-    expect(system.metricText).toBe("3.5%");
+    expect(groups).toHaveLength(3);
+    expect(groups.every((g) => g.memberCount === 1)).toBe(true);
+    // Ranked by CPU descending, like any other rows.
+    expect(groups.map((g) => g.name)).toEqual(["fake-mds", "fake-sharingd", "launchd"]);
   });
 
-  it("keeps user-owned and app-bundled processes out of System", () => {
+  it("lists daemons alongside user and app-bundled processes, nothing hidden", () => {
     const rows = [
       ...daemons,
-      // /usr/local is the SIP user-writable exception - a developer's tool.
       makeRow({ pid: 500, commandName: "fake-postgres", startedAtUnixMs: 4, executablePath: "/usr/local/bin/fake-postgres", cpuPercent: 1 }),
-      // A user CLI outside Apple paths.
       makeRow({ pid: 501, commandName: "fake-node", startedAtUnixMs: 5, executablePath: "/Users/fixture/work/fake-node", cpuPercent: 1 }),
-      // An Apple *app* under /System keeps its own app group.
+      // An app keeps its own app group (it has a bundle); its helper folds in.
       makeRow({ pid: 502, localizedName: "Fake Dock", startedAtUnixMs: 6, executablePath: "/System/Library/CoreServices/FakeDock.app/Contents/MacOS/FakeDock", bundlePath: "/System/Library/CoreServices/FakeDock.app", bundleName: "Fake Dock", cpuPercent: 1 }),
-      // A row with no readable path stays a singleton, not buried in System.
       makeRow({ pid: 503, commandName: "fake-pathless", startedAtUnixMs: 7, cpuPercent: 1 }),
     ];
 
     const groups = projectProcessList(makeSnapshot(rows), "cpu", "");
     const names = groups.map((group) => group.name).sort();
 
-    expect(names).toEqual(["Fake Dock", "System", "fake-node", "fake-pathless", "fake-postgres"]);
-    expect(groups.filter((group) => group.system)).toHaveLength(1);
+    expect(names).toEqual([
+      "Fake Dock",
+      "fake-mds",
+      "fake-node",
+      "fake-pathless",
+      "fake-postgres",
+      "fake-sharingd",
+      "launchd",
+    ]);
   });
 
-  it("search surfaces a matching daemon as its own row, not the whole bucket", () => {
+  it("surfaces a daemon by name search like any other process", () => {
     const groups = projectProcessList(makeSnapshot(daemons), "cpu", "fake-sharingd");
-
     expect(groups).toHaveLength(1);
-    expect(groups[0].system).toBe(false);
     expect(groups[0].name).toBe("fake-sharingd");
-    expect(groups[0].openSelection).toEqual({ kind: "process", pid: 400, startedAtUnixMs: 2 });
-  });
-
-  it("searching 'system' surfaces the System group itself", () => {
-    const groups = projectProcessList(makeSnapshot(daemons), "cpu", "system");
-
-    expect(groups.some((group) => group.key === SYSTEM_GROUP_KEY)).toBe(true);
-  });
-
-  it("resolves the System selection from a fresh snapshot like any group", () => {
-    const resolved = resolveSelection(makeSnapshot(daemons), "cpu", {
-      kind: "group",
-      key: SYSTEM_GROUP_KEY,
-    });
-
-    expect(resolved?.system).toBe(true);
-    expect(resolved?.memberCount).toBe(3);
-    // Representative is the lowest PID, but the display identity stays "System".
-    expect(resolved?.name).toBe("System");
+    // A singleton daemon matches as its own group; the key is its identity key.
+    expect(groups[0].memberCount).toBe(1);
+    expect(groups[0].pid).toBe(400);
+    expect(groups[0].openSelection).toEqual({ kind: "group", key: "pid:400:2" });
   });
 });
 
@@ -504,5 +489,101 @@ describe("sampleMetricsByKey", () => {
 
     expect(sample?.cpu).toBeNull();
     expect(sample?.memory).toBe(5 * MB);
+  });
+
+  it("can selectively sample only tracked history keys", () => {
+    const rows = [
+      makeRow({ pid: 100, bundlePath: "/Applications/Chrome.app", startedAtUnixMs: 1, cpuPercent: 4, footprintBytes: 300 * MB }),
+      makeRow({ pid: 200, bundlePath: "/Applications/Chrome.app", startedAtUnixMs: 2, cpuPercent: 8, footprintBytes: 150 * MB }),
+      makeRow({ pid: 300, bundlePath: "/Applications/Slack.app", startedAtUnixMs: 3, cpuPercent: 2, footprintBytes: 50 * MB }),
+    ];
+    const snapshot = makeSnapshot(rows);
+    const full = sampleMetricsByKey(snapshot);
+    const selective = sampleMetricsForKeys(snapshot, new Set(["app:/Applications/Chrome.app", "pid:200:2"]));
+
+    expect(selective.get("app:/Applications/Chrome.app")).toEqual(full.get("app:/Applications/Chrome.app"));
+    expect(selective.get("pid:200:2")).toEqual(full.get("pid:200:2"));
+    expect(selective.has("pid:100:1")).toBe(false);
+    expect(selective.has("app:/Applications/Slack.app")).toBe(false);
+  });
+});
+
+describe("sampleMembersByKey", () => {
+  it("captures a per-member breakdown (both metrics, with identity) under the group key", () => {
+    const rows = [
+      makeRow({ pid: 100, bundlePath: "/Applications/Chrome.app", localizedName: "Chrome", startedAtUnixMs: 1, cpuPercent: 4, footprintBytes: 300 * MB, iconPngBase64: "ICON" }),
+      makeRow({ pid: 200, bundlePath: "/Applications/Chrome.app", executableName: "Chrome Helper", startedAtUnixMs: 2, cpuPercent: 8, footprintBytes: 150 * MB }),
+    ];
+    const breakdown = sampleMembersByKey(makeSnapshot(rows)).get("app:/Applications/Chrome.app");
+
+    expect(breakdown).toEqual([
+      { key: "pid:100:1", pid: 100, startedAtUnixMs: 1, name: "Chrome", iconKey: "ICON", cpu: 4, memory: 300 * MB },
+      { key: "pid:200:2", pid: 200, startedAtUnixMs: 2, name: "Chrome Helper", iconKey: undefined, cpu: 8, memory: 150 * MB },
+    ]);
+  });
+
+  it("omits single-member keys (an ordinary process has no breakdown)", () => {
+    const rows = [makeRow({ pid: 321, commandName: "tool", startedAtUnixMs: 5, cpuPercent: 7 })];
+    const breakdowns = sampleMembersByKey(makeSnapshot(rows));
+
+    expect(breakdowns.size).toBe(0);
+  });
+
+  it("captures a one-member app group so historical ticks do not fall back to live members", () => {
+    const rows = [
+      makeRow({
+        pid: 100,
+        bundlePath: "/Applications/App.app",
+        localizedName: "App",
+        startedAtUnixMs: 1,
+        cpuPercent: 4,
+        footprintBytes: 300 * MB,
+      }),
+    ];
+    const breakdown = sampleMembersByKey(makeSnapshot(rows)).get("app:/Applications/App.app");
+
+    expect(breakdown).toEqual([
+      { key: "pid:100:1", pid: 100, startedAtUnixMs: 1, name: "App", iconKey: undefined, cpu: 4, memory: 300 * MB },
+    ]);
+  });
+
+  it("records an unreadable member metric as null at the tick", () => {
+    const rows = [
+      makeRow({ pid: 100, bundlePath: "/Applications/App.app", startedAtUnixMs: 1, cpuStatus: FieldStatus.FIELD_STATUS_UNAVAILABLE, footprintBytes: 10 * MB }),
+      makeRow({ pid: 200, bundlePath: "/Applications/App.app", startedAtUnixMs: 2, cpuPercent: 3, footprintBytes: 20 * MB }),
+    ];
+    const breakdown = sampleMembersByKey(makeSnapshot(rows)).get("app:/Applications/App.app");
+
+    expect(breakdown?.[0].cpu).toBeNull();
+    expect(breakdown?.[0].memory).toBe(10 * MB);
+  });
+
+  it("captures only multi-member keys; a singleton daemon gets no breakdown", () => {
+    const rows = [
+      makeRow({ pid: 100, bundlePath: "/Applications/App.app", startedAtUnixMs: 1, cpuPercent: 4 }),
+      makeRow({ pid: 200, bundlePath: "/Applications/App.app", startedAtUnixMs: 2, cpuPercent: 3 }),
+      // A lone daemon is a singleton row, so it has no member breakdown (the
+      // detail just shows the row itself) - it is listed, not hidden.
+      makeRow({ pid: 1, commandName: "launchd", startedAtUnixMs: 9, executablePath: "/sbin/launchd", cpuPercent: 1 }),
+    ];
+    const breakdowns = sampleMembersByKey(makeSnapshot(rows));
+
+    expect([...breakdowns.keys()]).toEqual(["app:/Applications/App.app"]);
+    expect(breakdowns.get("pid:1:9")).toBeUndefined();
+  });
+
+  it("can selectively sample only tracked app-group breakdowns", () => {
+    const rows = [
+      makeRow({ pid: 100, bundlePath: "/Applications/Chrome.app", localizedName: "Chrome", startedAtUnixMs: 1, cpuPercent: 4, footprintBytes: 300 * MB }),
+      makeRow({ pid: 200, bundlePath: "/Applications/Chrome.app", executableName: "Chrome Helper", startedAtUnixMs: 2, cpuPercent: 8, footprintBytes: 150 * MB }),
+      makeRow({ pid: 300, bundlePath: "/Applications/Slack.app", localizedName: "Slack", startedAtUnixMs: 3, cpuPercent: 2, footprintBytes: 50 * MB }),
+      makeRow({ pid: 400, bundlePath: "/Applications/Slack.app", executableName: "Slack Helper", startedAtUnixMs: 4, cpuPercent: 1, footprintBytes: 40 * MB }),
+    ];
+    const snapshot = makeSnapshot(rows);
+    const full = sampleMembersByKey(snapshot);
+    const selective = sampleMembersForKeys(snapshot, new Set(["app:/Applications/Chrome.app"]));
+
+    expect(selective.get("app:/Applications/Chrome.app")).toEqual(full.get("app:/Applications/Chrome.app"));
+    expect([...selective.keys()]).toEqual(["app:/Applications/Chrome.app"]);
   });
 });

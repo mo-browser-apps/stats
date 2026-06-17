@@ -2,12 +2,6 @@ import type { AreaRun } from "@/domain/area-path";
 import { HISTORY_CAPACITY } from "@/domain/sample-history";
 
 /**
- * Shared SVG layers for the time-series graphs (CPU, network). The graphs draw
- * in a `0..capacity × 0..100` viewBox stretched to the row
- * (`preserveAspectRatio="none"`), so strokes opt out of scaling.
- */
-
-/**
  * Axis baseline split at the first filled history slot: dashed over the
  * still-unobserved left region (so a warming-up graph reads as "recording
  * started here", not as broken), solid under the observed slots. `offset` is
@@ -26,7 +20,6 @@ export function Baseline({ y, offset }: { y: number; offset: number }) {
   );
 }
 
-/** Area runs as a translucent fill under a brighter edge line, in currentColor. */
 export function AreaLayer({ runs, className }: { runs: AreaRun[]; className?: string }) {
   return (
     <g className={className}>
@@ -48,7 +41,20 @@ export function AreaLayer({ runs, className }: { runs: AreaRun[]; className?: st
   );
 }
 
-/** Full-height highlight band over the scrubbed history slot. */
-export function ScrubBand({ x }: { x: number }) {
-  return <rect x={x} y={0} width={1} height={100} className="text-foreground" fill="currentColor" fillOpacity={0.12} />;
+/**
+ * Full-height highlight band over the scrubbed history slot. A `pinned` band
+ * (a tick the user clicked to hold) reads stronger than a transient hover band.
+ */
+export function ScrubBand({ x, pinned = false }: { x: number; pinned?: boolean }) {
+  return (
+    <rect
+      x={x}
+      y={0}
+      width={1}
+      height={100}
+      className="text-foreground"
+      fill="currentColor"
+      fillOpacity={pinned ? 0.22 : 0.12}
+    />
+  );
 }
