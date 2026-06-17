@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ProcessSnapshot } from "@/gen/process_explorer";
 import {
-  sampleMembersForKeys,
-  sampleMetricsForKeys,
+  sampleMembers,
+  sampleMetrics,
   type MemberMetricSample,
   type SortMode,
 } from "@/domain/process-list";
@@ -42,8 +42,8 @@ export interface ProcessHistory {
 
 /** Collects each tracked key's reading for one snapshot revision. */
 function sampleTrails(snapshot: ProcessSnapshot, trackedKeys: Set<string>): Map<string, TrailSample> {
-  const samples = sampleMetricsForKeys(snapshot, trackedKeys);
-  const memberSamples = sampleMembersForKeys(snapshot, trackedKeys);
+  const samples = sampleMetrics(snapshot, trackedKeys);
+  const memberSamples = sampleMembers(snapshot, trackedKeys);
   const result = new Map<string, TrailSample>();
   for (const key of trackedKeys) {
     const sample = samples.get(key);

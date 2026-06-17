@@ -15,10 +15,8 @@ import {
   rowMetric,
   rowNotResponding,
   rowPid,
-  sampleMembersByKey,
-  sampleMembersForKeys,
-  sampleMetricsByKey,
-  sampleMetricsForKeys,
+  sampleMembers,
+  sampleMetrics,
   singleProcessGroup,
 } from "@/domain/process-list";
 import { makeRow, makeSnapshot } from "../helpers/process-fixtures";
@@ -460,13 +458,13 @@ describe("projectProcessList - system daemons", () => {
   });
 });
 
-describe("sampleMetricsByKey", () => {
+describe("sampleMetrics", () => {
   it("sums a group's members under the group key, with per-member identity keys", () => {
     const rows = [
       makeRow({ pid: 100, bundlePath: "/Applications/Chrome.app", startedAtUnixMs: 1, cpuPercent: 4, footprintBytes: 300 * MB }),
       makeRow({ pid: 200, bundlePath: "/Applications/Chrome.app", startedAtUnixMs: 2, cpuPercent: 8, footprintBytes: 150 * MB }),
     ];
-    const samples = sampleMetricsByKey(makeSnapshot(rows));
+    const samples = sampleMetrics(makeSnapshot(rows));
 
     expect(samples.get("app:/Applications/Chrome.app")).toEqual({ cpu: 12, memory: 450 * MB });
     expect(samples.get("pid:100:1")).toEqual({ cpu: 4, memory: 300 * MB });
@@ -475,7 +473,7 @@ describe("sampleMetricsByKey", () => {
 
   it("keys an ungrouped process once (group key == identity)", () => {
     const rows = [makeRow({ pid: 321, commandName: "tool", startedAtUnixMs: 5, cpuPercent: 7, footprintBytes: 20 * MB })];
-    const samples = sampleMetricsByKey(makeSnapshot(rows));
+    const samples = sampleMetrics(makeSnapshot(rows));
 
     expect(samples.get("pid:321:5")).toEqual({ cpu: 7, memory: 20 * MB });
     expect(samples.size).toBe(1);
@@ -485,7 +483,7 @@ describe("sampleMetricsByKey", () => {
     const rows = [
       makeRow({ pid: 10, commandName: "x", startedAtUnixMs: 1, cpuStatus: FieldStatus.FIELD_STATUS_UNAVAILABLE, footprintBytes: 5 * MB }),
     ];
-    const sample = sampleMetricsByKey(makeSnapshot(rows)).get("pid:10:1");
+    const sample = sampleMetrics(makeSnapshot(rows)).get("pid:10:1");
 
     expect(sample?.cpu).toBeNull();
     expect(sample?.memory).toBe(5 * MB);
@@ -498,8 +496,8 @@ describe("sampleMetricsByKey", () => {
       makeRow({ pid: 300, bundlePath: "/Applications/Slack.app", startedAtUnixMs: 3, cpuPercent: 2, footprintBytes: 50 * MB }),
     ];
     const snapshot = makeSnapshot(rows);
-    const full = sampleMetricsByKey(snapshot);
-    const selective = sampleMetricsForKeys(snapshot, new Set(["app:/Applications/Chrome.app", "pid:200:2"]));
+    const full = sampleMetrics(snapshot);
+    const selective = sampleMetrics(snapshot, new Set(["app:/Applications/Chrome.app", "pid:200:2"]));
 
     expect(selective.get("app:/Applications/Chrome.app")).toEqual(full.get("app:/Applications/Chrome.app"));
     expect(selective.get("pid:200:2")).toEqual(full.get("pid:200:2"));
@@ -508,13 +506,13 @@ describe("sampleMetricsByKey", () => {
   });
 });
 
-describe("sampleMembersByKey", () => {
+describe("sampleMembers", () => {
   it("captures a per-member breakdown (both metrics, with identity) under the group key", () => {
     const rows = [
       makeRow({ pid: 100, bundlePath: "/Applications/Chrome.app", localizedName: "Chrome", startedAtUnixMs: 1, cpuPercent: 4, footprintBytes: 300 * MB, iconPngBase64: "ICON" }),
       makeRow({ pid: 200, bundlePath: "/Applications/Chrome.app", executableName: "Chrome Helper", startedAtUnixMs: 2, cpuPercent: 8, footprintBytes: 150 * MB }),
     ];
-    const breakdown = sampleMembersByKey(makeSnapshot(rows)).get("app:/Applications/Chrome.app");
+    const breakdown = sampleMembers(makeSnapshot(rows)).get("app:/Applications/Chrome.app");
 
     expect(breakdown).toEqual([
       { key: "pid:100:1", pid: 100, startedAtUnixMs: 1, name: "Chrome", iconKey: "ICON", cpu: 4, memory: 300 * MB },
@@ -524,7 +522,7 @@ describe("sampleMembersByKey", () => {
 
   it("omits single-member keys (an ordinary process has no breakdown)", () => {
     const rows = [makeRow({ pid: 321, commandName: "tool", startedAtUnixMs: 5, cpuPercent: 7 })];
-    const breakdowns = sampleMembersByKey(makeSnapshot(rows));
+    const breakdowns = sampleMembers(makeSnapshot(rows));
 
     expect(breakdowns.size).toBe(0);
   });
@@ -540,7 +538,7 @@ describe("sampleMembersByKey", () => {
         footprintBytes: 300 * MB,
       }),
     ];
-    const breakdown = sampleMembersByKey(makeSnapshot(rows)).get("app:/Applications/App.app");
+    const breakdown = sampleMembers(makeSnapshot(rows)).get("app:/Applications/App.app");
 
     expect(breakdown).toEqual([
       { key: "pid:100:1", pid: 100, startedAtUnixMs: 1, name: "App", iconKey: undefined, cpu: 4, memory: 300 * MB },
@@ -552,7 +550,7 @@ describe("sampleMembersByKey", () => {
       makeRow({ pid: 100, bundlePath: "/Applications/App.app", startedAtUnixMs: 1, cpuStatus: FieldStatus.FIELD_STATUS_UNAVAILABLE, footprintBytes: 10 * MB }),
       makeRow({ pid: 200, bundlePath: "/Applications/App.app", startedAtUnixMs: 2, cpuPercent: 3, footprintBytes: 20 * MB }),
     ];
-    const breakdown = sampleMembersByKey(makeSnapshot(rows)).get("app:/Applications/App.app");
+    const breakdown = sampleMembers(makeSnapshot(rows)).get("app:/Applications/App.app");
 
     expect(breakdown?.[0].cpu).toBeNull();
     expect(breakdown?.[0].memory).toBe(10 * MB);
@@ -566,7 +564,7 @@ describe("sampleMembersByKey", () => {
       // detail just shows the row itself) - it is listed, not hidden.
       makeRow({ pid: 1, commandName: "launchd", startedAtUnixMs: 9, executablePath: "/sbin/launchd", cpuPercent: 1 }),
     ];
-    const breakdowns = sampleMembersByKey(makeSnapshot(rows));
+    const breakdowns = sampleMembers(makeSnapshot(rows));
 
     expect([...breakdowns.keys()]).toEqual(["app:/Applications/App.app"]);
     expect(breakdowns.get("pid:1:9")).toBeUndefined();
@@ -580,8 +578,8 @@ describe("sampleMembersByKey", () => {
       makeRow({ pid: 400, bundlePath: "/Applications/Slack.app", executableName: "Slack Helper", startedAtUnixMs: 4, cpuPercent: 1, footprintBytes: 40 * MB }),
     ];
     const snapshot = makeSnapshot(rows);
-    const full = sampleMembersByKey(snapshot);
-    const selective = sampleMembersForKeys(snapshot, new Set(["app:/Applications/Chrome.app"]));
+    const full = sampleMembers(snapshot);
+    const selective = sampleMembers(snapshot, new Set(["app:/Applications/Chrome.app"]));
 
     expect(selective.get("app:/Applications/Chrome.app")).toEqual(full.get("app:/Applications/Chrome.app"));
     expect([...selective.keys()]).toEqual(["app:/Applications/Chrome.app"]);

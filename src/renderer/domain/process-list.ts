@@ -542,26 +542,23 @@ function buildMemberBreakdowns(membersByKey: Map<string, ProcessRow[]>): Map<str
   return breakdowns;
 }
 
-export function sampleMembersByKey(snapshot: ProcessSnapshot): Map<string, MemberMetricSample[]> {
-  return buildMemberBreakdowns(sampleMemberRowsByKey(snapshot));
-}
-
 /**
- * Selective counterpart to {@link sampleMembersByKey}: builds only the member
- * breakdowns needed by currently tracked detail histories, avoiding temporary
- * rows for every other app group in the snapshot.
+ * Per-tick member breakdowns keyed by group. Pass `keys` to build only the
+ * breakdowns currently tracked detail histories need; omit it to sample every
+ * group.
  */
-export function sampleMembersForKeys(
+export function sampleMembers(
   snapshot: ProcessSnapshot,
-  keys: ReadonlySet<string>,
+  keys?: ReadonlySet<string>,
 ): Map<string, MemberMetricSample[]> {
-  if (keys.size === 0) {
-    return new Map();
-  }
   return buildMemberBreakdowns(sampleMemberRowsByKey(snapshot, keys));
 }
 
-function sampleMetrics(snapshot: ProcessSnapshot, keys?: ReadonlySet<string>): Map<string, MetricSample> {
+/**
+ * Per-tick CPU and memory totals under the same keys {@link resolveSelection}
+ * uses. Pass `keys` to sample only tracked detail histories; omit it for all.
+ */
+export function sampleMetrics(snapshot: ProcessSnapshot, keys?: ReadonlySet<string>): Map<string, MetricSample> {
   const samples = new Map<string, MetricSample>();
 
   const fold = (key: string, row: ProcessRow) => {
@@ -583,25 +580,6 @@ function sampleMetrics(snapshot: ProcessSnapshot, keys?: ReadonlySet<string>): M
   }
 
   return samples;
-}
-
-/** Samples graph values under the same keys {@link resolveSelection} uses. */
-export function sampleMetricsByKey(snapshot: ProcessSnapshot): Map<string, MetricSample> {
-  return sampleMetrics(snapshot);
-}
-
-/**
- * Selective counterpart to {@link sampleMetricsByKey}: keeps the history hook
- * from creating graph samples for processes the user has not opened.
- */
-export function sampleMetricsForKeys(
-  snapshot: ProcessSnapshot,
-  keys: ReadonlySet<string>,
-): Map<string, MetricSample> {
-  if (keys.size === 0) {
-    return new Map();
-  }
-  return sampleMetrics(snapshot, keys);
 }
 
 /**
