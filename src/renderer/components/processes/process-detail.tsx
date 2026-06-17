@@ -240,7 +240,7 @@ export function ProcessDetailView({
             </Field>
           </dl>
 
-          <div ref={inflowGraphRef}>
+          <div ref={inflowGraphRef} className={cn(!canPin && "flex min-h-0 flex-1 flex-col")}>
             <GraphAndMembers
               detail={detail}
               history={history}
@@ -335,14 +335,18 @@ function GraphAndMembers({
   const showMembers = membersOpen && canPin;
   const pinnedMembers = pinnedIndex !== null ? memberHistory[pinnedIndex] : undefined;
   const memberCount = pinnedMembers !== undefined ? pinnedMembers.length : detail.memberCount;
+  // A single process has no members row, so the graph fills the space instead of
+  // sitting at the pin-aligned h-20 (that fixed height only matters for grouping).
+  const fillGraph = !canPin;
   return (
-    <section className={cn("flex flex-col gap-2", showMembers ? "min-h-0 flex-1" : "shrink-0")}>
+    <section className={cn("flex flex-col gap-2", showMembers || fillGraph ? "min-h-0 flex-1" : "shrink-0")}>
       <ProcessMetricGraph
         detail={detail}
         history={history}
         scrubIndex={scrubIndex}
         pinned={pinnedIndex !== null}
         divider={!showMembers}
+        fill={fillGraph}
         onScrub={onScrub}
         onPick={showMembers ? onPick : undefined}
       />
@@ -396,6 +400,7 @@ function ProcessMetricGraph({
   scrubIndex,
   pinned,
   divider = true,
+  fill = false,
   onScrub,
   onPick,
 }: {
@@ -404,6 +409,8 @@ function ProcessMetricGraph({
   scrubIndex: number | null
   pinned: boolean
   divider?: boolean
+  /** Grow the chart to fill the available height instead of the fixed h-20. */
+  fill?: boolean
   onScrub: (index: number | null) => void
   onPick?: (index: number | null) => void
 }) {
@@ -421,11 +428,11 @@ function ProcessMetricGraph({
       : metricValueText(detail.total.state, detail.total.text);
 
   return (
-    <div className={cn("flex shrink-0 flex-col gap-2 pt-3", divider && "border-t border-border/60")}>
+    <div className={cn("flex flex-col gap-2 pt-3", fill ? "min-h-0 flex-1" : "shrink-0", divider && "border-t border-border/60")}>
       <MetricRowHeader icon={isCpu ? Cpu : MemoryStick} label={TOTAL_LABEL[detail.totalSort]}>
         <ValueUnit value={valueText} valueClassName="text-foreground" />
       </MetricRowHeader>
-      <div className="relative h-20 w-full">
+      <div className={cn("relative w-full", fill ? "mb-3 min-h-0 flex-1" : "h-20")}>
         {isCpu ? (
           <CpuGraph
             history={history}
