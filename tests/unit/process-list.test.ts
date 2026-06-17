@@ -6,7 +6,7 @@ import {
   findGroupByKey,
   isPending,
   okString,
-  pinGroupOrder,
+  pinOrder,
   projectProcessList,
   resolveSelection,
   rowCpu,
@@ -15,6 +15,7 @@ import {
   rowMetric,
   rowNotResponding,
   rowPid,
+  sampleMetricsByKey,
   singleProcessGroup,
   SYSTEM_GROUP_KEY,
 } from "@/domain/process-list";
@@ -187,44 +188,57 @@ describe("projectProcessList - sorting", () => {
   });
 });
 
-describe("pinGroupOrder", () => {
-  function tick(cpuByName: Record<string, number>) {
-    const rows = Object.entries(cpuByName).map(([name, cpu], index) =>
-      makeRow({ pid: index + 1, commandName: name, startedAtUnixMs: index + 1, cpuPercent: cpu }),
-    );
-    return projectProcessList(makeSnapshot(rows), "cpu", "");
+describe("pinOrder", () => {
+  // Simple keyed items stand in for the ranked rows/groups the list pins: each
+  // tick rebuilds them with fresh `value`s, while the pinned key order holds.
+  interface Item {
+    key: string;
+    value: number;
   }
+  const item = (key: string, value: number): Item => ({ key, value });
+  const keyOf = (it: Item) => it.key;
 
-  it("replays the pinned order over a re-ranked projection, keeping fresh values", () => {
-    const before = tick({ alpha: 50, beta: 40, gamma: 30 });
-    const pinned = before.map((group) => group.key);
+  it("replays the pinned identity order over a re-ranked list, keeping fresh values", () => {
+    const pinned = ["a", "b", "c"];
+    // Fresh tick ranked c-first, but the pinned order must win.
+    const ranked = [item("c", 90), item("a", 10), item("b", 20)];
 
-    // Next tick: gamma spikes to the top; the pinned order must not move.
-    const next = tick({ alpha: 10, beta: 20, gamma: 90 });
-    const replayed = pinGroupOrder(next, pinned);
+    const result = pinOrder(ranked, keyOf, pinned);
 
-    expect(replayed.map((group) => group.name)).toEqual(["alpha", "beta", "gamma"]);
-    // The group objects are the fresh ones - values keep ticking while pinned.
-    expect(replayed.map((group) => group.sortValue)).toEqual([10, 20, 90]);
+    expect(result.map(keyOf)).toEqual(["a", "b", "c"]);
+    // The items are the fresh ones - only the order is held, not the values.
+    expect(result.map((it) => it.value)).toEqual([10, 20, 90]);
   });
 
-  it("appends new groups after the pinned rows and drops vanished ones", () => {
-    const pinned = tick({ alpha: 50, beta: 40, gamma: 30 }).map((group) => group.key);
+  it("appends new keys after the pinned ones, in their ranked order", () => {
+    const pinned = ["a", "b"];
+    // d and c are new arrivals; d outranks c but both go below the pinned rows.
+    const ranked = [item("d", 95), item("b", 20), item("c", 50), item("a", 10)];
 
-    // beta exited; delta arrived at the top of the ranking.
-    const nextRows = [
-      makeRow({ pid: 1, commandName: "alpha", startedAtUnixMs: 1, cpuPercent: 10 }),
-      makeRow({ pid: 3, commandName: "gamma", startedAtUnixMs: 3, cpuPercent: 30 }),
-      makeRow({ pid: 4, commandName: "delta", startedAtUnixMs: 4, cpuPercent: 95 }),
-    ];
-    const next = projectProcessList(makeSnapshot(nextRows), "cpu", "");
+    const result = pinOrder(ranked, keyOf, pinned);
 
-    expect(pinGroupOrder(next, pinned).map((group) => group.name)).toEqual(["alpha", "gamma", "delta"]);
+    expect(result.map(keyOf)).toEqual(["a", "b", "d", "c"]);
   });
 
-  it("passes groups through unchanged when nothing is pinned", () => {
-    const groups = tick({ alpha: 50, beta: 40 });
-    expect(pinGroupOrder(groups, [])).toBe(groups);
+  it("drops vanished pinned keys without leaving a gap", () => {
+    const pinned = ["a", "b", "c"];
+    // b vanished this tick; a and c keep their relative pinned order.
+    const ranked = [item("c", 30), item("a", 10)];
+
+    expect(pinOrder(ranked, keyOf, pinned).map(keyOf)).toEqual(["a", "c"]);
+  });
+
+  it("returns the input unchanged when nothing is pinned", () => {
+    const ranked = [item("a", 50), item("b", 40)];
+    expect(pinOrder(ranked, keyOf, [])).toBe(ranked);
+  });
+
+  it("appends and drops together: vanished key gone, new key after the pinned ones", () => {
+    const pinned = ["a", "b", "c"];
+    // b exited; d arrived at the top of the ranking.
+    const ranked = [item("d", 95), item("a", 10), item("c", 30)];
+
+    expect(pinOrder(ranked, keyOf, pinned).map(keyOf)).toEqual(["a", "c", "d"]);
   });
 });
 
@@ -458,5 +472,37 @@ describe("projectProcessList - System group", () => {
     expect(resolved?.memberCount).toBe(3);
     // Representative is the lowest PID, but the display identity stays "System".
     expect(resolved?.name).toBe("System");
+  });
+});
+
+describe("sampleMetricsByKey", () => {
+  it("sums a group's members under the group key, with per-member identity keys", () => {
+    const rows = [
+      makeRow({ pid: 100, bundlePath: "/Applications/Chrome.app", startedAtUnixMs: 1, cpuPercent: 4, footprintBytes: 300 * MB }),
+      makeRow({ pid: 200, bundlePath: "/Applications/Chrome.app", startedAtUnixMs: 2, cpuPercent: 8, footprintBytes: 150 * MB }),
+    ];
+    const samples = sampleMetricsByKey(makeSnapshot(rows));
+
+    expect(samples.get("app:/Applications/Chrome.app")).toEqual({ cpu: 12, memory: 450 * MB });
+    expect(samples.get("pid:100:1")).toEqual({ cpu: 4, memory: 300 * MB });
+    expect(samples.get("pid:200:2")).toEqual({ cpu: 8, memory: 150 * MB });
+  });
+
+  it("keys an ungrouped process once (group key == identity)", () => {
+    const rows = [makeRow({ pid: 321, commandName: "tool", startedAtUnixMs: 5, cpuPercent: 7, footprintBytes: 20 * MB })];
+    const samples = sampleMetricsByKey(makeSnapshot(rows));
+
+    expect(samples.get("pid:321:5")).toEqual({ cpu: 7, memory: 20 * MB });
+    expect(samples.size).toBe(1);
+  });
+
+  it("records an unreadable metric as null, not a fabricated 0", () => {
+    const rows = [
+      makeRow({ pid: 10, commandName: "x", startedAtUnixMs: 1, cpuStatus: FieldStatus.FIELD_STATUS_UNAVAILABLE, footprintBytes: 5 * MB }),
+    ];
+    const sample = sampleMetricsByKey(makeSnapshot(rows)).get("pid:10:1");
+
+    expect(sample?.cpu).toBeNull();
+    expect(sample?.memory).toBe(5 * MB);
   });
 });

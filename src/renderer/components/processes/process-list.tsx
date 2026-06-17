@@ -1,22 +1,31 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from "react";
+import { useCallback, useState, type KeyboardEvent, type Ref } from "react";
 
 import { SnapshotStatus } from "@/gen/process_explorer";
 import { ProcessRow } from "@/components/processes/process-row";
-import { pinGroupOrder, type DetailSelection, type ProcessGroup } from "@/domain/process-list";
+import { useOrderPin } from "@/components/processes/use-order-pin";
+import {
+  groupKey,
+  type DetailSelection,
+  type IconTable,
+  type ProcessGroup,
+  type SortMode,
+} from "@/domain/process-list";
 
 /**
  * The ranked, grouped process rows plus the loading/empty/unavailable states,
  * sharing one scroll area so the panel never resizes.
  *
  * While the pointer is inside the list - or a row has keyboard focus - row
- * order is pinned via {@link pinGroupOrder}: a snapshot tick re-ranks rows,
- * and a reorder landing between aiming and clicking (or between arrow
- * presses) would open the wrong process. Values keep updating; only the order
- * holds. Live ranking resumes when the pointer and focus leave (opening a
- * detail unmounts the list, so a stale pin cannot outlive the interaction).
+ * order is pinned via {@link useOrderPin}: a snapshot tick re-ranks rows, and a
+ * reorder landing between aiming and clicking (or between arrow presses) would
+ * open the wrong process. Values keep updating; only the order holds. Live
+ * ranking resumes when the pointer and focus leave (opening a detail unmounts
+ * the list, so a stale pin cannot outlive the interaction).
  */
 export function ProcessList({
   groups: rankedGroups,
+  sort,
+  icons,
   status,
   hasQuery,
   onOpenSelection,
@@ -24,6 +33,8 @@ export function ProcessList({
   onExitTop,
 }: {
   groups: ProcessGroup[]
+  sort: SortMode
+  icons: IconTable
   status: SnapshotStatus
   hasQuery: boolean
   onOpenSelection: (selection: DetailSelection) => void
@@ -32,30 +43,37 @@ export function ProcessList({
 }) {
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
-  // The key order last shown on screen; the baseline the next pinned tick replays.
-  const pinnedKeys = useRef<string[]>([]);
-
+  // Keys of groups expanded to show their member processes inline. Survives
+  // snapshot ticks; a key whose group has vanished is simply never read.
+  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleExpanded = useCallback((key: string) => {
+    setExpandedKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
   const pinActive = pointerInside || focusInside;
-  const groups = useMemo(
-    () => (pinActive ? pinGroupOrder(rankedGroups, pinnedKeys.current) : rankedGroups),
-    [pinActive, rankedGroups],
-  );
+  const groups = useOrderPin(rankedGroups, groupKey, pinActive, sort);
 
-  // Track the order actually displayed: unpinned it follows the live ranking;
-  // pinned it evolves only by drop-outs and bottom appends, so a row that left
-  // the capped set and returned cannot reclaim a mid-list slot under the cursor.
-  useEffect(() => {
-    pinnedKeys.current = groups.map((group) => group.key);
-  }, [groups]);
-
-  // Moves focus between row buttons on ArrowDown/ArrowUp; rows are the only
-  // buttons inside the container. Focusing scrolls the row into view natively.
+  // Moves focus between row buttons on ArrowDown/ArrowUp. Focus may sit on a
+  // row's content button or on its expand chevron; both live in the same <li>,
+  // so resolve the active element to its row before stepping. Focusing scrolls
+  // the row into view natively.
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
       return;
     }
-    const rows = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button"));
-    const current = rows.indexOf(document.activeElement as HTMLButtonElement);
+    const rows = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>("button[data-process-row]"),
+    );
+    const active = document.activeElement as Element | null;
+    const activeRow = active?.closest("li")?.querySelector<HTMLButtonElement>("button[data-process-row]");
+    const current = activeRow ? rows.indexOf(activeRow) : -1;
     if (current < 0) {
       return;
     }
@@ -74,7 +92,11 @@ export function ProcessList({
       className="scrollbar-hidden flex-1 overflow-y-auto bg-background"
       onPointerOver={() => setPointerInside(true)}
       onPointerLeave={() => setPointerInside(false)}
-      onFocusCapture={() => setFocusInside(true)}
+      onFocusCapture={(event) => {
+        if (event.target instanceof Element && event.target.matches(":focus-visible")) {
+          setFocusInside(true);
+        }
+      }}
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
           setFocusInside(false);
@@ -86,7 +108,15 @@ export function ProcessList({
         <ul>
           {groups.map((group) => (
             <li key={group.key}>
-              <ProcessRow group={group} onOpen={onOpenSelection} />
+              <ProcessRow
+                group={group}
+                sort={sort}
+                icons={icons}
+                expanded={expandedKeys.has(group.key)}
+                pinned={pinActive}
+                onOpen={onOpenSelection}
+                onToggle={toggleExpanded}
+              />
             </li>
           ))}
         </ul>

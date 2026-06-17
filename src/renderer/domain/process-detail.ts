@@ -55,6 +55,11 @@ export interface DetailMember {
   notResponding: boolean;
 }
 
+/** Stable identity reader for a member, for order-pinning member lists. */
+export function memberKey(member: DetailMember): string {
+  return `${member.pid}:${member.startedAtUnixMs ?? "unknown"}`;
+}
+
 /**
  * Presentation model for the detail view of one selected group (or one
  * process - then a single-member group).
@@ -87,6 +92,8 @@ export interface ProcessDetail {
   user: DetailField;
   /** The group's total for the selected metric, with detail precision. */
   total: DetailField;
+  /** Raw active-metric total for the trend graph. */
+  totalValue: number | null;
   /** Which metric {@link total} reflects, for the "Total CPU"/"Total RAM" label. */
   totalSort: SortMode;
   memberCount: number;
@@ -161,6 +168,20 @@ function sumGroup(
   return { state: anyPending ? "pending" : "unavailable" };
 }
 
+/** Raw counterpart to {@link sumGroup}; `null` means the graph should draw a gap. */
+function sumGroupValue(members: ProcessRow[], read: (row: ProcessRow) => MetricCell): number | null {
+  let sum = 0;
+  let hasValue = false;
+  for (const row of members) {
+    const value = read(row).value;
+    if (value !== undefined) {
+      sum += value;
+      hasValue = true;
+    }
+  }
+  return hasValue ? sum : null;
+}
+
 function rowThreadCount(row: ProcessRow): MetricCell {
   const threads = row.threadCount;
   if (threads && threads.status === FieldStatus.FIELD_STATUS_OK) {
@@ -186,7 +207,8 @@ function detailUser(row: ProcessRow): DetailField {
   return { state: missingState(user?.status) };
 }
 
-function buildMember(row: ProcessRow, sort: SortMode, icons: IconTable): DetailMember {
+/** Projects one process row into a member display item under the active sort. */
+export function buildMember(row: ProcessRow, sort: SortMode, icons: IconTable): DetailMember {
   const cell = rowMetric(row, sort);
   const metricState = cellState(cell);
   return {
@@ -198,6 +220,23 @@ function buildMember(row: ProcessRow, sort: SortMode, icons: IconTable): DetailM
     metricText: metricState === "ok" ? formatDetailMetric(cell.value ?? 0, sort) : undefined,
     notResponding: rowNotResponding(row),
   };
+}
+
+/**
+ * A group's members as display rows ranked by the active metric (descending),
+ * with a PID tie-break so equal-value rows (e.g. idle 0.00% members) stay
+ * stable across ticks. Shared by the detail view and the inline expanded list
+ * so both order members identically.
+ */
+export function rankMembers(group: ProcessGroup, sort: SortMode, icons: IconTable): DetailMember[] {
+  const read = sort === "cpu" ? rowCpu : rowMemory;
+  return group.members
+    .slice()
+    .sort((left, right) => {
+      const delta = (read(right).value ?? 0) - (read(left).value ?? 0);
+      return delta !== 0 ? delta : rowPid(left) - rowPid(right);
+    })
+    .map((row) => buildMember(row, sort, icons));
 }
 
 /**
@@ -215,20 +254,9 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: I
   const parentAvailable =
     statics?.parentStatus === FieldStatus.FIELD_STATUS_OK && statics.parentPid > 0;
 
-  // Members ranked by the active metric like the main list, with a PID
-  // tie-break so equal-value rows (e.g. idle 0.00% members) stay stable across
-  // ticks. The representative stays group.members[0] for the header identity;
-  // only the displayed list is ranked.
-  const members =
-    group.memberCount > 1
-      ? group.members
-        .slice()
-        .sort((left, right) => {
-          const delta = (read(right).value ?? 0) - (read(left).value ?? 0);
-          return delta !== 0 ? delta : rowPid(left) - rowPid(right);
-        })
-        .map((row) => buildMember(row, sort, icons))
-      : [];
+  // The representative stays group.members[0] for the header identity; only the
+  // displayed list is ranked.
+  const members = group.memberCount > 1 ? rankMembers(group, sort, icons) : [];
 
   return {
     key: group.key,
@@ -248,6 +276,7 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: I
     cpuTime: sumGroup(group.members, rowCpuTime, formatCpuTime),
     user: detailUser(representative),
     total: sumGroup(group.members, read, (value) => formatDetailMetric(value, sort)),
+    totalValue: sumGroupValue(group.members, read),
     totalSort: sort,
     memberCount: group.memberCount,
     members,

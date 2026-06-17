@@ -7,6 +7,9 @@
 
 export const HISTORY_CAPACITY = 60;
 
+/** Scalar graph sample; `null` draws as a gap rather than a fake 0. */
+export type HistorySample = number | null;
+
 /** Appends `sample`, keeping at most `capacity` newest entries (oldest dropped). */
 export function pushSample<T>(history: T[], sample: T, capacity = HISTORY_CAPACITY): T[] {
   const next = [...history, sample];

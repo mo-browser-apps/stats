@@ -83,6 +83,18 @@ function hasStableTargetIdentity(target: ProcessIdentity | undefined): boolean {
 }
 
 /**
+ * True for MoStats itself: the main process or any of its direct child helpers
+ * (renderer, GPU, utility), so neither can be signaled into self-destabilizing
+ * the app. Helper PIDs differ from the main PID, but their parent is it.
+ */
+export function isSelfProcess(row: ProcessRow, selfPid: number): boolean {
+  if ((row.identity?.pid ?? 0) === selfPid) {
+    return true;
+  }
+  return row.statics?.parentStatus === FieldStatus.FIELD_STATUS_OK && row.statics.parentPid === selfPid;
+}
+
+/**
  * True for a session-critical process that must never be signaled: PID 0/1
  * plus the {@link CRITICAL_PROCESS_NAMES} denylist, matched against both the
  * command name and the executable name.
@@ -123,7 +135,7 @@ export function disabledReasonFor(
   if (!hasStableTargetIdentity(target)) {
     return ActionDisabledReason.ACTION_DISABLED_REASON_UNSTABLE_IDENTITY;
   }
-  if ((row.identity?.pid ?? 0) === selfPid) {
+  if (isSelfProcess(row, selfPid)) {
     return ActionDisabledReason.ACTION_DISABLED_REASON_SELF;
   }
   if (isCriticalProcess(row)) {

@@ -116,6 +116,14 @@ describe("disabledReasonFor", () => {
       .toBe(ActionDisabledReason.ACTION_DISABLED_REASON_SELF);
   });
 
+  it("quit blocks a direct child helper of MoStats (SELF)", () => {
+    const helper = makeRow({ pid: SOME_PID, startedAtUnixMs: 1, commandName: "MoStats Helper", parentPid: selfPid });
+    expect(disabledReasonFor(QUIT, helper, selfPid, makeTarget(SOME_PID, 1)))
+      .toBe(ActionDisabledReason.ACTION_DISABLED_REASON_SELF);
+    expect(disabledReasonFor(FORCE_QUIT, helper, selfPid, makeTarget(SOME_PID, 1)))
+      .toBe(ActionDisabledReason.ACTION_DISABLED_REASON_SELF);
+  });
+
   it("quit blocks a session-critical process (PROTECTED)", () => {
     const row = makeRow({ pid: 80, startedAtUnixMs: 1, commandName: "WindowServer" });
     expect(disabledReasonFor(QUIT, row, selfPid, makeTarget(80, 1)))

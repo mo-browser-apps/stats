@@ -109,6 +109,7 @@ describe("buildProcessDetail - totals", () => {
     expect(detail.total.state).toBe("ok");
     // 4% + 8% = 12%, detail precision (two decimals).
     expect(detail.total.text).toBe("12.00%");
+    expect(detail.totalValue).toBe(12);
   });
 
   it("sums the selected metric across members (memory)", () => {
@@ -116,6 +117,7 @@ describe("buildProcessDetail - totals", () => {
     expect(detail.totalSort).toBe("memory");
     // 300 MB + 150 MB = 450 MB, detail precision (one extra decimal).
     expect(detail.total.text).toBe("450.0 MB");
+    expect(detail.totalValue).toBe(450 * MB);
   });
 
   it("sums thread count and CPU time across members", () => {
@@ -196,6 +198,7 @@ describe("buildProcessDetail - group total mixed states", () => {
     const detail = buildProcessDetail(groupOf(rows, "app:/Applications/App.app"), "cpu", NO_ICONS);
     expect(detail.total.state).toBe("ok");
     expect(detail.total.text).toBe("6.00%");
+    expect(detail.totalValue).toBe(6);
   });
 
   it("reports the total pending when no member is OK but one is still pending", () => {
@@ -215,5 +218,6 @@ describe("buildProcessDetail - group total mixed states", () => {
     ];
     const detail = buildProcessDetail(groupOf(rows, "app:/Applications/App.app"), "cpu", NO_ICONS);
     expect(detail.total.state).toBe("unavailable");
+    expect(detail.totalValue).toBeNull();
   });
 });

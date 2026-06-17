@@ -1,15 +1,22 @@
-import { ChevronLeft, ChevronRight, Clock, Cpu, User } from "lucide-react";
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight, Clock, Cpu, MemoryStick, User } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
-import { UNAVAILABLE_TEXT, formatStartTime } from "@/lib/format";
+import { UNAVAILABLE_TEXT, formatBytes, formatCpuPercentPrecise, formatStartTime } from "@/lib/format";
 import type { ActionState, ProcessActionKind } from "@/gen/process_explorer";
 import { CopyButton, DisclosureContent } from "@/components/processes/disclosure";
+import { MemberRow } from "@/components/processes/member-row";
 import { ProcessActions } from "@/components/processes/process-actions";
 import { ScrollFade } from "@/components/processes/scroll-fade";
 import { ProcessIcon } from "@/components/processes/process-icon";
 import { ProcessSortControl } from "@/components/processes/process-sort-control";
+import { MetricRowHeader, MeterTooltip, ValueUnit } from "@/components/metrics/metric-row-header";
+import { CpuGraph } from "@/components/metrics/cpu-graph";
+import { MemoryGraph } from "@/components/metrics/memory-graph";
+import { useOrderPin } from "@/components/processes/use-order-pin";
+import { HISTORY_CAPACITY, type HistorySample } from "@/domain/sample-history";
 import { metricValueText, type SortMode } from "@/domain/process-list";
+import { memberKey } from "@/domain/process-detail";
 import type {
   DetailField,
   DetailMember,
@@ -36,6 +43,7 @@ const TOTAL_LABEL: Record<SortMode, string> = {
  */
 export function ProcessDetailView({
   detail,
+  history,
   sort,
   actions,
   actionsBusy,
@@ -46,6 +54,7 @@ export function ProcessDetailView({
   onRunAction,
 }: {
   detail: ProcessDetail
+  history: HistorySample[]
   sort: SortMode
   actions: ActionState[]
   actionsBusy: boolean
@@ -86,7 +95,7 @@ export function ProcessDetailView({
         <ProcessSortControl sort={sort} onChange={onSortChange} className="ml-auto" />
       </div>
 
-      <div className="scrollbar-hidden flex flex-1 flex-col gap-4 overflow-y-auto pb-1">
+      <div className="scrollbar-hidden flex flex-1 flex-col gap-3 overflow-y-auto pb-1">
         <header className="flex items-center gap-3">
           <ProcessIcon
             iconPngBase64={detail.iconPngBase64}
@@ -145,16 +154,16 @@ export function ProcessDetailView({
           </dl>
         )}
 
+        <ProcessMetricGraph detail={detail} history={history} />
+
         {grouped ? (
           <Members
             members={detail.members}
             memberCount={detail.memberCount}
-            total={detail.total}
+            resetKey={`${detail.pid}:${detail.startedAtUnixMs}:${detail.totalSort}`}
             onOpenMember={onOpenMember}
           />
-        ) : (
-          <SingleProcessMetric detail={detail} />
-        )}
+        ) : null}
       </div>
 
       {detail.system ? null : (
@@ -169,17 +178,44 @@ export function ProcessDetailView({
   );
 }
 
-/**
- * The metric value for a single-process detail (no members): one row in the
- * slot the group's Members header occupies. Not collapsible or drillable.
- */
-function SingleProcessMetric({ detail }: { detail: ProcessDetail }) {
+/** Recent trend for the selected process or group under the active metric. */
+function ProcessMetricGraph({ detail, history }: { detail: ProcessDetail; history: HistorySample[] }) {
+  const isCpu = detail.totalSort === "cpu";
+  const [scrubIndex, setScrubIndex] = useState<number | null>(null);
+
+  const format = isCpu ? formatCpuPercentPrecise : (value: number) => formatBytes(value, true);
+
+  const scrubbed = scrubIndex !== null ? history[scrubIndex] ?? null : null;
+  const valueText = scrubIndex !== null
+    ? scrubbed !== null
+      ? format(scrubbed)
+      : "--"
+    : detail.totalValue !== null
+      ? format(detail.totalValue)
+      : metricValueText(detail.total.state, detail.total.text);
+
+  const scrubPercent =
+    scrubIndex !== null
+      ? ((HISTORY_CAPACITY - history.length + scrubIndex + 0.5) / HISTORY_CAPACITY) * 100
+      : null;
+
   return (
-    <div className="flex items-center gap-2 border-t border-border/60 px-2 py-2">
-      <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        {TOTAL_LABEL[detail.totalSort]}
-      </span>
-      <MetricValue metric={detail.total} className="ml-auto text-[15px]" />
+    <div className="flex flex-col gap-2 border-t border-border/60 pt-3">
+      <MetricRowHeader icon={isCpu ? Cpu : MemoryStick} label={TOTAL_LABEL[detail.totalSort]}>
+        <ValueUnit value={valueText} valueClassName="text-foreground" />
+      </MetricRowHeader>
+      <div className="relative h-16 w-full">
+        {isCpu ? (
+          <CpuGraph history={history} scrubIndex={scrubIndex} state="ok" onScrub={setScrubIndex} />
+        ) : (
+          <MemoryGraph history={history} scrubIndex={scrubIndex} onScrub={setScrubIndex} />
+        )}
+        {scrubbed !== null && scrubPercent !== null ? (
+          <MeterTooltip leftPercent={scrubPercent} className="-top-1">
+            {format(scrubbed)}
+          </MeterTooltip>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -260,21 +296,6 @@ function HeaderStat({
   );
 }
 
-/** Renders a {@link DetailField} value with the ok/pending/unavailable rule. */
-function MetricValue({ metric, className }: { metric: DetailField; className?: string }) {
-  return (
-    <span
-      className={cn(
-        "shrink-0 whitespace-nowrap text-right font-medium tabular-nums",
-        metric.state === "ok" ? "text-foreground" : "text-muted-foreground",
-        className,
-      )}
-    >
-      {metricValueText(metric.state, metric.text)}
-    </span>
-  );
-}
-
 /** A labeled detail field: a quiet uppercase label, the value below. */
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -337,26 +358,28 @@ function ScrollableValue({
 }
 
 /**
- * The expandable Members section for a multi-process app. The disclosure
- * header carries the group's selected-metric total on the right; toggling it
- * reveals the member processes (representative first), each drillable into
- * its own detail. Starts expanded; scrolls within a bounded box.
+ * The expandable Members section for a multi-process app. Rows are ranked by
+ * the active metric and drill into individual process details.
  */
 function Members({
-  members,
+  members: rankedMembers,
   memberCount,
-  total,
+  resetKey,
   onOpenMember,
 }: {
   members: DetailMember[]
   memberCount: number
-  total: DetailField
+  /** Changes when the drilled target or sort changes, dropping any stale pin. */
+  resetKey: string
   onOpenMember: (pid: number, startedAtUnixMs?: number) => void
 }) {
   const [expanded, setExpanded] = useState(true);
+  const [pointerInside, setPointerInside] = useState(false);
+  const [focusInside, setFocusInside] = useState(false);
+  const members = useOrderPin(rankedMembers, memberKey, pointerInside || focusInside, resetKey);
 
   return (
-    <section className="flex flex-col border-t border-border/60 pt-1.5">
+    <section className="flex flex-col border-t border-border/60 pt-1">
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
@@ -374,13 +397,22 @@ function Members({
         <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Members ({memberCount})
         </span>
-        <MetricValue metric={total} className="ml-auto text-[13px]" />
       </button>
 
       <DisclosureContent open={expanded}>
-        <ul className="scrollbar-hidden flex max-h-72 flex-col gap-0.5 overflow-y-auto">
+        <ul
+          className="scrollbar-hidden mt-1.5 flex max-h-72 flex-col gap-0.5 overflow-y-auto"
+          onPointerOver={() => setPointerInside(true)}
+          onPointerLeave={() => setPointerInside(false)}
+          onFocusCapture={() => setFocusInside(true)}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              setFocusInside(false);
+            }
+          }}
+        >
           {members.map((member) => (
-            <li key={member.pid}>
+            <li key={memberKey(member)}>
               <MemberRow member={member} onOpen={onOpenMember} />
             </li>
           ))}
@@ -389,47 +421,3 @@ function Members({
     </section>
   );
 }
-
-/** One member row: icon, name, and the active-metric value. */
-const MemberRow = memo(
-  function MemberRow({
-    member,
-    onOpen,
-  }: {
-    member: DetailMember
-    onOpen: (pid: number, startedAtUnixMs?: number) => void
-  }) {
-    return (
-      <button
-        type="button"
-        onClick={() => onOpen(member.pid, member.startedAtUnixMs)}
-        aria-label={`Show details for ${member.name}, PID ${member.pid}`}
-        title={`${member.name} - PID ${member.pid}`}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-      >
-        <ProcessIcon iconPngBase64={member.iconPngBase64} name={member.name} />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-[12px]",
-            member.notResponding ? "text-destructive" : "text-foreground",
-          )}
-        >
-          {member.name}
-        </span>
-        <MetricValue
-          metric={{ state: member.metricState, text: member.metricText }}
-          className="w-20 text-[12px]"
-        />
-      </button>
-    );
-  },
-  (prev, next) =>
-    prev.onOpen === next.onOpen &&
-    prev.member.pid === next.member.pid &&
-    prev.member.startedAtUnixMs === next.member.startedAtUnixMs &&
-    prev.member.name === next.member.name &&
-    prev.member.iconPngBase64 === next.member.iconPngBase64 &&
-    prev.member.metricState === next.member.metricState &&
-    prev.member.metricText === next.member.metricText &&
-    prev.member.notResponding === next.member.notResponding,
-);

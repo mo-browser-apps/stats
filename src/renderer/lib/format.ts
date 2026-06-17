@@ -168,7 +168,9 @@ export function formatCelsius(celsius: number): string {
  */
 export function formatStartTime(epochMs: number): string {
   if (!Number.isFinite(epochMs) || epochMs <= 0) return UNAVAILABLE_TEXT;
-  return new Date(epochMs).toLocaleString(undefined, {
+  const date = new Date(epochMs);
+  if (Number.isNaN(date.getTime())) return UNAVAILABLE_TEXT;
+  return date.toLocaleString(undefined, {
     year: "numeric",
     month: "short",
     day: "numeric",

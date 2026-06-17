@@ -182,6 +182,10 @@ describe("formatStartTime", () => {
     expect(formatStartTime(Number.NaN)).toBe(UNAVAILABLE_TEXT);
   });
 
+  it("is unavailable for an epoch beyond the JS Date range", () => {
+    expect(formatStartTime(8.7e15)).toBe(UNAVAILABLE_TEXT);
+  });
+
   it("renders a real epoch as a non-empty local string", () => {
     // The exact text is locale/timezone dependent, so assert it produced a
     // concrete (non-unavailable) string rather than a specific format.

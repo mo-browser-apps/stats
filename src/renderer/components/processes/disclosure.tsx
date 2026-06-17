@@ -5,14 +5,7 @@ import { appGateway } from "@/gateway/app-gateway";
 import { cn } from "@/lib/utils";
 
 /**
- * Reusable disclosure and copy primitives for the detail view. Sensitive
- * process text (paths, argv) is copied only on explicit user action and
- * routes through main because the renderer is sandboxed.
- */
-
-/**
- * Smooth height/opacity wrapper for disclosure bodies. Content stays mounted
- * so close animations can run; `inert` keeps hidden controls unreachable.
+ * Smooth height/opacity wrapper for disclosure bodies.
  */
 export function DisclosureContent({
   open,
@@ -26,8 +19,8 @@ export function DisclosureContent({
       aria-hidden={!open}
       inert={open ? undefined : true}
       className={cn(
-        "grid transition-[grid-template-rows,opacity,margin-top] duration-150 ease-out motion-reduce:transition-none",
-        open ? "mt-1.5 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0",
+        "grid transition-[grid-template-rows,opacity] duration-150 ease-out motion-reduce:transition-none",
+        open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
       )}
     >
       <div className="min-h-0 overflow-hidden">{children}</div>
