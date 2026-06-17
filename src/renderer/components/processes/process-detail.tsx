@@ -335,8 +335,6 @@ function GraphAndMembers({
   const showMembers = membersOpen && canPin;
   const pinnedMembers = pinnedIndex !== null ? memberHistory[pinnedIndex] : undefined;
   const memberCount = pinnedMembers !== undefined ? pinnedMembers.length : detail.memberCount;
-  // A single process has no members row, so the graph fills the space instead of
-  // sitting at the pin-aligned h-20 (that fixed height only matters for grouping).
   const fillGraph = !canPin;
   return (
     <section className={cn("flex flex-col gap-2", showMembers || fillGraph ? "min-h-0 flex-1" : "shrink-0")}>
@@ -409,7 +407,6 @@ function ProcessMetricGraph({
   scrubIndex: number | null
   pinned: boolean
   divider?: boolean
-  /** Grow the chart to fill the available height instead of the fixed h-20. */
   fill?: boolean
   onScrub: (index: number | null) => void
   onPick?: (index: number | null) => void
