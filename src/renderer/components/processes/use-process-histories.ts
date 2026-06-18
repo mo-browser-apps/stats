@@ -163,28 +163,22 @@ export function useProcessHistories(
   // Ticks that arrived while frozen, per key, oldest first - replayed on thaw.
   const buffer = useRef(new Map<string, TrailSample[]>());
 
-  useEffect(() => {
-    const now = Date.now();
+  const reconcileTrackedKeys = useCallback((now: number) => {
     if (activeKey !== undefined) {
       accessedAt.current.set(activeKey, now);
     }
-
-    const candidates = new Set(trackedKeys.current);
-    if (activeKey !== undefined) {
-      candidates.add(activeKey);
-    }
-    trackedKeys.current = pruneTrackedKeys(candidates, activeKey, accessedAt.current, now);
+    trackedKeys.current = pruneTrackedKeys(trackedKeys.current, activeKey, accessedAt.current, now);
     pruneCacheRecords(
       accessedAt.current,
       sampledRevisionByKey.current,
       buffer.current,
       trackedKeys.current,
     );
-
-    setTrailsByKey((previous) => {
-      return pruneTrailCache(previous, trackedKeys.current);
-    });
   }, [activeKey]);
+
+  const commitPrunedTrails = useCallback(() => {
+    setTrailsByKey((previous) => pruneTrailCache(previous, trackedKeys.current));
+  }, []);
 
   useEffect(() => {
     const wasFrozen = frozenRef.current;
@@ -213,28 +207,10 @@ export function useProcessHistories(
   }, [frozen]);
 
   useEffect(() => {
-    const now = Date.now();
-    if (activeKey !== undefined) {
-      accessedAt.current.set(activeKey, now);
-    }
-    trackedKeys.current = pruneTrackedKeys(
-      trackedKeys.current,
-      activeKey,
-      accessedAt.current,
-      now,
-    );
-
-    pruneCacheRecords(
-      accessedAt.current,
-      sampledRevisionByKey.current,
-      buffer.current,
-      trackedKeys.current,
-    );
+    reconcileTrackedKeys(Date.now());
 
     if (trackedKeys.current.size === 0) {
-      setTrailsByKey((previous) => {
-        return pruneTrailCache(previous, trackedKeys.current);
-      });
+      commitPrunedTrails();
       return;
     }
 
@@ -242,9 +218,7 @@ export function useProcessHistories(
       [...trackedKeys.current].filter((key) => sampledRevisionByKey.current.get(key) !== snapshot.revision),
     );
     if (unsampledKeys.size === 0) {
-      setTrailsByKey((previous) => {
-        return pruneTrailCache(previous, trackedKeys.current);
-      });
+      commitPrunedTrails();
       return;
     }
 
@@ -272,13 +246,6 @@ export function useProcessHistories(
       appendTicks.set(key, tick);
     }
 
-    pruneCacheRecords(
-      accessedAt.current,
-      sampledRevisionByKey.current,
-      buffer.current,
-      trackedKeys.current,
-    );
-
     setTrailsByKey((previous) => {
       const retained = pruneTrailCache(previous, trackedKeys.current);
       const next = new Map(retained);
@@ -287,7 +254,7 @@ export function useProcessHistories(
       }
       return next;
     });
-  }, [activeKey, snapshot]);
+  }, [activeKey, snapshot, reconcileTrackedKeys, commitPrunedTrails]);
 
   return useCallback(
     (key: string, sort: SortMode): ProcessHistory => {
