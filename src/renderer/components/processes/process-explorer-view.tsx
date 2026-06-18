@@ -159,7 +159,7 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
   // True while the detail view is inspecting a past tick; freezes history so
   // the inspected tick cannot scroll off the graph (see useProcessHistories).
   const [inspecting, setInspecting] = useState(false);
-  const readHistory = useProcessHistories(snapshot, inspecting);
+  const readHistory = useProcessHistories(snapshot, inspecting, detail?.key);
   const { actions, actionsBusy, actionMessage, runAction } = useProcessActions(
     detail,
     pull,
