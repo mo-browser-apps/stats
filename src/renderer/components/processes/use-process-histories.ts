@@ -9,6 +9,12 @@ import {
 } from "@/domain/process-list";
 import { HISTORY_CAPACITY, pushSample, type HistorySample } from "@/domain/sample-history";
 
+/** Maximum number of process-detail histories retained for quick revisits. */
+const RETAINED_HISTORY_LIMIT = 12;
+
+/** How long an inactive retained history may sit in memory before pruning. */
+const INACTIVE_HISTORY_TTL_MS = 10 * 60 * 1000;
+
 /**
  * A process's retained trails (oldest first): the CPU and memory totals that
  * drive the graph, plus the per-tick member breakdown behind the detail's
@@ -64,26 +70,115 @@ function appendTick(prior: Trails | undefined, tick: TrailSample): Trails {
   };
 }
 
+/** Applies the bounded live-history policy to the key set sampled each tick. */
+function pruneTrackedKeys(
+  previous: ReadonlySet<string>,
+  activeKey: string | undefined,
+  accessedAt: ReadonlyMap<string, number>,
+  now: number,
+): Set<string> {
+  const keep = new Set<string>();
+  if (activeKey !== undefined) {
+    keep.add(activeKey);
+  }
+
+  const inactiveKeys = [...previous]
+    .filter((key) => key !== activeKey)
+    .filter((key) => now - (accessedAt.get(key) ?? 0) <= INACTIVE_HISTORY_TTL_MS)
+    .sort((left, right) => (accessedAt.get(right) ?? 0) - (accessedAt.get(left) ?? 0));
+
+  for (const key of inactiveKeys) {
+    if (keep.size >= RETAINED_HISTORY_LIMIT) {
+      break;
+    }
+    keep.add(key);
+  }
+
+  return keep;
+}
+
+/** Removes trails for histories that are no longer part of the live cache. */
+function pruneTrailCache(
+  previous: Map<string, Trails>,
+  retainedKeys: ReadonlySet<string>,
+): Map<string, Trails> {
+  if (previous.size === retainedKeys.size && [...previous.keys()].every((key) => retainedKeys.has(key))) {
+    return previous;
+  }
+
+  const next = new Map<string, Trails>();
+  for (const [key, trails] of previous) {
+    if (retainedKeys.has(key)) {
+      next.set(key, trails);
+    }
+  }
+  return next;
+}
+
+/** Drops side-channel cache records for histories that were evicted. */
+function pruneCacheRecords(
+  accessRecords: Map<string, number>,
+  sampledRevisions: Map<string, number>,
+  bufferedTicks: Map<string, TrailSample[]>,
+  retainedKeys: ReadonlySet<string>,
+): void {
+  for (const key of accessRecords.keys()) {
+    if (!retainedKeys.has(key)) {
+      accessRecords.delete(key);
+    }
+  }
+  for (const key of sampledRevisions.keys()) {
+    if (!retainedKeys.has(key)) {
+      sampledRevisions.delete(key);
+    }
+  }
+  for (const key of bufferedTicks.keys()) {
+    if (!retainedKeys.has(key)) {
+      bufferedTicks.delete(key);
+    }
+  }
+}
+
 /**
- * Keeps short CPU/memory trails for process details the user has opened.
+ * Keeps short CPU/memory/member trails for a bounded set of recent details.
  *
  * While `frozen` (the detail view is inspecting a past tick), incoming ticks
  * are buffered aside instead of appended, so the inspected tick cannot scroll
  * off the graph and no data is lost. When inspection ends the buffered ticks
  * are spliced back on in arrival order, capacity-trimmed - a seamless catch-up
- * rather than a gap. Main keeps collecting throughout; only this renderer-side
- * ring is held.
+ * rather than a gap. Recently viewed details stay live in a bounded recency
+ * cache, so quick back-and-forth navigation shows current graphs without
+ * letting member breakdowns accumulate for the renderer lifetime.
  */
 export function useProcessHistories(
   snapshot: ProcessSnapshot,
   frozen: boolean,
+  activeKey: string | undefined,
 ): (key: string, sort: SortMode) => ProcessHistory {
   const [trailsByKey, setTrailsByKey] = useState<Map<string, Trails>>(() => new Map());
   const trackedKeys = useRef(new Set<string>());
-  const lastRevision = useRef<number | null>(null);
+  const accessedAt = useRef(new Map<string, number>());
+  const sampledRevisionByKey = useRef(new Map<string, number>());
   const frozenRef = useRef(frozen);
   // Ticks that arrived while frozen, per key, oldest first - replayed on thaw.
   const buffer = useRef(new Map<string, TrailSample[]>());
+
+  const reconcileTrackedKeys = useCallback((now: number) => {
+    if (activeKey !== undefined) {
+      accessedAt.current.set(activeKey, now);
+    }
+    trackedKeys.current = pruneTrackedKeys(trackedKeys.current, activeKey, accessedAt.current, now);
+    pruneCacheRecords(
+      accessedAt.current,
+      sampledRevisionByKey.current,
+      buffer.current,
+      trackedKeys.current,
+    );
+  }, [activeKey]);
+
+  const commitPrunedTrails = useCallback(() => {
+    setTrailsByKey((previous) => pruneTrailCache(previous, trackedKeys.current));
+  }, []);
 
   useEffect(() => {
     const wasFrozen = frozenRef.current;
@@ -112,48 +207,57 @@ export function useProcessHistories(
   }, [frozen]);
 
   useEffect(() => {
-    if (lastRevision.current === snapshot.revision) {
-      return;
-    }
-    lastRevision.current = snapshot.revision;
-    if (trackedKeys.current.size === 0) {
-      return;
-    }
-    const ticks = sampleTrails(snapshot, trackedKeys.current);
+    reconcileTrackedKeys(Date.now());
 
-    if (frozenRef.current) {
-      // Leave trails untouched so the inspected tick stays stable; stash this
-      // tick instead, capped per key so a long freeze still bounds memory.
-      for (const [key, tick] of ticks) {
+    if (trackedKeys.current.size === 0) {
+      commitPrunedTrails();
+      return;
+    }
+
+    const unsampledKeys = new Set(
+      [...trackedKeys.current].filter((key) => sampledRevisionByKey.current.get(key) !== snapshot.revision),
+    );
+    if (unsampledKeys.size === 0) {
+      commitPrunedTrails();
+      return;
+    }
+
+    const ticks = sampleTrails(snapshot, unsampledKeys);
+    const appendTicks = new Map<string, TrailSample>();
+
+    for (const key of unsampledKeys) {
+      const tick = ticks.get(key);
+      if (tick === undefined) {
+        trackedKeys.current.delete(key);
+        accessedAt.current.delete(key);
+        sampledRevisionByKey.current.delete(key);
+        buffer.current.delete(key);
+        continue;
+      }
+
+      sampledRevisionByKey.current.set(key, snapshot.revision);
+      if (frozenRef.current && key === activeKey) {
         const queued = buffer.current.get(key) ?? [];
         queued.push(tick);
         buffer.current.set(key, queued.slice(-HISTORY_CAPACITY));
+        continue;
       }
-      return;
+
+      appendTicks.set(key, tick);
     }
 
-    // Live: drop tracked keys whose target has vanished, then append.
-    for (const key of trackedKeys.current) {
-      if (!ticks.has(key)) {
-        trackedKeys.current.delete(key);
-      }
-    }
     setTrailsByKey((previous) => {
-      const next = new Map<string, Trails>();
-      for (const key of trackedKeys.current) {
-        const tick = ticks.get(key);
-        if (tick === undefined) {
-          continue;
-        }
-        next.set(key, appendTick(previous.get(key), tick));
+      const retained = pruneTrailCache(previous, trackedKeys.current);
+      const next = new Map(retained);
+      for (const [key, tick] of appendTicks) {
+        next.set(key, appendTick(retained.get(key), tick));
       }
       return next;
     });
-  }, [snapshot]);
+  }, [activeKey, snapshot, reconcileTrackedKeys, commitPrunedTrails]);
 
   return useCallback(
     (key: string, sort: SortMode): ProcessHistory => {
-      trackedKeys.current.add(key);
       const trails = trailsByKey.get(key);
       return {
         history: (sort === "cpu" ? trails?.cpu : trails?.memory) ?? [],
