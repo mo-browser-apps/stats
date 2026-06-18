@@ -4,6 +4,8 @@ Live macOS system resources at a glance, plus a searchable process explorer.
 
 Built with [MōBrowser](https://teamdev.com/mobrowser/), React, and TypeScript, with a small native module for the metrics.
 
+https://github.com/user-attachments/assets/5c2ef538-3f27-4711-8f60-ac12e7706483
+
 ## What it does
 
 - **System overview.** CPU, memory, network, disk, uptime, and CPU temperature.
