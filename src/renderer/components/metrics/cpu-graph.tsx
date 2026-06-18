@@ -2,7 +2,7 @@ import { useRef } from "react";
 
 import { cn } from "@/lib/utils";
 import type { MetricState } from "@/domain/metric-view";
-import { areaRuns } from "@/domain/area-path";
+import { scalarGraphScale } from "@/domain/graph-scale";
 import {
   HISTORY_CAPACITY,
   pickedIndexAtFraction,
@@ -44,11 +44,12 @@ export function CpuGraph({
   onPick?: (index: number | null) => void;
 }) {
   const ref = useRef<SVGSVGElement>(null);
-  const offset = HISTORY_CAPACITY - history.length;
   const fill = FILL_BY_STATE[state];
-
-  const axisMax = Math.max(AXIS_FLOOR, ...history.map((sample) => sample ?? 0));
-  const runs = areaRuns(history, offset, (sample) => Math.max(MIN_AMPLITUDE, (sample / axisMax) * PEAK), 100, -1);
+  const { offset, runs } = scalarGraphScale(history, {
+    axisFloor: AXIS_FLOOR,
+    peak: PEAK,
+    minAmplitude: MIN_AMPLITUDE,
+  });
 
   const fractionAt = (event: { clientX: number }): number | null => {
     const rect = ref.current?.getBoundingClientRect();

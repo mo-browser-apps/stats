@@ -1,7 +1,7 @@
 import { useRef } from "react";
 
 import { cn } from "@/lib/utils";
-import { areaRuns } from "@/domain/area-path";
+import { scalarGraphScale } from "@/domain/graph-scale";
 import {
   HISTORY_CAPACITY,
   pickedIndexAtFraction,
@@ -12,10 +12,10 @@ import { AreaLayer, Baseline, ScrubBand } from "@/components/metrics/area-layer"
 
 const PEAK = 88;
 const BASELINE_Y = 99.5;
-// Keep page-sized memory wobble from turning into a dramatic spike.
-const MIN_SPAN_BYTES = 16 * 1024 * 1024;
+// Keeps tiny process footprints from drawing as a full-height graph.
+const AXIS_FLOOR_BYTES = 64 * 1024 * 1024;
 
-/** Floating-axis memory trend for one process or group. */
+/** Zero-anchored memory trend for one process or group. */
 export function MemoryGraph({
   history,
   scrubIndex,
@@ -31,14 +31,10 @@ export function MemoryGraph({
   onPick?: (index: number | null) => void;
 }) {
   const ref = useRef<SVGSVGElement>(null);
-  const offset = HISTORY_CAPACITY - history.length;
-
-  const values = history.filter((sample): sample is number => sample !== null);
-  const max = values.length > 0 ? Math.max(...values) : 0;
-  const min = values.length > 0 ? Math.min(...values) : 0;
-  const base = Math.max(0, min - MIN_SPAN_BYTES * 0.25);
-  const span = Math.max(MIN_SPAN_BYTES, max - base);
-  const runs = areaRuns(history, offset, (sample) => ((sample - base) / span) * PEAK, 100, -1);
+  const { offset, runs } = scalarGraphScale(history, {
+    axisFloor: AXIS_FLOOR_BYTES,
+    peak: PEAK,
+  });
 
   const fractionAt = (event: { clientX: number }): number | null => {
     const rect = ref.current?.getBoundingClientRect();
