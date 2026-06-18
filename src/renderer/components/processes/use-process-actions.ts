@@ -34,9 +34,7 @@ export function useProcessActions(
   onActed: () => Promise<void>,
   onTerminated: (terminatedPid: number) => void,
 ): ProcessActionsState {
-  // The synthetic System group has no single action target (its representative
-  // would be launchd); the view hides the action row, and no states are fetched.
-  const targetPid = detail === undefined || detail.system ? undefined : detail.pid;
+  const targetPid = detail?.pid;
   const targetStartedAt = detail?.startedAt === "ok" ? detail.startedAtUnixMs : undefined;
   const target = useMemo<ProcessIdentity | undefined>(() => {
     if (targetPid === undefined) {

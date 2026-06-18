@@ -31,3 +31,18 @@ export function sampleIndexAtFraction(fraction: number, filled: number, capacity
   if (slot < firstFilled) return 0;
   return Math.min(filled - 1, slot - firstFilled);
 }
+
+/**
+ * Like {@link sampleIndexAtFraction} but for a deliberate pick (a click) rather
+ * than a hover: a position over the still-empty left region returns null
+ * instead of clamping to the oldest sample. Clicking off the data is thus a
+ * distinct gesture - the detail view treats it as "resume live" - while hover
+ * scrubbing still never dead-zones.
+ */
+export function pickedIndexAtFraction(fraction: number, filled: number, capacity = HISTORY_CAPACITY): number | null {
+  if (filled <= 0) return null;
+  const slot = Math.max(0, Math.round(Math.min(1, Math.max(0, fraction)) * capacity - 0.5));
+  const firstFilled = capacity - filled;
+  if (slot < firstFilled) return null;
+  return Math.min(filled - 1, slot - firstFilled);
+}

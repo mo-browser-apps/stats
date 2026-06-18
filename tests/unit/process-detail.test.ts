@@ -4,9 +4,10 @@ import {
   findGroupByKey,
   singleProcessGroup,
   type IconTable,
+  type MemberMetricSample,
   type ProcessGroup,
 } from "@/domain/process-list";
-import { buildProcessDetail } from "@/domain/process-detail";
+import { buildProcessDetail, rankMemberSamples } from "@/domain/process-detail";
 import { makeRow, makeSnapshot } from "../helpers/process-fixtures";
 import type { ProcessRow } from "@/gen/process_explorer";
 
@@ -219,5 +220,60 @@ describe("buildProcessDetail - group total mixed states", () => {
     const detail = buildProcessDetail(groupOf(rows, "app:/Applications/App.app"), "cpu", NO_ICONS);
     expect(detail.total.state).toBe("unavailable");
     expect(detail.totalValue).toBeNull();
+  });
+});
+
+describe("rankMemberSamples - historical tick breakdown", () => {
+  const sample = (over: Partial<MemberMetricSample> & Pick<MemberMetricSample, "pid">): MemberMetricSample => ({
+    key: `pid:${over.pid}:1`,
+    startedAtUnixMs: 1,
+    name: `proc-${over.pid}`,
+    cpu: 0,
+    memory: 0,
+    ...over,
+  });
+
+  it("ranks a stored tick by the active metric (desc), matching the live list", () => {
+    const tick = [sample({ pid: 100, cpu: 4, memory: 300 }), sample({ pid: 200, cpu: 8, memory: 150 })];
+    expect(rankMemberSamples(tick, "cpu", {}).map((m) => m.pid)).toEqual([200, 100]);
+    expect(rankMemberSamples(tick, "memory", {}).map((m) => m.pid)).toEqual([100, 200]);
+  });
+
+  it("ties break by PID for equal-value members", () => {
+    const tick = [sample({ pid: 30, cpu: 0 }), sample({ pid: 10, cpu: 0 }), sample({ pid: 20, cpu: 0 })];
+    expect(rankMemberSamples(tick, "cpu", {}).map((m) => m.pid)).toEqual([10, 20, 30]);
+  });
+
+  it("renders a member whose metric was null at the tick as unavailable", () => {
+    const tick = [sample({ pid: 100, cpu: null }), sample({ pid: 200, cpu: 5 })];
+    const ranked = rankMemberSamples(tick, "cpu", {});
+    const nullMember = ranked.find((m) => m.pid === 100);
+    expect(nullMember?.metricState).toBe("unavailable");
+    expect(nullMember?.metricText).toBeUndefined();
+    // The member that did read shows its value at detail precision.
+    expect(ranked.find((m) => m.pid === 200)?.metricText).toBe("5.00%");
+  });
+
+  it("labels an exited member from the name captured at the tick", () => {
+    // No live snapshot is consulted: the stored name is the only source, so a
+    // member that has since exited still renders with a real label.
+    const tick = [sample({ pid: 100, name: "Gone Helper", cpu: 1 }), sample({ pid: 200, name: "Alive", cpu: 2 })];
+    expect(rankMemberSamples(tick, "cpu", {}).map((m) => m.name)).toEqual(["Alive", "Gone Helper"]);
+  });
+
+  it("resolves a member icon through the live table by captured key, else the glyph", () => {
+    const tick = [
+      sample({ pid: 100, iconKey: "ICON", cpu: 2 }),
+      sample({ pid: 200, iconKey: "STALE", cpu: 1 }),
+    ];
+    const ranked = rankMemberSamples(tick, "cpu", { ICON: "ICON-BYTES" });
+    expect(ranked.find((m) => m.pid === 100)?.iconPngBase64).toBe("ICON-BYTES");
+    // A key no longer in the table (the app's icon dropped from cache) -> none.
+    expect(ranked.find((m) => m.pid === 200)?.iconPngBase64).toBeUndefined();
+  });
+
+  it("never reports a historical member as Not Responding (a transient live state)", () => {
+    const tick = [sample({ pid: 100, cpu: 1 })];
+    expect(rankMemberSamples(tick, "cpu", {})[0].notResponding).toBe(false);
   });
 });

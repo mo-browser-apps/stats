@@ -4,8 +4,6 @@ import { UNAVAILABLE_TEXT, formatBytes, formatCpuPercent } from "@/lib/format";
 /**
  * Pure presentation logic for the process explorer list: turns a raw
  * {@link ProcessSnapshot} into ranked, searchable, app-grouped display rows.
- * Side-effect free and OS/IPC-agnostic; the detail model in
- * {@link "@/domain/process-detail"} builds on the groups and row readers here.
  *
  * Privacy: command-line arguments are used only as a local in-memory search
  * haystack; they are never emitted into display fields, logged, or persisted.
@@ -63,11 +61,6 @@ export interface ProcessGroup {
    * opened detail.
    */
   openSelection: DetailSelection;
-  /**
-   * True only for the synthetic System group: it gets the gear glyph and a
-   * member-count subtitle, and hides single-process fields and actions.
-   */
-  system: boolean;
   /**
    * True when macOS marks any member app Not Responding. In practice only an
    * app's main process carries the window-server flag, so this is the app
@@ -221,40 +214,15 @@ export function rowIdentityKey(row: ProcessRow): string {
 }
 
 /**
- * Key of the synthetic System group that buckets Apple's non-app system
- * processes (daemons under SIP-protected paths) into one compact row, keeping
- * the list focused on the user's own apps instead of idle macOS daemons.
- */
-export const SYSTEM_GROUP_KEY = "system";
-
-/**
- * Apple-owned executable locations - the SIP-protected prefixes. `/usr/local/`
- * is deliberately excluded: it is the user-writable exception where developer
- * tools live, exactly the processes this product surfaces individually.
- */
-const SYSTEM_PATH_PREFIXES = ["/System/", "/usr/", "/sbin/", "/bin/"];
-
-function isSystemPath(path: string): boolean {
-  if (path.startsWith("/usr/local/")) {
-    return false;
-  }
-  return SYSTEM_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
-}
-
-/**
- * Group key: an owning `.app` path groups an app's processes; a non-app
- * process in an Apple-owned path joins the System group; everything else -
- * including a row with no readable path, whose identity is uncertain - stays
- * a singleton.
+ * Group key: an owning `.app` path groups an app's processes; everything else -
+ * a non-app process (including macOS daemons and any row with no readable path,
+ * whose identity is uncertain) - stays its own singleton row. The list shows
+ * every running process; nothing is hidden.
  */
 function rowGroupKey(row: ProcessRow): string {
   const bundlePath = okString(row.statics?.app?.bundle?.path);
   if (bundlePath) {
     return `app:${bundlePath}`;
-  }
-  const path = okString(row.statics?.executablePath);
-  if (path !== undefined && isSystemPath(path)) {
-    return SYSTEM_GROUP_KEY;
   }
   return rowIdentityKey(row);
 }
@@ -361,20 +329,18 @@ function representativeOf(members: ProcessRow[]): ProcessRow {
  */
 function buildGroupRow(group: GroupAccumulator, sort: SortMode, icons: IconTable): ProcessGroup {
   const representative = representativeOf(group.members);
-  const isSystem = group.key === SYSTEM_GROUP_KEY;
   const metricState: ProcessMetricState = group.hasMetric ? "ok" : group.anyPending ? "pending" : "unavailable";
   const icon =
     rowIcon(representative, icons) ??
     group.members.map((row) => rowIcon(row, icons)).find(Boolean);
   // A multi-process group shows the owning `.app` name; a single process shows
-  // its own display name. The System group shows its fixed label and the gear
-  // glyph (no member's executable icon should brand the whole bucket).
+  // its own display name.
   const appName = group.members.length > 1 ? okString(representative.statics?.app?.bundle?.name) : undefined;
   return {
     key: group.key,
-    name: isSystem ? "System" : appName ?? rowDisplayName(representative),
+    name: appName ?? rowDisplayName(representative),
     pid: rowPid(representative),
-    iconPngBase64: isSystem ? undefined : icon,
+    iconPngBase64: icon,
     memberCount: group.members.length,
     childCount: group.members.length - 1,
     metricState,
@@ -382,7 +348,6 @@ function buildGroupRow(group: GroupAccumulator, sort: SortMode, icons: IconTable
     sortValue: group.sortValueSum,
     openSelection: { kind: "group", key: group.key },
     members: representativeFirst(group.members, representative),
-    system: isSystem,
     notResponding: group.anyNotResponding,
   };
 }
@@ -408,9 +373,7 @@ function buildGroupedRows(rows: ProcessRow[], sort: SortMode, icons: IconTable):
 /**
  * Builds search results from already-grouped rows. App identity or
  * representative matches keep the group whole; otherwise only the matching
- * member processes are shown, as singletons. The representative shortcut is
- * skipped for the System group: its members are unrelated daemons, so a match
- * (e.g. "launchd") surfaces that daemon, not the whole bucket.
+ * member processes are shown, as singletons.
  */
 function buildSearchGroups(
   groups: ProcessGroup[],
@@ -424,7 +387,7 @@ function buildSearchGroups(
     const representative = group.members[0];
     if (
       groupHaystack(group).includes(query) ||
-      (!group.system && rowHaystack(representative).includes(query))
+      rowHaystack(representative).includes(query)
     ) {
       projected.push(group);
       continue;
@@ -506,8 +469,96 @@ function addSample(current: number | null, cell: MetricCell): number | null {
   return (current ?? 0) + cell.value;
 }
 
-/** Samples graph values under the same keys {@link resolveSelection} uses. */
-export function sampleMetricsByKey(snapshot: ProcessSnapshot): Map<string, MetricSample> {
+function shouldSampleKey(keys: ReadonlySet<string> | undefined, key: string): boolean {
+  return keys === undefined || keys.has(key);
+}
+
+/**
+ * One member's CPU and memory reading at a single tick, carrying enough
+ * identity to render the row even after the process has exited (its name and
+ * icon are statics the renderer may no longer hold). `cpu`/`memory` are `null`
+ * when that metric was not readable for the member at that tick.
+ */
+export interface MemberMetricSample {
+  /** Stable member key ({@link rowIdentityKey}), for React lists and pinning. */
+  key: string;
+  pid: number;
+  startedAtUnixMs?: number;
+  /** Display name captured at the tick, so an exited member still labels. */
+  name: string;
+  /** Icon key captured at the tick; resolved through the live icon table. */
+  iconKey?: string;
+  cpu: number | null;
+  memory: number | null;
+}
+
+/**
+ * Per-tick member breakdowns for grouped app keys. A one-member app group is
+ * still captured so a historical tick can honestly show "this app only had one
+ * process then" instead of falling back to the live multi-process list. Plain
+ * singleton processes keep no breakdown because the detail already is the row.
+ */
+function sampleMemberRowsByKey(
+  snapshot: ProcessSnapshot,
+  keys?: ReadonlySet<string>,
+): Map<string, ProcessRow[]> {
+  const membersByKey = new Map<string, ProcessRow[]>();
+  for (const row of snapshot.processes) {
+    const key = rowGroupKey(row);
+    if (!shouldSampleKey(keys, key)) {
+      continue;
+    }
+    const existing = membersByKey.get(key);
+    if (existing === undefined) {
+      membersByKey.set(key, [row]);
+    } else {
+      existing.push(row);
+    }
+  }
+  return membersByKey;
+}
+
+function buildMemberBreakdowns(membersByKey: Map<string, ProcessRow[]>): Map<string, MemberMetricSample[]> {
+  const breakdowns = new Map<string, MemberMetricSample[]>();
+  for (const [key, rows] of membersByKey) {
+    const isPlainSingleton = rows.length === 1 && rowIdentityKey(rows[0]) === key;
+    if (isPlainSingleton) {
+      continue;
+    }
+    breakdowns.set(
+      key,
+      rows.map((row) => ({
+        key: rowIdentityKey(row),
+        pid: rowPid(row),
+        startedAtUnixMs: rowStartedAt(row),
+        name: rowDisplayName(row),
+        iconKey: row.statics?.app?.iconKey || undefined,
+        cpu: rowCpu(row).value ?? null,
+        memory: rowMemory(row).value ?? null,
+      })),
+    );
+  }
+
+  return breakdowns;
+}
+
+/**
+ * Per-tick member breakdowns keyed by group. Pass `keys` to build only the
+ * breakdowns currently tracked detail histories need; omit it to sample every
+ * group.
+ */
+export function sampleMembers(
+  snapshot: ProcessSnapshot,
+  keys?: ReadonlySet<string>,
+): Map<string, MemberMetricSample[]> {
+  return buildMemberBreakdowns(sampleMemberRowsByKey(snapshot, keys));
+}
+
+/**
+ * Per-tick CPU and memory totals under the same keys {@link resolveSelection}
+ * uses. Pass `keys` to sample only tracked detail histories; omit it for all.
+ */
+export function sampleMetrics(snapshot: ProcessSnapshot, keys?: ReadonlySet<string>): Map<string, MetricSample> {
   const samples = new Map<string, MetricSample>();
 
   const fold = (key: string, row: ProcessRow) => {
@@ -519,9 +570,11 @@ export function sampleMetricsByKey(snapshot: ProcessSnapshot): Map<string, Metri
 
   for (const row of snapshot.processes) {
     const groupKeyValue = rowGroupKey(row);
-    fold(groupKeyValue, row);
+    if (shouldSampleKey(keys, groupKeyValue)) {
+      fold(groupKeyValue, row);
+    }
     const identityKey = rowIdentityKey(row);
-    if (identityKey !== groupKeyValue) {
+    if (identityKey !== groupKeyValue && shouldSampleKey(keys, identityKey)) {
       fold(identityKey, row);
     }
   }

@@ -37,6 +37,39 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
   // stays live), and Back pops one level.
   const [selectionStack, setSelectionStack] = useState<DetailSelection[]>([]);
 
+  // Keys of list groups expanded to show their members inline. Owned here, not
+  // in ProcessList, so it survives a drill-in/Back round trip (which unmounts
+  // the list). A key whose group has vanished is simply never read.
+  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleExpanded = useCallback((key: string) => {
+    setExpandedKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
+  // Detail keys whose Members disclosure is open.
+  const [membersOpenKeys, setMembersOpenKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const setMembersOpen = useCallback((key: string, open: boolean) => {
+    setMembersOpenKeys((current) => {
+      if (current.has(key) === open) {
+        return current;
+      }
+      const next = new Set(current);
+      if (open) {
+        next.add(key);
+      } else {
+        next.delete(key);
+      }
+      return next;
+    });
+  }, []);
+
   // Highest revision applied, so an out-of-order pull cannot show stale rows.
   const appliedRevision = useRef(0);
   const snapshotRef = useRef(snapshot);
@@ -123,7 +156,10 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
     return undefined;
   }, [snapshot, sort, selectionStack]);
 
-  const readHistory = useProcessHistories(snapshot);
+  // True while the detail view is inspecting a past tick; freezes history so
+  // the inspected tick cannot scroll off the graph (see useProcessHistories).
+  const [inspecting, setInspecting] = useState(false);
+  const readHistory = useProcessHistories(snapshot, inspecting);
   const { actions, actionsBusy, actionMessage, runAction } = useProcessActions(
     detail,
     pull,
@@ -159,12 +195,15 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
   }, [active, hasDetail, goBack]);
 
   if (detail) {
+    const { history, memberHistory } = readHistory(detail.key, sort);
     return (
       <div className="flex flex-1 flex-col overflow-hidden px-4 pb-4 pt-3">
         <ProcessDetailView
           key={detail.key}
           detail={detail}
-          history={readHistory(detail.key, sort).history}
+          history={history}
+          memberHistory={memberHistory}
+          icons={snapshot.icons}
           sort={sort}
           actions={actions}
           actionsBusy={actionsBusy}
@@ -173,6 +212,9 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
           onBack={goBack}
           onOpenMember={openMember}
           onRunAction={runAction}
+          onInspectingChange={setInspecting}
+          initialMembersOpen={membersOpenKeys.has(detail.key)}
+          onMembersOpenChange={(open) => setMembersOpen(detail.key, open)}
         />
       </div>
     );
@@ -185,9 +227,11 @@ export function ProcessExplorerView({ active }: { active: boolean }) {
       sort={sort}
       query={query}
       searchInputRef={searchInputRef}
+      expandedKeys={expandedKeys}
       onSortChange={setSort}
       onQueryChange={setQuery}
       onOpenSelection={openSelection}
+      onToggleExpanded={toggleExpanded}
     />
   );
 }
@@ -198,18 +242,22 @@ function ProcessListPanel({
   sort,
   query,
   searchInputRef,
+  expandedKeys,
   onSortChange,
   onQueryChange,
   onOpenSelection,
+  onToggleExpanded,
 }: {
   active: boolean;
   snapshot: ProcessSnapshot;
   sort: SortMode;
   query: string;
   searchInputRef: RefObject<HTMLInputElement | null>;
+  expandedKeys: ReadonlySet<string>;
   onSortChange: (sort: SortMode) => void;
   onQueryChange: (query: string) => void;
   onOpenSelection: (selection: DetailSelection) => void;
+  onToggleExpanded: (key: string) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const groups = useMemo(
@@ -254,7 +302,9 @@ function ProcessListPanel({
         icons={snapshot.icons}
         status={snapshot.status}
         hasQuery={query.trim().length > 0}
+        expandedKeys={expandedKeys}
         onOpenSelection={onOpenSelection}
+        onToggleExpanded={onToggleExpanded}
         containerRef={listRef}
         onExitTop={() => searchInputRef.current?.focus()}
       />

@@ -13,6 +13,7 @@ import {
   rowPid,
   rowStartedAt,
   type IconTable,
+  type MemberMetricSample,
   type MetricCell,
   type ProcessGroup,
   type ProcessMetricState,
@@ -102,12 +103,6 @@ export interface ProcessDetail {
    * by the active metric). Empty for a single-process detail.
    */
   members: DetailMember[];
-  /**
-   * True only for the synthetic System group: the view shows the member count
-   * instead of one process's identity and hides the single-process fields and
-   * the action row, while the summed stats and member list still apply.
-   */
-  system: boolean;
   /** True when macOS marks any member app Not Responding (see ProcessGroup). */
   notResponding: boolean;
 }
@@ -240,6 +235,36 @@ export function rankMembers(group: ProcessGroup, sort: SortMode, icons: IconTabl
 }
 
 /**
+ * Ranks a stored per-tick member breakdown into display rows under the active
+ * sort, mirroring {@link rankMembers} but for a historical tick.
+ */
+export function rankMemberSamples(
+  samples: MemberMetricSample[],
+  sort: SortMode,
+  icons: IconTable,
+): DetailMember[] {
+  return samples
+    .slice()
+    .sort((left, right) => {
+      const delta = (right[sort] ?? 0) - (left[sort] ?? 0);
+      return delta !== 0 ? delta : left.pid - right.pid;
+    })
+    .map((sample) => {
+      const value = sample[sort];
+      const hasValue = value !== null;
+      return {
+        pid: sample.pid,
+        startedAtUnixMs: sample.startedAtUnixMs,
+        name: sample.name,
+        iconPngBase64: sample.iconKey ? icons[sample.iconKey] || undefined : undefined,
+        metricState: hasValue ? "ok" : "unavailable",
+        metricText: hasValue ? formatDetailMetric(value, sort) : undefined,
+        notResponding: false,
+      } satisfies DetailMember;
+    });
+}
+
+/**
  * Projects a selected {@link ProcessGroup} into its display model. Identity,
  * path, argv, and started-at come from the representative (the row the
  * collapsed list shows); CPU/memory/threads/CPU-time are summed across all
@@ -280,7 +305,6 @@ export function buildProcessDetail(group: ProcessGroup, sort: SortMode, icons: I
     totalSort: sort,
     memberCount: group.memberCount,
     members,
-    system: group.system,
     notResponding: group.notResponding,
   };
 }

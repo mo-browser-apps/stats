@@ -93,7 +93,7 @@ export const ProcessRow = memo(function ProcessRow({
           title={group.name}
           className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-md pl-6 pr-1 text-left transition-colors hover:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
         >
-          <ProcessIcon iconPngBase64={group.iconPngBase64} name={group.name} system={group.system} />
+          <ProcessIcon iconPngBase64={group.iconPngBase64} name={group.name} />
 
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
             <span
@@ -162,7 +162,6 @@ function areGroupsEqual(
     a.key !== b.key ||
     a.name !== b.name ||
     a.iconPngBase64 !== b.iconPngBase64 ||
-    a.system !== b.system ||
     a.childCount !== b.childCount ||
     a.memberCount !== b.memberCount ||
     a.metricState !== b.metricState ||
