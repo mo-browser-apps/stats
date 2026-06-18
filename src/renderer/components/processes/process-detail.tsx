@@ -75,6 +75,8 @@ export function ProcessDetailView({
   onOpenMember,
   onRunAction,
   onInspectingChange,
+  initialMembersOpen = false,
+  onMembersOpenChange,
 }: {
   detail: ProcessDetail
   history: HistorySample[]
@@ -89,6 +91,8 @@ export function ProcessDetailView({
   onOpenMember: (pid: number, startedAtUnixMs?: number) => void
   onRunAction: (kind: ProcessActionKind) => void
   onInspectingChange?: (inspecting: boolean) => void
+  initialMembersOpen?: boolean
+  onMembersOpenChange?: (open: boolean) => void
 }) {
   const secondary = detail.bundleIdentifier ?? detail.executableName;
   const metadata = `${secondary ? `${secondary} - ` : ""}PID ${detail.pid}${
@@ -116,7 +120,13 @@ export function ProcessDetailView({
 
   // Members disclosure. Closed: graph sits at the bottom, stats visible. Open: the
   // graph+members lift into a top overlay covering the stats (see GraphAndMembers).
-  const [membersOpen, setMembersOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(initialMembersOpen);
+  const reportMembersOpen = useRef(onMembersOpenChange);
+  reportMembersOpen.current = onMembersOpenChange;
+  useEffect(() => {
+    reportMembersOpen.current?.(membersOpen);
+  }, [membersOpen]);
+
   const [closing, setClosing] = useState(false);
   const [slideFrom, setSlideFrom] = useState(0);
   const contentRef = useRef<HTMLDivElement>(null);

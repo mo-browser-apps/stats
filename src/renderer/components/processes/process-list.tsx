@@ -1,4 +1,4 @@
-import { useCallback, useState, type KeyboardEvent, type Ref } from "react";
+import { useState, type KeyboardEvent, type Ref } from "react";
 
 import { SnapshotStatus } from "@/gen/process_explorer";
 import { ProcessRow } from "@/components/processes/process-row";
@@ -28,7 +28,9 @@ export function ProcessList({
   icons,
   status,
   hasQuery,
+  expandedKeys,
   onOpenSelection,
+  onToggleExpanded,
   containerRef,
   onExitTop,
 }: {
@@ -37,26 +39,14 @@ export function ProcessList({
   icons: IconTable
   status: SnapshotStatus
   hasQuery: boolean
+  expandedKeys: ReadonlySet<string>
   onOpenSelection: (selection: DetailSelection) => void
+  onToggleExpanded: (key: string) => void
   containerRef?: Ref<HTMLDivElement>
   onExitTop?: () => void
 }) {
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
-  // Keys of groups expanded to show their member processes inline. Survives
-  // snapshot ticks; a key whose group has vanished is simply never read.
-  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set());
-  const toggleExpanded = useCallback((key: string) => {
-    setExpandedKeys((current) => {
-      const next = new Set(current);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  }, []);
   const pinActive = pointerInside || focusInside;
   const groups = useOrderPin(rankedGroups, groupKey, pinActive, sort);
 
@@ -115,7 +105,7 @@ export function ProcessList({
                 expanded={expandedKeys.has(group.key)}
                 pinned={pinActive}
                 onOpen={onOpenSelection}
-                onToggle={toggleExpanded}
+                onToggle={onToggleExpanded}
               />
             </li>
           ))}
