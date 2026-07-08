@@ -9,6 +9,11 @@ out/
 # Generated code.
 gen/
 
+# Local environment.
+.env
+.env.*
+!.env.example
+
 # macOS metadata.
 .DS_Store
 

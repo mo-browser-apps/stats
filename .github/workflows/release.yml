@@ -29,6 +29,8 @@ jobs:
       MACOS_APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
       # App-specific password generated at appleid.apple.com for notarization.
       MACOS_APPLE_PASSWORD: ${{ secrets.MACOS_APPLE_PASSWORD }}
+      # Sentry project DSN used for production telemetry.
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
     steps:
       - uses: actions/checkout@v6
