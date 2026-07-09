@@ -6,7 +6,9 @@ import "./index.css";
 import App from "./App.tsx";
 import { initializeSentry } from "./sentry";
 
-await initializeSentry();
+void initializeSentry().catch((error: unknown) => {
+  console.warn("Sentry init failed", error);
+});
 
 /*
  * Block trackpad pinch-to-zoom on the page.
