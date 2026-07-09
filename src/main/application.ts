@@ -128,6 +128,12 @@ export class Application {
   private registerAppService(): void {
     const window = this.window;
     ipc.registerService(AppServiceDescriptor, {
+      async GetApplicationMetadata() {
+        return {
+          name: app.name,
+          version: app.version,
+        };
+      },
       async SetAlwaysOnTop(request: SetAlwaysOnTopRequest) {
         window.setAlwaysOnTop(request.alwaysOnTop);
         return {};

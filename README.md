@@ -39,6 +39,9 @@ npm run build
 Builds a macOS app and `.dmg`. Signing and notarization need Apple credentials from the environment; without them the
 build still produces an unsigned `.dmg`.
 
+Production Sentry telemetry is included only when `SENTRY_DSN` is set during the build.
+Release builds read it from the `SENTRY_DSN` GitHub Actions secret.
+
 ## Project layout
 
 - **`src/main/`** — app lifecycle, window, tray, metrics, and process services; owns privileged work and the typed IPC.

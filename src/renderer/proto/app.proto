@@ -2,6 +2,11 @@ syntax = "proto3";
 
 import "google/protobuf/empty.proto";
 
+message ApplicationMetadata {
+  string name = 1;
+  string version = 2;
+}
+
 message SetAlwaysOnTopRequest {
   bool always_on_top = 1;
 }
@@ -32,6 +37,8 @@ message CopyTextRequest {
 
 // App-level renderer-to-main commands.
 service AppService {
+  rpc GetApplicationMetadata(google.protobuf.Empty) returns (ApplicationMetadata);
+
   rpc SetAlwaysOnTop(SetAlwaysOnTopRequest) returns (google.protobuf.Empty);
 
   // Reports the selected top-level view so main can gate per-view background
